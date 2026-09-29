@@ -44,6 +44,40 @@
 
 namespace cxx {
 namespace {
+[[nodiscard]] auto checkedAdd(ConstInt left, ConstInt right)
+    -> std::optional<ConstInt> {
+  auto result = left + right;
+  if (left.isSigned() && left.isNegative() == right.isNegative() &&
+      result.isNegative() != left.isNegative()) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+[[nodiscard]] auto checkedSubtract(ConstInt left, ConstInt right)
+    -> std::optional<ConstInt> {
+  auto result = left - right;
+  if (left.isSigned() && left.isNegative() != right.isNegative() &&
+      result.isNegative() != left.isNegative()) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+[[nodiscard]] auto checkedMultiply(ConstInt left, ConstInt right)
+    -> std::optional<ConstInt> {
+  auto result = left * right;
+  if (!left.isSigned() || left.isZero() || right.isZero()) return result;
+
+  const auto resultIsNegative = left.isNegative() != right.isNegative();
+  const auto signBit = ConstInt::UWide{1} << (left.width() - 1);
+  const auto magnitudeLimit = resultIsNegative ? signBit : signBit - 1;
+  if (left.magnitude() > magnitudeLimit / right.magnitude()) {
+    return std::nullopt;
+  }
+  return result;
+}
+
 [[nodiscard]] auto stringLiteralElement(const StringLiteral* literal,
                                         std::intmax_t index)
     -> std::optional<ConstValue> {
@@ -267,7 +301,9 @@ struct ASTInterpreter::ExpressionVisitor {
       auto zero = ConstInt::make(0, value->width(), value->isSigned());
       if (!zero) return std::nullopt;
 
-      return ConstValue{*zero - *value};
+      auto result = checkedSubtract(*zero, *value);
+      if (!result) return std::nullopt;
+      return ConstValue{*result};
     }
 
     switch (type->kind()) {
@@ -296,7 +332,9 @@ struct ASTInterpreter::ExpressionVisitor {
     auto operands = integerOperands(type, left, right);
     if (!operands) return std::nullopt;
 
-    return ConstValue{operands->first * operands->second};
+    auto result = checkedMultiply(operands->first, operands->second);
+    if (!result) return std::nullopt;
+    return ConstValue{*result};
   }
 
   auto slash_op(const Type* type, const ExpressionResult& left,
@@ -428,7 +466,9 @@ struct ASTInterpreter::ExpressionVisitor {
     auto operands = integerOperands(type, left, right);
     if (!operands) return std::nullopt;
 
-    return ConstValue{operands->first + operands->second};
+    auto result = checkedAdd(operands->first, operands->second);
+    if (!result) return std::nullopt;
+    return ConstValue{*result};
   }
 
   auto minus_op(const Type* type, const ExpressionResult& left,
@@ -445,7 +485,9 @@ struct ASTInterpreter::ExpressionVisitor {
     auto operands = integerOperands(type, left, right);
     if (!operands) return std::nullopt;
 
-    return ConstValue{operands->first - operands->second};
+    auto result = checkedSubtract(operands->first, operands->second);
+    if (!result) return std::nullopt;
+    return ConstValue{*result};
   }
 
   [[nodiscard]] auto shiftOperands(const Type* type,
