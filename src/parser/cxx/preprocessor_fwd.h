@@ -53,6 +53,7 @@ struct QuoteInclude {
 using Include = std::variant<SystemInclude, QuoteInclude>;
 
 struct IncludeCandidate {
+  // Candidate path with generic '/' directory separators on every host.
   std::string fileName;
   bool isSystemHeader = false;
 };
