@@ -482,8 +482,8 @@ class [[nodiscard]] ASTRewriter {
       -> InitDeclaratorAST*;
   auto declarator(DeclaratorAST* ast) -> DeclaratorAST*;
   auto usingDeclarator(UsingDeclaratorAST* ast) -> UsingDeclaratorAST*;
-  auto enumerator(EnumeratorAST* ast, const Type*& previousType,
-                  std::optional<ConstValue>& lastValue) -> EnumeratorAST*;
+  auto enumerator(EnumeratorAST* ast, EnumeratorSymbol* previous)
+      -> EnumeratorAST*;
   auto typeId(TypeIdAST* ast) -> TypeIdAST*;
   auto handler(HandlerAST* ast) -> HandlerAST*;
   auto baseSpecifier(BaseSpecifierAST* ast) -> BaseSpecifierAST*;
