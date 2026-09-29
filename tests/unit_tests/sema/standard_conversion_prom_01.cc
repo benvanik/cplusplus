@@ -69,3 +69,13 @@ void test_enum_with_underlying_promotes() {
   SmallEnum e = X;
   takes_int(e);
 }
+
+enum MaximumUnsignedEnum {
+  MaximumUnsigned = 0xffffffffffffffffULL,
+};
+
+#if __SIZEOF_LONG__ == 8
+static_assert(__is_same(decltype(+MaximumUnsigned), unsigned long));
+#else
+static_assert(__is_same(decltype(+MaximumUnsigned), unsigned long long));
+#endif
