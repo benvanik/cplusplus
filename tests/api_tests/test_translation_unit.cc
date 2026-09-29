@@ -20,10 +20,13 @@
 
 #include <cxx/control.h>
 #include <cxx/diagnostics_client.h>
+#include <cxx/preprocessor.h>
 #include <cxx/translation_unit.h>
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <string>
+#include <string_view>
 
 using namespace cxx;
 
@@ -93,4 +96,129 @@ TEST(MemberInstantiations, ProcessedClassesRequireReopening) {
             (std::vector<ClassSymbol*>{instance}));
   EXPECT_TRUE(unit.beginMemberInstantiation(instance));
   EXPECT_FALSE(unit.beginMemberInstantiation(instance));
+}
+
+TEST(SourceLocations, BuiltinMacroExpansionsRetainPhysicalSourceRanges) {
+  struct BuiltinCase {
+    std::string_view expression;
+    std::string_view macroName;
+    TokenKind replacementKind;
+    std::string_view replacementSpelling;
+  };
+
+  constexpr BuiltinCase cases[] = {
+      {"__FILE__", "__FILE__", TokenKind::T_STRING_LITERAL, "\"presumed.cc\""},
+      {"__LINE__", "__LINE__", TokenKind::T_INTEGER_LITERAL, "700"},
+      {"__COUNTER__", "__COUNTER__", TokenKind::T_INTEGER_LITERAL, "0"},
+      {"__DATE__", "__DATE__", TokenKind::T_STRING_LITERAL, {}},
+      {"__TIME__", "__TIME__", TokenKind::T_STRING_LITERAL, {}},
+      {"__has_feature(cxx_exceptions)",
+       "__has_feature",
+       TokenKind::T_INTEGER_LITERAL,
+       {}},
+      {"__has_builtin(__builtin_strlen)",
+       "__has_builtin",
+       TokenKind::T_INTEGER_LITERAL,
+       {}},
+      {"__has_extension(cxx_exceptions)",
+       "__has_extension",
+       TokenKind::T_INTEGER_LITERAL,
+       {}},
+      {"__has_attribute(unused)", "__has_attribute",
+       TokenKind::T_INTEGER_LITERAL, "1"},
+  };
+
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.expression);
+
+    std::string source = "#line 700 \"presumed.cc\"\nint value = ";
+    source += test.expression;
+    source += ";\n";
+
+    DiagnosticsClient diagnostics;
+    TranslationUnit unit{&diagnostics};
+    unit.setSource(source, "physical.cc");
+
+    const auto expectedOffset = source.find(test.macroName);
+    ASSERT_NE(expectedOffset, std::string::npos);
+
+    const Token* replacement = nullptr;
+    SourceLocation replacementLocation;
+    for (unsigned index = 1; index < unit.tokenCount(); ++index) {
+      const auto& token = unit.tokens()[index];
+      if (token.fileId() != unit.preprocessor()->mainSourceFileId()) continue;
+      if (token.kind() != test.replacementKind) continue;
+      replacement = &token;
+      replacementLocation = unit.locationOfIndex(index);
+      break;
+    }
+
+    ASSERT_NE(replacement, nullptr);
+    EXPECT_EQ(replacement->offset(), expectedOffset);
+    EXPECT_EQ(replacement->length(), test.macroName.size());
+    if (!test.replacementSpelling.empty()) {
+      EXPECT_EQ(replacement->spell(), test.replacementSpelling);
+    }
+
+    const auto start = unit.tokenStartPosition(replacementLocation);
+    EXPECT_EQ(start.fileName, "physical.cc");
+    EXPECT_EQ(start.line, 2);
+    EXPECT_EQ(start.column, 13);
+
+    const auto end = unit.tokenEndPosition(replacementLocation);
+    EXPECT_EQ(end.fileName, start.fileName);
+    EXPECT_EQ(end.line, start.line);
+    EXPECT_EQ(end.column, start.column + test.macroName.size());
+
+    const auto presumed = unit.presumedTokenStartPosition(replacementLocation);
+    EXPECT_EQ(presumed.fileName, "presumed.cc");
+    EXPECT_EQ(presumed.line, 700);
+    EXPECT_EQ(presumed.column, start.column);
+  }
+}
+
+TEST(SourceLocations, NestedBuiltinMacroExpansionRetainsInvocationRange) {
+  std::string source =
+      "#define CURRENT_LINE __LINE__\n"
+      "#line 700 \"presumed.cc\"\n"
+      "int value = CURRENT_LINE;\n";
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit unit{&diagnostics};
+  unit.setSource(source, "physical.cc");
+
+  const auto expectedOffset =
+      source.find("CURRENT_LINE", source.find("\n") + 1);
+  ASSERT_NE(expectedOffset, std::string::npos);
+
+  const Token* replacement = nullptr;
+  SourceLocation replacementLocation;
+  for (unsigned index = 1; index < unit.tokenCount(); ++index) {
+    const auto& token = unit.tokens()[index];
+    if (token.fileId() != unit.preprocessor()->mainSourceFileId()) continue;
+    if (token.kind() != TokenKind::T_INTEGER_LITERAL) continue;
+    replacement = &token;
+    replacementLocation = unit.locationOfIndex(index);
+    break;
+  }
+
+  ASSERT_NE(replacement, nullptr);
+  EXPECT_EQ(replacement->spell(), "700");
+  EXPECT_EQ(replacement->offset(), expectedOffset);
+  EXPECT_EQ(replacement->length(), std::string_view("CURRENT_LINE").size());
+
+  const auto start = unit.tokenStartPosition(replacementLocation);
+  EXPECT_EQ(start.fileName, "physical.cc");
+  EXPECT_EQ(start.line, 3);
+  EXPECT_EQ(start.column, 13);
+
+  const auto end = unit.tokenEndPosition(replacementLocation);
+  EXPECT_EQ(end.fileName, start.fileName);
+  EXPECT_EQ(end.line, start.line);
+  EXPECT_EQ(end.column, start.column + std::string_view("CURRENT_LINE").size());
+
+  const auto presumed = unit.presumedTokenStartPosition(replacementLocation);
+  EXPECT_EQ(presumed.fileName, "presumed.cc");
+  EXPECT_EQ(presumed.line, 700);
+  EXPECT_EQ(presumed.column, start.column);
 }
