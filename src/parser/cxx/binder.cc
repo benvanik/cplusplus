@@ -1146,68 +1146,6 @@ void Binder::bind(DecltypeSpecifierAST* ast) {
   if (auto type = traits.decltype_of(ast->expression)) ast->type = type;
 }
 
-auto Binder::nextEnumeratorValue(TranslationUnit* unit,
-                                 const Type* underlyingType,
-                                 const std::optional<ConstValue>& previous)
-    -> std::optional<ConstValue> {
-  if (!previous.has_value()) return std::intmax_t{0};
-
-  ASTInterpreter interp{unit};
-
-  if (unit->typeTraits().is_unsigned(underlyingType)) {
-    if (auto v = interp.toUInt(previous.value()))
-      return std::bit_cast<std::intmax_t>(v.value() + 1);
-    return std::nullopt;
-  }
-
-  if (auto v = interp.toInt(previous.value())) return v.value() + 1;
-  return std::nullopt;
-}
-
-void Binder::bind(EnumeratorAST* ast, const Type* type,
-                  std::optional<ConstValue> value) {
-  if (isCxx()) {
-    auto symbol = control()->newEnumeratorSymbol(scope(), ast->identifierLoc);
-    ast->symbol = symbol;
-
-    symbol->setName(ast->identifier);
-    symbol->setType(type);
-    ast->symbol->setValue(value);
-    if (auto enclosingEnum = symbol_cast<EnumSymbol>(scope()))
-      symbol->setAccessSpecifier(enclosingEnum->accessSpecifier());
-    if (auto enclosingEnum = symbol_cast<ScopedEnumSymbol>(scope()))
-      symbol->setAccessSpecifier(enclosingEnum->accessSpecifier());
-    scope()->addSymbol(symbol);
-
-    if (auto enumSymbol = symbol_cast<EnumSymbol>(scope())) {
-      auto parentScope = enumSymbol->parent();
-
-      auto u =
-          control()->newUsingDeclarationSymbol(parentScope, ast->identifierLoc);
-      u->setName(ast->identifier);
-      u->setTarget(symbol);
-      parentScope->addSymbol(u);
-      applyAccessSpecifier(u);
-    }
-
-    return;
-  }
-
-  if (auto enumSymbol = symbol_cast<EnumSymbol>(scope())) {
-    auto parentScope = enumSymbol->parent();
-
-    auto enumeratorSymbol =
-        control()->newEnumeratorSymbol(parentScope, ast->identifierLoc);
-    ast->symbol = enumeratorSymbol;
-
-    enumeratorSymbol->setName(ast->identifier);
-    enumeratorSymbol->setType(type);
-    enumeratorSymbol->setValue(value);
-
-    parentScope->addSymbol(enumeratorSymbol);
-  }
-}
-
 namespace {
 struct DeclaredScopeOfType {
   [[nodiscard]] auto operator()(const ClassType* type) const -> ScopeSymbol* {

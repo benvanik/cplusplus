@@ -363,12 +363,12 @@ class Binder {
 
   void bind(TypenameSpecifierAST* ast);
 
-  void bind(EnumeratorAST* ast, const Type* type,
-            std::optional<ConstValue> value);
+  // Binds the provisional type and value visible inside an enum definition.
+  // A null previous symbol denotes the first enumerator.
+  void bind(EnumeratorAST* ast, EnumeratorSymbol* previous);
 
-  [[nodiscard]] static auto nextEnumeratorValue(
-      TranslationUnit* unit, const Type* underlyingType,
-      const std::optional<ConstValue>& previous) -> std::optional<ConstValue>;
+  // Selects storage and publishes the final enum type to its enumerators.
+  void complete(EnumSpecifierAST* ast);
 
   void bind(TypeExceptionDeclarationAST* ast, const Decl& decl);
 

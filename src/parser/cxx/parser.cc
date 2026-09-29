@@ -8184,40 +8184,14 @@ auto Parser::parse_enum_specifier(SpecifierAST*& yyast, DeclSpecs& specs)
     pushScope(enumScope);
 
   if (!match(TokenKind::T_RBRACE, ast->rbraceLoc)) {
-    parse_enumerator_list(ast->enumeratorList,
-                          enumeratorTypeInEnumSpecifier(ast->symbol));
+    parse_enumerator_list(ast->enumeratorList);
 
     match(TokenKind::T_COMMA, ast->commaLoc);
 
     expect(TokenKind::T_RBRACE, ast->rbraceLoc);
-
-    for (auto enumerator : ListView{ast->enumeratorList}) {
-      if (enumerator->symbol) enumerator->symbol->setType(ast->symbol->type());
-    }
   }
 
-  if (isCxx()) {
-    if (auto enumSym = symbol_cast<EnumSymbol>(ast->symbol)) {
-      if (!enumSym->hasFixedUnderlyingType() && ast->enumeratorList) {
-        bool hasNegative = false;
-        for (auto it = ast->enumeratorList; it; it = it->next) {
-          auto sym = it->value ? it->value->symbol : nullptr;
-          if (!sym) continue;
-          if (const auto& val = sym->value()) {
-            if (auto iv = std::get_if<ConstInt>(&*val)) {
-              if (iv->isNegative()) {
-                hasNegative = true;
-                break;
-              }
-            }
-          }
-        }
-        if (!hasNegative) {
-          enumSym->setUnderlyingType(control_->getUnsignedIntType());
-        }
-      }
-    }
-  }
+  binder_.complete(ast);
 
   return true;
 }
@@ -8307,64 +8281,27 @@ auto Parser::parse_enum_base(SourceLocation& colonLoc,
   return true;
 }
 
-auto Parser::enumeratorTypeInEnumSpecifier(Symbol* enumSymbol) -> const Type* {
-  if (auto scopedEnum = symbol_cast<ScopedEnumSymbol>(enumSymbol))
-    return scopedEnum->underlyingType();
-
-  if (auto unscopedEnum = symbol_cast<EnumSymbol>(enumSymbol);
-      unscopedEnum && unscopedEnum->hasFixedUnderlyingType()) {
-    return unscopedEnum->underlyingType();
-  }
-
-  return enumSymbol->type();
-}
-
-void Parser::parse_enumerator_list(List<EnumeratorAST*>*& yyast,
-                                   const Type* type) {
+void Parser::parse_enumerator_list(List<EnumeratorAST*>*& yyast) {
   auto it = &yyast;
+  EnumeratorSymbol* previous = nullptr;
+  do {
+    EnumeratorAST* enumerator = nullptr;
+    parse_enumerator(enumerator, previous);
+    previous = enumerator->symbol;
+    *it = make_list_node(pool_, enumerator);
+    it = &(*it)->next;
 
-  EnumeratorAST* enumerator = nullptr;
-  parse_enumerator(enumerator, type);
-
-  *it = make_list_node(pool_, enumerator);
-  it = &(*it)->next;
-
-  std::optional<ConstValue> lastValue;
-  ASTInterpreter interp{unit_};
-
-  if (enumerator->expression) {
-    lastValue = enumerator->symbol->value();
-  } else {
-    lastValue = std::intmax_t{0};
-    enumerator->symbol->setValue(*lastValue);
-  }
-
-  SourceLocation commaLoc;
-
-  while (match(TokenKind::T_COMMA, commaLoc)) {
+    SourceLocation commaLoc;
+    if (!match(TokenKind::T_COMMA, commaLoc)) break;
     if (lookat(TokenKind::T_RBRACE)) {
       rewind(commaLoc);
       break;
     }
-
-    EnumeratorAST* enumerator = nullptr;
-    parse_enumerator(enumerator, type);
-
-    if (!enumerator->expression) {
-      if (lastValue.has_value()) {
-        lastValue = Binder::nextEnumeratorValue(unit_, type, lastValue);
-        enumerator->symbol->setValue(lastValue);
-      }
-    } else {
-      lastValue = enumerator->symbol->value();
-    }
-
-    *it = make_list_node(pool_, enumerator);
-    it = &(*it)->next;
-  }
+  } while (true);
 }
 
-void Parser::parse_enumerator(EnumeratorAST*& yyast, const Type* type) {
+void Parser::parse_enumerator(EnumeratorAST*& yyast,
+                              EnumeratorSymbol* previous) {
   auto ast = EnumeratorAST::create(pool_);
   yyast = ast;
 
@@ -8374,15 +8311,13 @@ void Parser::parse_enumerator(EnumeratorAST*& yyast, const Type* type) {
 
   parse_optional_attribute_specifier_seq(ast->attributeList);
 
-  std::optional<ConstValue> value;
-
   if (match(TokenKind::T_EQUAL, ast->equalLoc)) {
-    if (!parse_constant_expression(ast->expression, value)) {
+    if (!parse_constant_expression(ast->expression)) {
       report_failed_parse("expected an expression");
     }
   }
 
-  binder_.bind(ast, type, std::move(value));
+  binder_.bind(ast, previous);
 }
 
 auto Parser::parse_using_enum_declaration(DeclarationAST*& yyast) -> bool {

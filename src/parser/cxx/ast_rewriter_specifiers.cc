@@ -19,7 +19,6 @@
 // SOFTWARE.
 
 #include <cxx/ast.h>
-#include <cxx/ast_interpreter.h>
 #include <cxx/ast_rewriter.h>
 #include <cxx/binder.h>
 #include <cxx/control.h>
@@ -316,8 +315,7 @@ auto ASTRewriter::baseSpecifier(BaseSpecifierAST* ast) -> BaseSpecifierAST* {
   return copy;
 }
 
-auto ASTRewriter::enumerator(EnumeratorAST* ast, const Type* underlyingType,
-                             std::optional<ConstValue>& lastValue)
+auto ASTRewriter::enumerator(EnumeratorAST* ast, EnumeratorSymbol* previous)
     -> EnumeratorAST* {
   if (!ast) return {};
 
@@ -332,17 +330,7 @@ auto ASTRewriter::enumerator(EnumeratorAST* ast, const Type* underlyingType,
   copy->expression = expression(ast->expression);
   copy->identifier = ast->identifier;
 
-  std::optional<ConstValue> value;
-  if (copy->expression) {
-    auto interp = ASTInterpreter{unit_};
-    value = interp.evaluate(copy->expression);
-  } else {
-    value = Binder::nextEnumeratorValue(unit_, underlyingType, lastValue);
-  }
-
-  lastValue = value;
-
-  binder_.bind(copy, binder().scope()->type(), std::move(value));
+  binder_.bind(copy, previous);
 
   if (ast->symbol && copy->symbol) addSymbolRemap(ast->symbol, copy->symbol);
 
@@ -938,18 +926,17 @@ auto ASTRewriter::SpecifierVisitor::operator()(EnumSpecifierAST* ast)
     rewrite.addSymbolRemap(ast->symbol, copy->symbol);
   }
 
-  auto enumSymbol = symbol_cast<EnumSymbol>(binder()->scope());
-
-  auto underlyingType = copy->symbol->type();
-  if (enumSymbol) underlyingType = enumSymbol->underlyingType();
-
-  std::optional<ConstValue> lastValue;
+  EnumeratorSymbol* previous = nullptr;
   ListAppender<EnumeratorAST> append{arena(), copy->enumeratorList};
-  for (auto node : ListView{ast->enumeratorList})
-    append(rewrite.enumerator(node, underlyingType, lastValue));
+  for (auto node : ListView{ast->enumeratorList}) {
+    auto enumerator = rewrite.enumerator(node, previous);
+    previous = enumerator->symbol;
+    append(enumerator);
+  }
 
   copy->commaLoc = ast->commaLoc;
   copy->rbraceLoc = ast->rbraceLoc;
+  binder()->complete(copy);
 
   return copy;
 }
