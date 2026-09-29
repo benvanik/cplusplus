@@ -2655,33 +2655,19 @@ auto TypeTraits::promoted_enumeration_types(const EnumType* enumType) const
     return {underlyingType, promotedType};
   }
 
-  auto minValue = std::intmax_t{0};
-  auto maxValue = std::intmax_t{0};
-
-  if (enumSymbol) {
+  auto representsEnumerationValues = [&](const Type* type) {
+    if (!enumSymbol) return true;
     for (auto member : enumSymbol->members()) {
       auto enumerator = symbol_cast<EnumeratorSymbol>(member);
       if (!enumerator) continue;
       const auto& value = enumerator->value();
-      if (!value) continue;
-      auto intValue = std::get_if<ConstInt>(&*value);
-      if (!intValue) continue;
-      minValue = std::min(minValue, intValue->toIntMax());
-      maxValue = std::max(maxValue, intValue->toIntMax());
+      if (!value) return false;
+      auto integer = std::get_if<ConstInt>(&*value);
+      if (!integer || !converted_integral_constant(type, *integer)) {
+        return false;
+      }
     }
-  }
-
-  auto memoryLayout = control()->memoryLayout();
-
-  auto representsEnumerationValues = [&](const Type* type) {
-    auto bits = memoryLayout->sizeOf(type).value_or(0) * 8;
-    if (bits == 0) return false;
-    if (bits >= 64) return is_signed(type) || minValue >= 0;
-    if (is_signed(type)) {
-      const auto limit = std::intmax_t{1} << (bits - 1);
-      return minValue >= -limit && maxValue < limit;
-    }
-    return minValue >= 0 && maxValue < (std::intmax_t{1} << bits);
+    return true;
   };
 
   for (auto candidate : integralPromotionCandidates()) {
