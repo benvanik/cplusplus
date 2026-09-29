@@ -4374,7 +4374,12 @@ void PendingInclude::resolveWith(std::optional<std::string> resolvedFileName,
 
   auto fileName = resolvedFileName.value();
 
-  auto resume = [=, this]() -> std::optional<PreprocessingState> {
+  // The continuation can outlive the PendingInclude returned to the caller, so
+  // retain only state owned by the preprocessing invocation.
+  auto* owner = &preprocessor;
+  auto requestLocation = location;
+  auto resume = [d, fileName, isSystemHeader, owner,
+                 requestLocation]() -> std::optional<PreprocessingState> {
     const auto& identity = d->fileIdentity(fileName);
     if (d->pragmaOnceProtectedFiles_.contains(identity)) return std::nullopt;
 
@@ -4387,15 +4392,15 @@ void PendingInclude::resolveWith(std::optional<std::string> resolvedFileName,
     auto sourceFile = d->findSourceFile(fileName);
     if (!sourceFile) {
       PendingFileContent request{
-          .preprocessor = preprocessor,
+          .preprocessor = *owner,
           .fileName = fileName,
           .isSystemHeader = isSystemHeader,
-          .location = location,
+          .location = requestLocation,
       };
       return request;
     }
 
-    d->enterIncludedFile(sourceFile, location, isSystemHeader);
+    d->enterIncludedFile(sourceFile, requestLocation, isSystemHeader);
 
     return std::nullopt;
   };
