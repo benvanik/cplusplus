@@ -265,6 +265,9 @@ TEST(PrecompiledHeader, IsDeterministic) {
   Prefix second{
       "struct S { int a; int b; };\ntemplate <typename T> T id(T);\n"};
 
+  // __DATE__ and __TIME__ are compilation inputs, so compare equal inputs.
+  second.unit()->preprocessor()->restore(
+      first.unit()->preprocessor()->snapshot());
   ASSERT_EQ(first.emit(), second.emit());
 }
 
