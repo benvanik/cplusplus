@@ -770,9 +770,10 @@ struct Preprocessor::Private {
                                 const std::vector<TokRange>& expandedActuals)
       -> TokVector;
 
-  [[nodiscard]] auto merge(const Tok& left, const Tok& right) -> Tok;
+  [[nodiscard]] auto paste(const Tok& left, const Tok& right, const Tok& origin)
+      -> Tok;
 
-  [[nodiscard]] auto stringize(const Tok* begin, const Tok* end) -> Tok;
+  [[nodiscard]] auto stringize(TokRange actual, const Tok& origin) -> Tok;
 
   [[nodiscard]] auto lookupMacro(const Tok& tk) const
       -> std::pair<const Macro*, const cxx::Identifier*>;
@@ -1611,11 +1612,15 @@ auto Preprocessor::Private::parseArguments(const Tok* pos, const Tok* end,
   return result;
 }
 
-auto Preprocessor::Private::stringize(const Tok* begin, const Tok* end) -> Tok {
+auto Preprocessor::Private::stringize(TokRange actual, const Tok& origin)
+    -> Tok {
   std::string s;
-  for (auto it = begin; it < end; ++it) {
-    if (!s.empty() && (it->space || it->bol)) s += ' ';
-    s += getText(*it);
+  auto [begin, end] = actual;
+  if (begin) {
+    for (auto it = begin; it != end; ++it) {
+      if (!s.empty() && (it->space || it->bol)) s += ' ';
+      s += getText(*it);
+    }
   }
 
   std::string o;
@@ -1630,26 +1635,18 @@ auto Preprocessor::Private::stringize(const Tok* begin, const Tok* end) -> Tok {
   }
   o += '"';
 
-  auto tk = genTok(TokenKind::T_STRING_LITERAL, o);
-  if (begin < end) {
-    tk.sourceFile = begin->sourceFile;
-    tk.offset = begin->offset;
-  }
-  return tk;
+  return genTok(TokenKind::T_STRING_LITERAL, o, origin);
 }
 
-auto Preprocessor::Private::merge(const Tok& left, const Tok& right) -> Tok {
+auto Preprocessor::Private::paste(const Tok& left, const Tok& right,
+                                  const Tok& origin) -> Tok {
   auto leftText = getText(left);
   auto rightText = getText(right);
   auto mergedText = std::string(leftText) + std::string(rightText);
   Lexer lex(std::string_view(mergedText), language_);
   lex.setPreprocessing(true);
   lex.next();
-  auto tok = genTok(lex.tokenKind(), lex.tokenText());
-  tok.sourceFile = left.sourceFile;
-  tok.offset = left.offset;
-  tok.noexpand = false;
-  return tok;
+  return genTok(lex.tokenKind(), lex.tokenText(), origin);
 }
 
 auto Preprocessor::Private::lookupMacro(const Tok& tk) const
@@ -1738,6 +1735,23 @@ auto Preprocessor::Private::substitute(
     for (auto it = begin; it < end; ++it) appendToken(*it);
   };
 
+  // An empty token represents the placemarker produced by an empty argument
+  // next to ##. The paste result is generated even when one operand survives.
+  auto pasteLastToken = [&](const Tok* right) {
+    auto leftText = getText(os.back());
+    if (leftText.empty()) {
+      if (!right) {
+        os.pop_back();
+      } else {
+        os.back() = genTok(right->kind, getText(*right), pointOfSubstitution);
+      }
+    } else if (!right) {
+      os.back() = genTok(os.back().kind, leftText, pointOfSubstitution);
+    } else {
+      os.back() = paste(os.back(), *right, pointOfSubstitution);
+    }
+  };
+
   const TokVector* macroBody = getMacroBody(*macro);
   if (!macroBody) return os;
 
@@ -1750,10 +1764,7 @@ auto Preprocessor::Private::substitute(
       const auto saved = ts;
       ++ts;
       if (auto actual = lookupMacroArgument(ts, tsEnd, macro, actuals)) {
-        auto [ab, ae] = *actual;
-        if (ab && ab < ae) {
-          appendToken(stringize(ab, ae));
-        }
+        appendToken(stringize(*actual, pointOfSubstitution));
         continue;
       }
       ts = saved;
@@ -1765,9 +1776,12 @@ auto Preprocessor::Private::substitute(
       ++ts;
       if (auto actual = lookupMacroArgument(ts, tsEnd, macro, actuals)) {
         auto [ab, ae] = *actual;
-        if (ab && ab < ae && !os.empty()) {
-          os.back() = merge(os.back(), *ab);
-          for (auto it = ab + 1; it < ae; ++it) appendToken(*it);
+        if (!os.empty()) {
+          const Tok* right = ab && ab != ae ? ab : nullptr;
+          pasteLastToken(right);
+          if (right) {
+            for (auto it = ab + 1; it != ae; ++it) appendToken(*it);
+          }
         }
         continue;
       }
@@ -1776,7 +1790,7 @@ auto Preprocessor::Private::substitute(
 
     if (ts->is(TokenKind::T_HASH_HASH) && ts + 1 < tsEnd) {
       if (!os.empty()) {
-        os.back() = merge(os.back(), *(ts + 1));
+        pasteLastToken(ts + 1);
       }
       ts += 2;
       continue;
