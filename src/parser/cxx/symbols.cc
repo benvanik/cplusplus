@@ -2487,6 +2487,16 @@ void EnumSymbol::setUnderlyingType(const Type* underlyingType) {
   underlyingType_ = underlyingType;
 }
 
+auto EnumSymbol::promotionType() const -> const Type* { return promotionType_; }
+
+void EnumSymbol::setPromotionType(const Type* promotionType) {
+  promotionType_ = promotionType;
+}
+
+auto EnumSymbol::isPacked() const -> bool {
+  return findAttribute(attributes(), "packed") != nullptr;
+}
+
 ScopedEnumSymbol::ScopedEnumSymbol(ScopeSymbol* enclosingScope)
     : ScopeSymbol(Kind, enclosingScope) {}
 

@@ -2253,6 +2253,8 @@ void SemanticEncoder::writeSymbolEnumSymbol(
   writeSymbolScopeSymbol(out, self);
   // ::cxx::EnumSymbol::underlyingType_
   out.varU32(static_cast<std::uint32_t>(typeRef(self->underlyingType())));
+  // ::cxx::EnumSymbol::promotionType_
+  out.varU32(static_cast<std::uint32_t>(typeRef(self->promotionType())));
   // ::cxx::EnumSymbol::hasFixedUnderlyingType_
   out.boolean(self->hasFixedUnderlyingType());
   // ::cxx::EnumSymbol::isDefined_
@@ -5608,6 +5610,8 @@ void SemanticEncoder::writeAstEnumSpecifierAST(
   out.varU32(static_cast<std::uint32_t>(locationRef(self->commaLoc)));
   // ::cxx::EnumSpecifierAST::rbraceLoc
   out.varU32(static_cast<std::uint32_t>(locationRef(self->rbraceLoc)));
+  // ::cxx::EnumSpecifierAST::trailingAttributeList
+  writeAstList(out, self->trailingAttributeList);
   // ::cxx::EnumSpecifierAST::symbol
   out.varU32(static_cast<std::uint32_t>(symbolRef(self->symbol)));
 }
@@ -9899,12 +9903,15 @@ void SemanticDecoder::readSymbolEnumSymbol(
   // ::cxx::EnumSymbol::underlyingType_
   const cxx::Type* value1 = typeAt(TypeRef{in.varU32()});
   self->setUnderlyingType(std::move(value1));
+  // ::cxx::EnumSymbol::promotionType_
+  const cxx::Type* value2 = typeAt(TypeRef{in.varU32()});
+  self->setPromotionType(std::move(value2));
   // ::cxx::EnumSymbol::hasFixedUnderlyingType_
-  bool value2 = in.boolean();
-  self->setHasFixedUnderlyingType(std::move(value2));
-  // ::cxx::EnumSymbol::isDefined_
   bool value3 = in.boolean();
-  self->setDefined(std::move(value3));
+  self->setHasFixedUnderlyingType(std::move(value3));
+  // ::cxx::EnumSymbol::isDefined_
+  bool value4 = in.boolean();
+  self->setDefined(std::move(value4));
 }
 
 void SemanticDecoder::readSymbolScopedEnumSymbol(
@@ -14944,9 +14951,13 @@ void SemanticDecoder::readAstEnumSpecifierAST(
   // ::cxx::EnumSpecifierAST::rbraceLoc
   cxx::SourceLocation value11 = locationAt(LocationRef{in.varU32()});
   self->rbraceLoc = std::move(value11);
+  // ::cxx::EnumSpecifierAST::trailingAttributeList
+  cxx::List<cxx::AttributeSpecifierAST*>* value12 =
+      readAstList<cxx::AttributeSpecifierAST>(in);
+  self->trailingAttributeList = std::move(value12);
   // ::cxx::EnumSpecifierAST::symbol
-  cxx::Symbol* value12 = symbolAt(SymbolRef{in.varU32()});
-  self->symbol = std::move(value12);
+  cxx::Symbol* value13 = symbolAt(SymbolRef{in.varU32()});
+  self->symbol = std::move(value13);
 }
 
 void SemanticDecoder::readAstClassSpecifierAST(

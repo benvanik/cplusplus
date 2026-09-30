@@ -518,7 +518,7 @@ constexpr int RestrictQualifierASTSlotBase = AtomicQualifierASTSlotBase + 1;
 
 constexpr int EnumSpecifierASTSlotBase = RestrictQualifierASTSlotBase + 1;
 
-constexpr int ClassSpecifierASTSlotBase = EnumSpecifierASTSlotBase + 12;
+constexpr int ClassSpecifierASTSlotBase = EnumSpecifierASTSlotBase + 13;
 
 constexpr int TypenameSpecifierASTSlotBase = ClassSpecifierASTSlotBase + 14;
 
@@ -701,7 +701,7 @@ constexpr int ClassSymbolSlotBase = InjectedClassNameSymbolSlotBase + 1;
 
 constexpr int EnumSymbolSlotBase = ClassSymbolSlotBase + 64;
 
-constexpr int ScopedEnumSymbolSlotBase = EnumSymbolSlotBase + 3;
+constexpr int ScopedEnumSymbolSlotBase = EnumSymbolSlotBase + 5;
 
 constexpr int FunctionSymbolSlotBase = ScopedEnumSymbolSlotBase + 2;
 
@@ -5564,6 +5564,12 @@ auto readAST(std::intptr_t handle, int slot) -> double {
     case EnumSpecifierASTSlotBase + 11: {
       auto self = static_cast<const ::cxx::EnumSpecifierAST*>(
           reinterpret_cast<const ::cxx::AST*>(handle));
+      return static_cast<double>(
+          reinterpret_cast<std::intptr_t>(self->trailingAttributeList));
+    }
+    case EnumSpecifierASTSlotBase + 12: {
+      auto self = static_cast<const ::cxx::EnumSpecifierAST*>(
+          reinterpret_cast<const ::cxx::AST*>(handle));
       return static_cast<double>(reinterpret_cast<std::intptr_t>(
           static_cast<const ::cxx::Symbol*>(self->symbol)));
     }
@@ -7575,6 +7581,17 @@ auto readSymbol(std::intptr_t handle, int slot) -> double {
           reinterpret_cast<const ::cxx::Symbol*>(handle));
       return static_cast<double>(reinterpret_cast<std::intptr_t>(
           static_cast<const ::cxx::Type*>(self->underlyingType())));
+    }
+    case EnumSymbolSlotBase + 3: {
+      auto self = static_cast<const ::cxx::EnumSymbol*>(
+          reinterpret_cast<const ::cxx::Symbol*>(handle));
+      return static_cast<double>(reinterpret_cast<std::intptr_t>(
+          static_cast<const ::cxx::Type*>(self->promotionType())));
+    }
+    case EnumSymbolSlotBase + 4: {
+      auto self = static_cast<const ::cxx::EnumSymbol*>(
+          reinterpret_cast<const ::cxx::Symbol*>(handle));
+      return static_cast<double>(self->isPacked());
     }
     case ScopedEnumSymbolSlotBase + 0: {
       auto self = static_cast<const ::cxx::ScopedEnumSymbol*>(

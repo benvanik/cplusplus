@@ -2662,6 +2662,15 @@ void ASTPrinter::visit(EnumSpecifierAST* ast) {
     }
     --indent_;
   }
+  if (ast->trailingAttributeList) {
+    ++indent_;
+    out_ << std::format("{:{}}", "", indent_ * 2);
+    out_ << std::format("{}\n", "trailing-attribute-list");
+    for (auto node : ListView{ast->trailingAttributeList}) {
+      accept(node);
+    }
+    --indent_;
+  }
 }
 
 void ASTPrinter::visit(ClassSpecifierAST* ast) {

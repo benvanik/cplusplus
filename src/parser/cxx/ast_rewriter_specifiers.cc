@@ -953,6 +953,10 @@ auto ASTRewriter::SpecifierVisitor::operator()(EnumSpecifierAST* ast)
 
   copy->commaLoc = ast->commaLoc;
   copy->rbraceLoc = ast->rbraceLoc;
+  copy->trailingAttributeList = rewrite.rewriteList(
+      ast->trailingAttributeList, &ASTRewriter::attributeSpecifier);
+  binder()->applyDeclarationAttributes(copy->symbol,
+                                       copy->trailingAttributeList);
   binder()->complete(copy);
 
   return copy;

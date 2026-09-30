@@ -8271,6 +8271,9 @@ auto Parser::parse_enum_specifier(SpecifierAST*& yyast, DeclSpecs& specs)
     expect(TokenKind::T_RBRACE, ast->rbraceLoc);
   }
 
+  parse_optional_attribute_specifier_seq(ast->trailingAttributeList,
+                                         AllowedAttributes::kGnuAttribute);
+  binder_.applyDeclarationAttributes(ast->symbol, ast->trailingAttributeList);
   binder_.complete(ast);
 
   return true;

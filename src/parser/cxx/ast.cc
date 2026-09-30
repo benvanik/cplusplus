@@ -2904,10 +2904,12 @@ auto EnumSpecifierAST::firstSourceLocation() -> SourceLocation {
   if (auto loc = cxx::firstSourceLocation(enumeratorList)) return loc;
   if (auto loc = cxx::firstSourceLocation(commaLoc)) return loc;
   if (auto loc = cxx::firstSourceLocation(rbraceLoc)) return loc;
+  if (auto loc = cxx::firstSourceLocation(trailingAttributeList)) return loc;
   return {};
 }
 
 auto EnumSpecifierAST::lastSourceLocation() -> SourceLocation {
+  if (auto loc = cxx::lastSourceLocation(trailingAttributeList)) return loc;
   if (auto loc = cxx::lastSourceLocation(rbraceLoc)) return loc;
   if (auto loc = cxx::lastSourceLocation(commaLoc)) return loc;
   if (auto loc = cxx::lastSourceLocation(enumeratorList)) return loc;
@@ -12809,6 +12811,15 @@ auto EnumSpecifierAST::clone(Arena* arena) -> EnumSpecifierAST* {
 
   node->commaLoc = commaLoc;
   node->rbraceLoc = rbraceLoc;
+
+  if (trailingAttributeList) {
+    auto it = &node->trailingAttributeList;
+    for (auto node : ListView{trailingAttributeList}) {
+      *it = make_list_node<AttributeSpecifierAST>(arena, node->clone(arena));
+      it = &(*it)->next;
+    }
+  }
+
   node->symbol = symbol;
 
   return node;
@@ -12819,16 +12830,15 @@ auto EnumSpecifierAST::create(Arena* arena) -> EnumSpecifierAST* {
   return node;
 }
 
-auto EnumSpecifierAST::create(Arena* arena, SourceLocation enumLoc,
-                              SourceLocation classLoc,
-                              List<AttributeSpecifierAST*>* attributeList,
-                              NestedNameSpecifierAST* nestedNameSpecifier,
-                              NameIdAST* unqualifiedId, SourceLocation colonLoc,
-                              List<SpecifierAST*>* typeSpecifierList,
-                              SourceLocation lbraceLoc,
-                              List<EnumeratorAST*>* enumeratorList,
-                              SourceLocation commaLoc, SourceLocation rbraceLoc,
-                              Symbol* symbol) -> EnumSpecifierAST* {
+auto EnumSpecifierAST::create(
+    Arena* arena, SourceLocation enumLoc, SourceLocation classLoc,
+    List<AttributeSpecifierAST*>* attributeList,
+    NestedNameSpecifierAST* nestedNameSpecifier, NameIdAST* unqualifiedId,
+    SourceLocation colonLoc, List<SpecifierAST*>* typeSpecifierList,
+    SourceLocation lbraceLoc, List<EnumeratorAST*>* enumeratorList,
+    SourceLocation commaLoc, SourceLocation rbraceLoc,
+    List<AttributeSpecifierAST*>* trailingAttributeList, Symbol* symbol)
+    -> EnumSpecifierAST* {
   auto node = new (arena) EnumSpecifierAST();
   node->enumLoc = enumLoc;
   node->classLoc = classLoc;
@@ -12841,23 +12851,25 @@ auto EnumSpecifierAST::create(Arena* arena, SourceLocation enumLoc,
   node->enumeratorList = enumeratorList;
   node->commaLoc = commaLoc;
   node->rbraceLoc = rbraceLoc;
+  node->trailingAttributeList = trailingAttributeList;
   node->symbol = symbol;
   return node;
 }
 
-auto EnumSpecifierAST::create(Arena* arena,
-                              List<AttributeSpecifierAST*>* attributeList,
-                              NestedNameSpecifierAST* nestedNameSpecifier,
-                              NameIdAST* unqualifiedId,
-                              List<SpecifierAST*>* typeSpecifierList,
-                              List<EnumeratorAST*>* enumeratorList,
-                              Symbol* symbol) -> EnumSpecifierAST* {
+auto EnumSpecifierAST::create(
+    Arena* arena, List<AttributeSpecifierAST*>* attributeList,
+    NestedNameSpecifierAST* nestedNameSpecifier, NameIdAST* unqualifiedId,
+    List<SpecifierAST*>* typeSpecifierList,
+    List<EnumeratorAST*>* enumeratorList,
+    List<AttributeSpecifierAST*>* trailingAttributeList, Symbol* symbol)
+    -> EnumSpecifierAST* {
   auto node = new (arena) EnumSpecifierAST();
   node->attributeList = attributeList;
   node->nestedNameSpecifier = nestedNameSpecifier;
   node->unqualifiedId = unqualifiedId;
   node->typeSpecifierList = typeSpecifierList;
   node->enumeratorList = enumeratorList;
+  node->trailingAttributeList = trailingAttributeList;
   node->symbol = symbol;
   return node;
 }

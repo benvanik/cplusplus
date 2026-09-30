@@ -948,6 +948,9 @@ void ASTVisitor::visit(EnumSpecifierAST* ast) {
   for (auto node : ListView{ast->enumeratorList}) {
     accept(node);
   }
+  for (auto node : ListView{ast->trailingAttributeList}) {
+    accept(node);
+  }
 }
 
 void ASTVisitor::visit(ClassSpecifierAST* ast) {

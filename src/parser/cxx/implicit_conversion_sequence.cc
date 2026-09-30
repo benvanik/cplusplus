@@ -20,6 +20,7 @@
 
 #include <cxx/control.h>
 #include <cxx/implicit_conversion_sequence.h>
+#include <cxx/symbols.h>
 #include <cxx/type_traits.h>
 #include <cxx/types.h>
 
@@ -283,7 +284,8 @@ using ReferenceBinding = ImplicitConversionSequence::ReferenceBinding;
     TypeTraits& traits, const ImplicitConversionSequence& seq)
     -> std::optional<bool> {
   auto enumType = type_cast<EnumType>(decayedSourceType(traits, seq));
-  if (!enumType) return std::nullopt;
+  if (!enumType || !enumType->symbol()->hasFixedUnderlyingType())
+    return std::nullopt;
 
   auto [underlyingType, promotedType] =
       traits.promoted_enumeration_types(enumType);

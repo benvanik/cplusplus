@@ -1390,9 +1390,21 @@ class EnumSymbol final : public ScopeSymbol {
   [[nodiscard]] auto underlyingType() const -> const Type*;
   void setUnderlyingType(const Type* underlyingType);
 
+  /** Returns the range-based arithmetic promotion selected at completion. */
+  [[nodiscard]] auto promotionType() const -> const Type*;
+  void setPromotionType(const Type* promotionType);
+
+  /** Returns true when the declaration carries the GNU packed attribute. */
+  [[nodiscard]] auto isPacked() const -> bool;
+
  private:
+  // Integer type used for the enumeration's object representation.
   const Type* underlyingType_ = nullptr;
+  // Range-based arithmetic promotion for a completed non-fixed enumeration.
+  const Type* promotionType_ = nullptr;
+  // Whether the source explicitly fixes the underlying type.
   bool hasFixedUnderlyingType_ = false;
+  // Whether the enumeration has a definition.
   bool isDefined_ = false;
 };
 

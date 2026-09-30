@@ -2655,27 +2655,10 @@ auto TypeTraits::promoted_enumeration_types(const EnumType* enumType) const
     return {underlyingType, promotedType};
   }
 
-  auto representsEnumerationValues = [&](const Type* type) {
-    if (!enumSymbol) return true;
-    for (auto member : enumSymbol->members()) {
-      auto enumerator = symbol_cast<EnumeratorSymbol>(member);
-      if (!enumerator) continue;
-      const auto& value = enumerator->value();
-      if (!value) return false;
-      auto integer = std::get_if<ConstInt>(&*value);
-      if (!integer || !converted_integral_constant(type, *integer)) {
-        return false;
-      }
-    }
-    return true;
-  };
-
-  for (auto candidate : integralPromotionCandidates()) {
-    if (representsEnumerationValues(candidate)) return {candidate, nullptr};
-  }
-
   auto underlyingType = enumType->underlyingType();
-  return {underlyingType ? underlyingType : control()->getIntType(), nullptr};
+  auto promotionType = enumSymbol ? enumSymbol->promotionType() : nullptr;
+  return {underlyingType ? underlyingType : control()->getIntType(),
+          promotionType ? promotionType : control()->getIntType()};
 }
 
 auto TypeTraits::is_integral_promotion(const Type* from, const Type* to) const
@@ -2687,7 +2670,9 @@ auto TypeTraits::is_integral_promotion(const Type* from, const Type* to) const
 
   if (auto enumType = type_cast<EnumType>(source)) {
     auto [underlyingType, promotedType] = promoted_enumeration_types(enumType);
-    if (underlyingType && is_same(remove_cv(underlyingType), target))
+    auto enumSymbol = enumType->symbol();
+    if (enumSymbol && enumSymbol->hasFixedUnderlyingType() && underlyingType &&
+        is_same(remove_cv(underlyingType), target))
       return true;
     return promotedType && is_same(remove_cv(promotedType), target);
   }
