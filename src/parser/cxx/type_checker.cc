@@ -50,6 +50,7 @@
 #include <bit>
 #include <cmath>
 #include <format>
+#include <limits>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
@@ -4211,73 +4212,162 @@ auto TypeChecker::Visitor::check_cast_to_derived(ExpressionAST* expression,
 
 void TypeChecker::Visitor::operator()(BuiltinOffsetofExpressionAST* ast) {
   ast->type = control()->getSizeType();
-  if (isDependent(check.unit_, ast->typeId)) return;
-
-  auto classType =
-      ast->typeId ? unqualified_cast<ClassType>(ast->typeId->type) : nullptr;
-
-  if (!classType) {
-    error(ast->firstSourceLocation(), "expected a type");
-    return;
+  ast->symbol = nullptr;
+  ast->value.reset();
+  for (auto designator : ListView{ast->designatorList}) {
+    if (auto dot = ast_cast<DotDesignatorAST>(designator)) {
+      dot->symbol = nullptr;
+    }
   }
 
-  if (!ast->identifier) {
-    return;
-  }
+  if (isDependent(check.unit_, ast)) return;
+  if (!ast->typeId || !ast->typeId->type || !ast->identifier) return;
 
-  auto symbol = classType->symbol();
-  traits.requireCompleteClass(symbol);
-  symbol = symbol->resolvedDefinition();
-  auto member = qualifiedLookup(symbol, ast->identifier);
+  const auto* memoryLayout = control()->memoryLayout();
+  const auto sizeTypeBits = memoryLayout->sizeOfSizeType() * 8;
+  const auto maximumOffset =
+      sizeTypeBits < std::numeric_limits<std::uint64_t>::digits
+          ? (std::uint64_t{1} << sizeTypeBits) - 1
+          : std::numeric_limits<std::uint64_t>::max();
 
-  auto field = symbol_cast<FieldSymbol>(member);
-  if (!field) {
-    error(ast->firstSourceLocation(),
-          std::format("no member named '{}'", ast->identifier->name()));
+  std::uint64_t offset = 0;
+  const Type* currentType = ast->typeId->type;
+
+  auto addMemberOffset = [&](const Identifier* identifier,
+                             SourceLocation location,
+                             FieldSymbol*& boundField) -> bool {
+    auto classType = unqualified_cast<ClassType>(currentType);
+    if (!classType) {
+      error(location, std::format("offsetof requires a class or union type, "
+                                  "but got '{}'",
+                                  to_string(currentType)));
+      return false;
+    }
+
+    auto record = classType->symbol();
+    if (!traits.requireCompleteClass(record)) {
+      error(location, "offsetof requires a complete class or union type");
+      return false;
+    }
+    record = record->resolvedDefinition();
+
+    auto member = qualifiedLookup(record, identifier);
+    if (!member) {
+      error(location,
+            std::format("no member named '{}' in '{}'", identifier->name(),
+                        to_string(record->name())));
+      return false;
+    }
+    if (!checkUnambiguousMemberLookup(record, identifier, member, location) ||
+        !checkMemberAccessible(member, record, record, location)) {
+      return false;
+    }
+    if (auto usingDeclaration = symbol_cast<UsingDeclarationSymbol>(member);
+        usingDeclaration && usingDeclaration->target()) {
+      member = resolve_using_declaration(member);
+    }
+
+    auto field = symbol_cast<FieldSymbol>(member);
+    if (!field) {
+      error(location, "offsetof requires an addressable data member");
+      return false;
+    }
+    if (field->isBitField() || field->isStatic()) {
+      error(location, "offsetof requires an addressable data member");
+      return false;
+    }
+    auto declaringClass = field->enclosingClass();
+    if (declaringClass &&
+        traits.is_virtual_base_of(declaringClass->type(), record->type())) {
+      error(location, "offsetof cannot name a member of a virtual base");
+      return false;
+    }
+
+    auto layout = record->layout();
+    auto fieldInfo = layout ? layout->getFieldInfo(field) : std::nullopt;
+    if (!fieldInfo) {
+      error(location, "offsetof requires a complete class or union type");
+      return false;
+    }
+    if (fieldInfo->offset > maximumOffset - offset) {
+      error(location, "offsetof result exceeds the target size type");
+      return false;
+    }
+
+    offset += fieldInfo->offset;
+    currentType = field->type();
+    boundField = field;
+    return true;
+  };
+
+  if (!addMemberOffset(ast->identifier, ast->identifierLoc, ast->symbol)) {
     return;
   }
 
   for (auto designator : ListView{ast->designatorList}) {
-    if (auto dot = ast_cast<DotDesignatorAST>(designator);
-        dot && dot->identifier) {
-      auto currentClass =
-          type_cast<ClassType>(traits.remove_cvref(field->type()));
-
-      if (!currentClass) {
-        error(designator->firstSourceLocation(),
-              std::format("expected a class or union type, but got '{}'",
-                          to_string(field->type())));
-        break;
+    if (auto dot = ast_cast<DotDesignatorAST>(designator)) {
+      if (!dot->identifier ||
+          !addMemberOffset(dot->identifier, dot->identifierLoc, dot->symbol)) {
+        return;
       }
-
-      auto member = qualifiedLookup(currentClass->symbol(), dot->identifier);
-
-      auto field = symbol_cast<FieldSymbol>(member);
-
-      if (!field) {
-        error(dot->firstSourceLocation(),
-              std::format("no member named '{}' in class '{}'",
-                          dot->identifier->name(),
-                          to_string(currentClass->symbol()->name())));
-      }
-
-      break;
-    }
-
-    if (auto subscript = ast_cast<SubscriptDesignatorAST>(designator)) {
-      if (!traits.is_array(field->type()) &&
-          !traits.is_pointer(field->type())) {
-        error(subscript->firstSourceLocation(),
-              std::format("cannot subscript a member of type '{}'",
-                          to_string(field->type())));
-        break;
-      }
-
       continue;
     }
+
+    auto subscript = static_cast<SubscriptDesignatorAST*>(designator);
+    if (!traits.is_array(currentType)) {
+      error(subscript->firstSourceLocation(),
+            std::format("offsetof requires an array type, but got '{}'",
+                        to_string(currentType)));
+      return;
+    }
+
+    auto expression = subscript->expression;
+    if (!expression || !traits.is_integral_or_unscoped_enum(expression->type)) {
+      error(subscript->firstSourceLocation(),
+            "offsetof index must be an integral constant expression");
+      return;
+    }
+
+    ASTInterpreter interpreter(check.unit_, check.scope_);
+    auto constant = interpreter.evaluate(expression);
+    auto index = constant ? std::get_if<ConstInt>(&*constant) : nullptr;
+    if (!index) {
+      error(subscript->firstSourceLocation(),
+            "offsetof index must be an integral constant expression");
+      return;
+    }
+    if (index->isNegative()) {
+      error(subscript->firstSourceLocation(),
+            "offsetof index must be a nonnegative integral constant "
+            "expression");
+      return;
+    }
+    if (!index->magnitudeFitsInUIntMax()) {
+      error(subscript->firstSourceLocation(),
+            "offsetof result exceeds the target size type");
+      return;
+    }
+
+    auto elementType = traits.remove_extent(currentType);
+    auto stride = memoryLayout->sizeOf(elementType);
+    if (!stride) {
+      error(subscript->firstSourceLocation(),
+            "offsetof requires a complete array element type");
+      return;
+    }
+
+    const auto indexValue = index->toUIntMax();
+    if (*stride && indexValue > (maximumOffset - offset) / *stride) {
+      error(subscript->firstSourceLocation(),
+            "offsetof result exceeds the target size type");
+      return;
+    }
+
+    offset += indexValue * *stride;
+    currentType = elementType;
   }
 
-  ast->symbol = field;
+  ast->value = offset;
 }
 
 void TypeChecker::Visitor::operator()(BuiltinBitCastExpressionAST* ast) {

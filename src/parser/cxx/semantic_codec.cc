@@ -4568,6 +4568,11 @@ void SemanticEncoder::writeAstBuiltinOffsetofExpressionAST(
   out.varU32(static_cast<std::uint32_t>(identifierRef(self->identifier)));
   // ::cxx::BuiltinOffsetofExpressionAST::symbol
   out.varU32(static_cast<std::uint32_t>(symbolRef(self->symbol)));
+  // ::cxx::BuiltinOffsetofExpressionAST::value
+  out.boolean(self->value.has_value());
+  if (self->value.has_value()) {
+    out.varU64(static_cast<std::uint64_t>((*self->value)));
+  }
 }
 
 void SemanticEncoder::writeAstTypeidExpressionAST(
@@ -13417,6 +13422,13 @@ void SemanticDecoder::readAstBuiltinOffsetofExpressionAST(
   cxx::FieldSymbol* value9 =
       symbol_cast<FieldSymbol>(symbolAt(SymbolRef{in.varU32()}));
   self->symbol = std::move(value9);
+  // ::cxx::BuiltinOffsetofExpressionAST::value
+  std::optional<unsigned long long> value10;
+  if (in.boolean()) {
+    unsigned long long value11 = static_cast<unsigned long long>(in.varU64());
+    value10 = std::move(value11);
+  }
+  self->value = std::move(value10);
 }
 
 void SemanticDecoder::readAstTypeidExpressionAST(

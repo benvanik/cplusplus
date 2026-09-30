@@ -669,7 +669,10 @@ struct IsDependent {
   [[nodiscard]] auto isDependent(RequirementAST* ast) -> bool;
   [[nodiscard]] auto isDependent(TypeConstraintAST* ast) -> bool;
   [[nodiscard]] auto isDependent(SplicerAST* ast) -> bool { return false; }
-  [[nodiscard]] auto isDependent(DesignatorAST* ast) -> bool { return false; }
+  [[nodiscard]] auto isDependent(DesignatorAST* ast) -> bool {
+    auto subscript = ast_cast<SubscriptDesignatorAST>(ast);
+    return subscript && isDependent(subscript->expression);
+  }
   [[nodiscard]] auto isDependent(NewPlacementAST* ast) -> bool { return false; }
   [[nodiscard]] auto isDependent(DeclaratorAST* ast) -> bool { return false; }
   [[nodiscard]] auto isDependent(NewInitializerAST* ast) -> bool { return false; }

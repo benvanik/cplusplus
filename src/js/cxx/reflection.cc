@@ -311,7 +311,7 @@ constexpr int BuiltinOffsetofExpressionASTSlotBase =
     BuiltinBitCastExpressionASTSlotBase + 6;
 
 constexpr int TypeidExpressionASTSlotBase =
-    BuiltinOffsetofExpressionASTSlotBase + 9;
+    BuiltinOffsetofExpressionASTSlotBase + 10;
 
 constexpr int TypeidOfTypeExpressionASTSlotBase =
     TypeidExpressionASTSlotBase + 4;
@@ -6824,6 +6824,13 @@ auto readASTVal(std::intptr_t handle, int slot) -> val {
           reinterpret_cast<const ::cxx::AST*>(handle));
       return optionalValue(self->value, [&](const auto& item) {
         return val(static_cast<double>(item));
+      });
+    }
+    case BuiltinOffsetofExpressionASTSlotBase + 9: {
+      auto self = static_cast<const ::cxx::BuiltinOffsetofExpressionAST*>(
+          reinterpret_cast<const ::cxx::AST*>(handle));
+      return optionalValue(self->value, [&](const auto& item) {
+        return val(static_cast<std::uint64_t>(item));
       });
     }
     case SizeofExpressionASTSlotBase + 2: {

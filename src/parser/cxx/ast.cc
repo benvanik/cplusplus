@@ -9493,6 +9493,7 @@ auto BuiltinOffsetofExpressionAST::clone(Arena* arena)
   node->rparenLoc = rparenLoc;
   node->identifier = identifier;
   node->symbol = symbol;
+  node->value = value;
   node->valueCategory = valueCategory;
   node->type = type;
 
@@ -9510,8 +9511,8 @@ auto BuiltinOffsetofExpressionAST::create(
     TypeIdAST* typeId, SourceLocation commaLoc, SourceLocation identifierLoc,
     List<DesignatorAST*>* designatorList, SourceLocation rparenLoc,
     const Identifier* identifier, FieldSymbol* symbol,
-    ValueCategory valueCategory, const Type* type)
-    -> BuiltinOffsetofExpressionAST* {
+    std::optional<std::uint64_t> value, ValueCategory valueCategory,
+    const Type* type) -> BuiltinOffsetofExpressionAST* {
   auto node = new (arena) BuiltinOffsetofExpressionAST();
   node->offsetofLoc = offsetofLoc;
   node->lparenLoc = lparenLoc;
@@ -9522,23 +9523,23 @@ auto BuiltinOffsetofExpressionAST::create(
   node->rparenLoc = rparenLoc;
   node->identifier = identifier;
   node->symbol = symbol;
+  node->value = value;
   node->valueCategory = valueCategory;
   node->type = type;
   return node;
 }
 
-auto BuiltinOffsetofExpressionAST::create(Arena* arena, TypeIdAST* typeId,
-                                          List<DesignatorAST*>* designatorList,
-                                          const Identifier* identifier,
-                                          FieldSymbol* symbol,
-                                          ValueCategory valueCategory,
-                                          const Type* type)
-    -> BuiltinOffsetofExpressionAST* {
+auto BuiltinOffsetofExpressionAST::create(
+    Arena* arena, TypeIdAST* typeId, List<DesignatorAST*>* designatorList,
+    const Identifier* identifier, FieldSymbol* symbol,
+    std::optional<std::uint64_t> value, ValueCategory valueCategory,
+    const Type* type) -> BuiltinOffsetofExpressionAST* {
   auto node = new (arena) BuiltinOffsetofExpressionAST();
   node->typeId = typeId;
   node->designatorList = designatorList;
   node->identifier = identifier;
   node->symbol = symbol;
+  node->value = value;
   node->valueCategory = valueCategory;
   node->type = type;
   return node;
