@@ -149,7 +149,16 @@ struct IsDependent {
     TypeExamination* previous;
   };
 
+  struct InitializerExamination {
+    // Initializer expression active in this dependency query.
+    ExpressionAST* initializer;
+    // Previous initializer examination on the active query path.
+    InitializerExamination* previous;
+  };
+
   TypeExamination* typesUnderExamination = nullptr;
+  // Active initializer examinations in this dependency query.
+  InitializerExamination* initializersUnderExamination = nullptr;
   std::array<NonDependentType, 8> nonDependentTypes;
   std::size_t nonDependentTypeCount = 0;
   std::vector<NonDependentType> dynamicNonDependentTypes;
@@ -406,9 +415,19 @@ struct IsDependent {
           entry.localTemplateDepth == localTemplateDepth)
         return false;
     }
+    for (auto examination = initializersUnderExamination; examination;
+         examination = examination->previous) {
+      if (examination->initializer == expression) return false;
+    }
+
     const auto cyclesBefore = cycles;
+    InitializerExamination examination{expression,
+                                       initializersUnderExamination};
+    initializersUnderExamination = &examination;
     const auto dependent = isDependent(expression);
+    initializersUnderExamination = examination.previous;
     if (dependent || cycles != cyclesBefore) return dependent;
+
     if (!firstNonDependentInitializer.expression) {
       firstNonDependentInitializer = {expression, localTemplateDepth};
     } else {
