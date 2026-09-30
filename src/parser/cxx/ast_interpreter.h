@@ -370,6 +370,11 @@ class ASTInterpreter {
   [[nodiscard]] auto bindReferenceTo(Frame& frame, Symbol* reference,
                                      ExpressionAST* initializer) -> bool;
 
+  [[nodiscard]] auto initializeVariable(VariableSymbol* variable,
+                                        ExpressionAST* initializer) -> bool;
+
+  [[nodiscard]] auto readVariable(VariableSymbol* variable) -> ExpressionResult;
+
   void interpretInitDeclarator(InitDeclaratorAST* initDecl);
 
   void interpretStructuredBinding(StructuredBindingDeclarationAST* ast);

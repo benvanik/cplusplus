@@ -168,18 +168,20 @@ auto ASTInterpreter::StatementVisitor::operator()(IfStatementAST* ast)
   auto result = [&]() -> StatementResult {
     (void)interp.statement(ast->initializer);
     if (interp.aborted()) return {};
+
+    auto conditionResult = interp.expression(ast->condition);
+    if (!conditionResult) {
+      interp.aborted_ = true;
+      return {};
+    }
+
     if (ast->constexprValue.has_value())
       return interp.statement(*ast->constexprValue ? ast->statement
                                                    : ast->elseStatement);
-    auto conditionResult = interp.expression(ast->condition);
 
-    if (conditionResult.has_value()) {
-      auto boolVal = interp.toBool(*conditionResult);
-      if (boolVal.has_value()) {
-        if (*boolVal) return interp.statement(ast->statement);
-        return interp.statement(ast->elseStatement);
-      }
-    }
+    auto boolValue = interp.toBool(*conditionResult);
+    if (boolValue)
+      return interp.statement(*boolValue ? ast->statement : ast->elseStatement);
 
     interp.aborted_ = true;
     return {};
@@ -204,11 +206,18 @@ auto ASTInterpreter::StatementVisitor::operator()(SwitchStatementAST* ast)
   auto mark = interp.beginAutomaticScope();
   auto switchResult = [&]() -> StatementResult {
     (void)interp.statement(ast->initializer);
+    if (interp.aborted()) return {};
 
     auto conditionResult = interp.expression(ast->condition);
-    if (!conditionResult.has_value()) return {};
+    if (!conditionResult) {
+      interp.aborted_ = true;
+      return {};
+    }
     auto condValue = interp.toInt(*conditionResult);
-    if (!condValue.has_value()) return {};
+    if (!condValue) {
+      interp.aborted_ = true;
+      return {};
+    }
 
     auto body = ast_cast<CompoundStatementAST>(ast->statement);
     if (!body) return {};
@@ -252,14 +261,25 @@ auto ASTInterpreter::StatementVisitor::operator()(WhileStatementAST* ast)
   for (;;) {
     if (!interp.tick()) return {};
 
-    auto conditionResult = interp.expression(ast->condition);
-    if (!conditionResult.has_value()) return {};
-    auto boolVal = interp.toBool(*conditionResult);
-    if (!boolVal.has_value()) return {};
-    if (!*boolVal) break;
+    auto mark = interp.beginAutomaticScope();
+    auto result = [&]() -> StatementResult {
+      auto conditionResult = interp.expression(ast->condition);
+      if (!conditionResult) {
+        interp.aborted_ = true;
+        return {};
+      }
 
-    auto result = interp.statement(ast->statement);
-    if (interp.aborted()) return {};
+      auto boolValue = interp.toBool(*conditionResult);
+      if (!boolValue) {
+        interp.aborted_ = true;
+        return {};
+      }
+      if (!*boolValue) return {ControlFlow::kBreak};
+
+      return interp.statement(ast->statement);
+    }();
+
+    if (!interp.endAutomaticScope(mark) || interp.aborted()) return {};
     if (result.flow == ControlFlow::kBreak) break;
     if (result.flow == ControlFlow::kReturn) return result;
   }
@@ -530,27 +550,42 @@ auto ASTInterpreter::StatementVisitor::operator()(ForStatementAST* ast)
   auto mark = interp.beginAutomaticScope();
   auto loopResult = [&]() -> StatementResult {
     (void)interp.statement(ast->initializer);
+    if (interp.aborted()) return {};
 
     for (;;) {
       if (!interp.tick()) return {};
 
-      if (ast->condition) {
-        auto conditionResult = interp.expression(ast->condition);
-        if (!conditionResult.has_value()) return {};
-        auto boolVal = interp.toBool(*conditionResult);
-        if (!boolVal.has_value()) return {};
-        if (!*boolVal) break;
-      }
+      auto iterationMark = interp.beginAutomaticScope();
+      auto result = [&]() -> StatementResult {
+        if (ast->condition) {
+          auto conditionResult = interp.expression(ast->condition);
+          if (!conditionResult) {
+            interp.aborted_ = true;
+            return {};
+          }
 
-      auto result = interp.statement(ast->statement);
-      if (interp.aborted()) return {};
+          auto boolValue = interp.toBool(*conditionResult);
+          if (!boolValue) {
+            interp.aborted_ = true;
+            return {};
+          }
+          if (!*boolValue) return {ControlFlow::kBreak};
+        }
+
+        auto bodyResult = interp.statement(ast->statement);
+        if (interp.aborted() || bodyResult.flow == ControlFlow::kBreak ||
+            bodyResult.flow == ControlFlow::kReturn)
+          return bodyResult;
+
+        if (ast->expression && !interp.expression(ast->expression))
+          interp.aborted_ = true;
+        return {};
+      }();
+
+      if (!interp.endAutomaticScope(iterationMark) || interp.aborted())
+        return {};
       if (result.flow == ControlFlow::kBreak) break;
       if (result.flow == ControlFlow::kReturn) return result;
-
-      if (ast->expression) {
-        auto expressionResult = interp.expression(ast->expression);
-        if (!expressionResult.has_value()) return {};
-      }
     }
     return {};
   }();
@@ -603,37 +638,34 @@ auto ASTInterpreter::StatementVisitor::operator()(GotoStatementAST* ast)
   return {};
 }
 
-void ASTInterpreter::interpretInitDeclarator(InitDeclaratorAST* initDecl) {
-  if (!initDecl || !initDecl->symbol) return;
+auto ASTInterpreter::initializeVariable(VariableSymbol* variable,
+                                        ExpressionAST* initializer) -> bool {
+  if (!variable) return true;
 
-  auto var = symbol_cast<VariableSymbol>(initDecl->symbol);
-
-  if (var && traits.is_reference(var->type())) {
+  if (traits.is_reference(variable->type())) {
     if (frames_.empty()) frames_.push_back({});
-    auto initExpr = Initializer{initDecl->initializer}.clause();
-    (void)bindReferenceTo(frames_.back(), var, initExpr);
-    return;
+    auto initializerExpression = Initializer{initializer}.clause();
+    return bindReferenceTo(frames_.back(), variable, initializerExpression);
   }
 
-  ExpressionResult initVal;
-  if (var) {
-    initVal = initializationValue(var->type(), var->constructor(),
-                                  initDecl->initializer);
-  } else {
-    initVal = expression(initDecl->initializer);
-  }
+  auto value = initializationValue(variable->type(), variable->constructor(),
+                                   initializer);
 
-  if (!initVal.has_value() && !initDecl->initializer) {
-    if (var) initVal = defaultConstruct(var->type());
-  }
+  if (!value && !initializer) value = defaultConstruct(variable->type());
+  if (!value) return false;
 
-  if (initVal.has_value()) {
-    if (var && !traits.is_reference(var->type()) &&
-        traits.is_class(traits.remove_cv(var->type())))
-      initVal = cloneValue(*initVal);
-    setLocal(initDecl->symbol, *initVal);
-    if (var) registerAutomaticObject(var);
-  }
+  if (traits.is_class(traits.remove_cv(variable->type())))
+    value = cloneValue(*value);
+  setLocal(variable, std::move(*value));
+  registerAutomaticObject(variable);
+  return true;
+}
+
+void ASTInterpreter::interpretInitDeclarator(InitDeclaratorAST* initDecl) {
+  if (!initDecl) return;
+  if (!initializeVariable(symbol_cast<VariableSymbol>(initDecl->symbol),
+                          initDecl->initializer))
+    aborted_ = true;
 }
 
 void ASTInterpreter::interpretStructuredBinding(
