@@ -192,3 +192,94 @@ TEST(SourceLocations, NestedBuiltinMacroExpansionRetainsInvocationRange) {
   EXPECT_EQ(presumed.line, 700);
   EXPECT_EQ(presumed.column, start.column);
 }
+
+TEST(SourceLocations, MacroOperatorExpansionsRetainInvocationRanges) {
+  struct MacroOperatorCase {
+    std::string_view definitions;
+    std::string_view expression;
+    std::string_view operatorName;
+    TokenKind replacementKind;
+    std::string_view replacementSpelling;
+  };
+
+  constexpr MacroOperatorCase cases[] = {
+      {"#define STRINGIZE(value) #value\n", "STRINGIZE(alpha)", "STRINGIZE",
+       TokenKind::T_STRING_LITERAL, "\"alpha\""},
+      {"#define STRINGIZE(value) #value\n", "STRINGIZE()", "STRINGIZE",
+       TokenKind::T_STRING_LITERAL, "\"\""},
+      {"#define PASTE(left, right) left##right\n", "PASTE(12, 34)", "PASTE",
+       TokenKind::T_INTEGER_LITERAL, "1234"},
+      {"#define PREFIX(value) 4##value\n", "PREFIX(2)", "PREFIX",
+       TokenKind::T_INTEGER_LITERAL, "42"},
+      {"#define SUFFIX(value) value##2\n", "SUFFIX(4)", "SUFFIX",
+       TokenKind::T_INTEGER_LITERAL, "42"},
+      {"#define PASTE(left, right) left##right\n", "PASTE(, 56)", "PASTE",
+       TokenKind::T_INTEGER_LITERAL, "56"},
+      {"#define PASTE(left, right) left##right\n", "PASTE(78, )", "PASTE",
+       TokenKind::T_INTEGER_LITERAL, "78"},
+      {"#define PASTE(left, right) left##right\n"
+       "#define FORWARD(value) value\n",
+       "FORWARD(PASTE(9, 0))", "PASTE", TokenKind::T_INTEGER_LITERAL, "90"},
+  };
+
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.expression);
+
+    std::string source{test.definitions};
+    source += "auto result = ";
+    const auto expressionOffset = source.size();
+    source += test.expression;
+    source += ";\n";
+
+    const auto expectedOffset =
+        source.find(test.operatorName, expressionOffset);
+    ASSERT_NE(expectedOffset, std::string::npos);
+
+    DiagnosticsClient diagnostics;
+    TranslationUnit unit{&diagnostics};
+    unit.setSource(source, "macro_operator.cc");
+
+    const Token* replacement = nullptr;
+    SourceLocation replacementLocation;
+    for (unsigned index = 1; index < unit.tokenCount(); ++index) {
+      const auto& token = unit.tokens()[index];
+      if (token.kind() != test.replacementKind ||
+          token.spell() != test.replacementSpelling) {
+        continue;
+      }
+      EXPECT_EQ(replacement, nullptr);
+      replacement = &token;
+      replacementLocation = unit.locationOfIndex(index);
+    }
+
+    if (!replacement) {
+      ADD_FAILURE() << "replacement token was not produced";
+      continue;
+    }
+    EXPECT_EQ(replacement->fileId(), unit.preprocessor()->mainSourceFileId());
+    EXPECT_EQ(replacement->offset(), expectedOffset);
+    EXPECT_EQ(replacement->length(), test.operatorName.size());
+
+    const auto start = unit.tokenStartPosition(replacementLocation);
+    const auto end = unit.tokenEndPosition(replacementLocation);
+    EXPECT_EQ(start.fileName, "macro_operator.cc");
+    EXPECT_EQ(end.fileName, start.fileName);
+    EXPECT_EQ(end.line, start.line);
+    EXPECT_EQ(end.column, start.column + test.operatorName.size());
+  }
+}
+
+TEST(SourceLocations, TokenPastingDropsEmptyPlacemarkers) {
+  DiagnosticsClient diagnostics;
+  TranslationUnit unit{&diagnostics};
+  unit.setSource(
+      "#define PASTE(left, right) left##right\n"
+      "auto result = PASTE(,);\n",
+      "empty_paste.cc");
+
+  for (const auto& token : unit.tokens()) {
+    if (token.kind() == TokenKind::T_IDENTIFIER) {
+      EXPECT_FALSE(token.spell().empty());
+    }
+  }
+}
