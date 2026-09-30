@@ -236,10 +236,10 @@ namespace {
 
 }  // namespace
 
-auto findAttributeBySpelling(TranslationUnit* unit,
-                             List<AttributeSpecifierAST*>* attributeList,
-                             std::span<const AttributeSpelling> spellings)
-    -> AttributeRef {
+void visitAttributesBySpelling(
+    TranslationUnit* unit, List<AttributeSpecifierAST*>* attributeList,
+    std::span<const AttributeSpelling> spellings,
+    const std::function<bool(AttributeRef)>& visitor) {
   auto control = unit->control();
 
   for (auto specifier : ListView{attributeList}) {
@@ -278,13 +278,26 @@ auto findAttributeBySpelling(TranslationUnit* unit,
         if (!matchesSpelling(spelling, syntax, attributeNamespace, name))
           continue;
 
-        return AttributeRef{&spelling, entry->attributeArgumentClause,
-                            entry->firstSourceLocation()};
+        if (!visitor(AttributeRef{&spelling, entry->attributeArgumentClause,
+                                  entry->firstSourceLocation()}))
+          return;
+        break;
       }
     }
   }
+}
 
-  return {};
+auto findAttributeBySpelling(TranslationUnit* unit,
+                             List<AttributeSpecifierAST*>* attributeList,
+                             std::span<const AttributeSpelling> spellings)
+    -> AttributeRef {
+  AttributeRef result;
+  visitAttributesBySpelling(unit, attributeList, spellings,
+                            [&](AttributeRef attribute) {
+                              result = attribute;
+                              return false;
+                            });
+  return result;
 }
 
 }  // namespace cxx

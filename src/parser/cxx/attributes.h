@@ -25,6 +25,7 @@
 #include <cxx/source_location.h>
 
 #include <compare>
+#include <functional>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -84,6 +85,16 @@ struct AttributeRef {
 
   explicit operator bool() const { return spelling != nullptr; }
 };
+
+/**
+ * Visits matching attributes in source order. Returning false stops the
+ * traversal. Attribute references borrow syntax and spelling tables from the
+ * caller.
+ */
+void visitAttributesBySpelling(
+    TranslationUnit* unit, List<AttributeSpecifierAST*>* attributeList,
+    std::span<const AttributeSpelling> spellings,
+    const std::function<bool(AttributeRef)>& visitor);
 
 /**
  * Returns the first attribute of the list matching one of the given spellings,

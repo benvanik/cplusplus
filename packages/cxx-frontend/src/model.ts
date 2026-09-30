@@ -925,7 +925,7 @@ const DeductionGuideSymbolSlotBase = ConceptSymbolSlotBase + 9;
 const BaseClassSymbolSlotBase = DeductionGuideSymbolSlotBase + 10;
 const InjectedClassNameSymbolSlotBase = BaseClassSymbolSlotBase + 2;
 const ClassSymbolSlotBase = InjectedClassNameSymbolSlotBase + 1;
-const EnumSymbolSlotBase = ClassSymbolSlotBase + 63;
+const EnumSymbolSlotBase = ClassSymbolSlotBase + 64;
 const ScopedEnumSymbolSlotBase = EnumSymbolSlotBase + 3;
 const FunctionSymbolSlotBase = ScopedEnumSymbolSlotBase + 2;
 const OverloadSetSymbolSlotBase = FunctionSymbolSlotBase + 74;
@@ -9332,14 +9332,17 @@ export class ClassSymbol extends ScopeSymbol {
   get explicitAlignment(): number {
     return cxx.readSymbol(this.handle, ClassSymbolSlotBase + 46);
   }
-  get packAlignment(): number {
+  get minimumAlignment(): number {
     return cxx.readSymbol(this.handle, ClassSymbolSlotBase + 47);
+  }
+  get packAlignment(): number {
+    return cxx.readSymbol(this.handle, ClassSymbolSlotBase + 48);
   }
   get befriendingClasses(): Iterable<ClassSymbol | undefined> {
     return symbolItems(
       this.modelOwner,
       this.handle,
-      ClassSymbolSlotBase + 48,
+      ClassSymbolSlotBase + 49,
       (item: any) => symbolOf(item, this.modelOwner),
     );
   }
@@ -9347,58 +9350,58 @@ export class ClassSymbol extends ScopeSymbol {
     return symbolValItems(
       this.modelOwner,
       this.handle,
-      ClassSymbolSlotBase + 49,
+      ClassSymbolSlotBase + 50,
       (item: any) => decodeTemplateFriendship(item, this.modelOwner),
     );
   }
   get baseClassRepetition(): ClassSymbol_BaseClassRepetition {
     return decodeClassSymbol_BaseClassRepetition(
-      cxx.readSymbolVal(this.handle, ClassSymbolSlotBase + 50),
+      cxx.readSymbolVal(this.handle, ClassSymbolSlotBase + 51),
       this.modelOwner,
     );
   }
   get flags(): number {
-    return cxx.readSymbol(this.handle, ClassSymbolSlotBase + 51);
+    return cxx.readSymbol(this.handle, ClassSymbolSlotBase + 52);
   }
   get hasVirtualBaseSubobjects(): boolean {
-    return cxx.readSymbol(this.handle, ClassSymbolSlotBase + 52) !== 0;
+    return cxx.readSymbol(this.handle, ClassSymbolSlotBase + 53) !== 0;
   }
   get vtableLayout(): VTableLayout | undefined {
     return optionalOf(
-      cxx.readSymbolVal(this.handle, ClassSymbolSlotBase + 53),
+      cxx.readSymbolVal(this.handle, ClassSymbolSlotBase + 54),
       (item: any) => decodeVTableLayout(item, this.modelOwner),
     );
   }
   get isClosureType(): boolean {
-    return cxx.readSymbol(this.handle, ClassSymbolSlotBase + 54) !== 0;
-  }
-  get hasLambdaCapture(): boolean {
     return cxx.readSymbol(this.handle, ClassSymbolSlotBase + 55) !== 0;
   }
-  get capturedThisField(): FieldSymbol | undefined {
-    return symbolOf(
-      cxx.readSymbol(this.handle, ClassSymbolSlotBase + 56),
-      this.modelOwner,
-    );
+  get hasLambdaCapture(): boolean {
+    return cxx.readSymbol(this.handle, ClassSymbolSlotBase + 56) !== 0;
   }
-  get functionCallOperator(): FunctionSymbol | undefined {
+  get capturedThisField(): FieldSymbol | undefined {
     return symbolOf(
       cxx.readSymbol(this.handle, ClassSymbolSlotBase + 57),
       this.modelOwner,
     );
   }
+  get functionCallOperator(): FunctionSymbol | undefined {
+    return symbolOf(
+      cxx.readSymbol(this.handle, ClassSymbolSlotBase + 58),
+      this.modelOwner,
+    );
+  }
   get closureDiscriminator(): number {
-    return cxx.readSymbol(this.handle, ClassSymbolSlotBase + 58);
+    return cxx.readSymbol(this.handle, ClassSymbolSlotBase + 59);
   }
   get instantiationTemplate(): ClassSymbol | undefined {
     return symbolOf(
-      cxx.readSymbol(this.handle, ClassSymbolSlotBase + 59),
+      cxx.readSymbol(this.handle, ClassSymbolSlotBase + 60),
       this.modelOwner,
     );
   }
   get templatePattern(): ClassSymbol | undefined {
     return symbolOf(
-      cxx.readSymbol(this.handle, ClassSymbolSlotBase + 60),
+      cxx.readSymbol(this.handle, ClassSymbolSlotBase + 61),
       this.modelOwner,
     );
   }
@@ -9406,7 +9409,7 @@ export class ClassSymbol extends ScopeSymbol {
     return symbolValItems(
       this.modelOwner,
       this.handle,
-      ClassSymbolSlotBase + 61,
+      ClassSymbolSlotBase + 62,
       (item: any) => decodeTemplateArgument(item, this.modelOwner),
     );
   }
@@ -9414,7 +9417,7 @@ export class ClassSymbol extends ScopeSymbol {
     return symbolStringItems(
       this.modelOwner,
       this.handle,
-      ClassSymbolSlotBase + 62,
+      ClassSymbolSlotBase + 63,
       (item: any) => item,
     );
   }
