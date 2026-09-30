@@ -55,6 +55,7 @@ add_library(cxx-parser
     cxx/base_classes.cc
     cxx/binder.cc
     cxx/binder_complete_class.cc
+    cxx/binder_record_layout.cc
     cxx/binder_resolve_id.cc
     cxx/binder_declare_function.cc
     cxx/binder_enums.cc
