@@ -376,6 +376,8 @@ class ASTInterpreter {
   auto initializeDecisionVariable(ConditionExpressionAST* condition)
       -> VariableSymbol*;
 
+  [[nodiscard]] auto readVariable(VariableSymbol* variable) -> ExpressionResult;
+
   void interpretStructuredBinding(StructuredBindingDeclarationAST* ast);
 
   [[nodiscard]] auto beginAutomaticScope() const -> std::size_t;

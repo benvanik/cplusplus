@@ -1632,6 +1632,29 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
   return std::nullopt;
 }
 
+auto ASTInterpreter::readVariable(VariableSymbol* variable)
+    -> ExpressionResult {
+  if (!variable || traits.is_volatile(variable->type())) return std::nullopt;
+
+  if (variable->isConstexpr()) {
+    if (traits.is_reference(variable->type())) {
+      auto value = variable->constValue();
+      if (!value) return std::nullopt;
+      auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value);
+      if (!address || !*address) return std::nullopt;
+      return loadAddress(**address, 0);
+    }
+    return variable->constValue();
+  }
+
+  if (variable->constValue() && traits.is_const(variable->type()) &&
+      (traits.is_integral_or_enum(traits.remove_cvref(variable->type())) ||
+       isDependent(unit_, variable->type())))
+    return variable->constValue();
+
+  return lookupLocal(variable);
+}
+
 auto ASTInterpreter::ExpressionVisitor::operator()(IdExpressionAST* ast)
     -> ExpressionResult {
   auto nestedNameSpecifierResult =
@@ -1651,26 +1674,8 @@ auto ASTInterpreter::ExpressionVisitor::operator()(IdExpressionAST* ast)
     return ConstValue{*satisfied};
   }
 
-  if (auto var = symbol_cast<VariableSymbol>(ast->symbol);
-      var && var->isConstexpr()) {
-    if (unit()->typeTraits().is_reference(var->type())) {
-      auto value = var->constValue();
-      if (!value) return std::nullopt;
-      auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value);
-      if (!address || !*address) return std::nullopt;
-      return interp.loadAddress(**address, 0);
-    }
-    return var->constValue();
-  }
-
-  if (auto var = symbol_cast<VariableSymbol>(ast->symbol);
-      var && !var->isConstexpr() && var->constValue().has_value() &&
-      unit()->typeTraits().is_const(var->type()) &&
-      (unit()->typeTraits().is_integral_or_enum(
-           unit()->typeTraits().remove_cvref(var->type())) ||
-       isDependent(unit(), var->type()))) {
-    return var->constValue();
-  }
+  if (auto variable = symbol_cast<VariableSymbol>(ast->symbol))
+    return interp.readVariable(variable);
 
   if (auto field = symbol_cast<FieldSymbol>(ast->symbol);
       field && field->isStatic()) {
@@ -3350,7 +3355,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(ConditionExpressionAST* ast)
     -> ExpressionResult {
   auto variable = interp.initializeDecisionVariable(ast);
   if (!variable) return std::nullopt;
-  return interp.lookupLocal(variable);
+  return interp.readVariable(variable);
 }
 
 auto ASTInterpreter::ExpressionVisitor::operator()(EqualInitializerAST* ast)
