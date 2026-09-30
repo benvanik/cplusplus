@@ -1193,6 +1193,11 @@ class ClassSymbol final : public ScopeSymbol,
   [[nodiscard]] auto explicitAlignment() const -> int;
   void setExplicitAlignment(int alignment);
 
+  // GNU minimum record alignment in bytes, independent of standard alignas.
+  // Zero means that no GNU minimum was requested.
+  [[nodiscard]] auto minimumAlignment() const -> int;
+  void setMinimumAlignment(int alignment);
+
   [[nodiscard]] auto packAlignment() const -> int;
   void setPackAlignment(int alignment);
 
@@ -1301,6 +1306,9 @@ class ClassSymbol final : public ScopeSymbol,
       std::uint32_t isClosureType_ : 1;
       std::uint32_t hasLambdaCapture_ : 1;
       std::uint32_t hasUserDeclaredConstructors_ : 1;
+      // GNU minimum byte alignment encoded as log2(alignment) + 1; zero means
+      // unspecified.
+      std::uint32_t minimumAlignmentShift_ : 5;
     };
   };
 };

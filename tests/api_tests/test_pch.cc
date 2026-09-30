@@ -19,6 +19,7 @@
 // SOFTWARE.
 
 #include <cxx/ast.h>
+#include <cxx/attributes.h>
 #include <cxx/control.h>
 #include <cxx/diagnostics_client.h>
 #include <cxx/literals.h>
@@ -143,6 +144,43 @@ int origin;
   ASSERT_TRUE(type_cast<IntType>(x->type()));
 
   ASSERT_TRUE(symbol_cast<VariableSymbol>(findMember(globalScope, "origin")));
+}
+
+TEST(PrecompiledHeader, RestoresRecordLayoutAttributes) {
+  Prefix prefix{R"(
+struct __attribute__((packed, aligned(16))) Packet;
+struct Packet {
+  unsigned char tag;
+  unsigned value;
+};
+)"};
+
+  const auto data = prefix.emit();
+
+  ASSERT_TRUE(prefix.errors().empty());
+  ASSERT_FALSE(data.empty());
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  auto packet =
+      symbol_cast<ClassSymbol>(findMember(consumer.globalScope(), "Packet"));
+  ASSERT_TRUE(packet);
+  ASSERT_TRUE(findAttribute(packet->attributes(), "packed"));
+  ASSERT_EQ(packet->minimumAlignment(), 16);
+  ASSERT_EQ(packet->alignment(), 16);
+  ASSERT_EQ(packet->sizeInBytes(), 16);
+
+  auto value = symbol_cast<FieldSymbol>(findMember(packet, "value"));
+  ASSERT_TRUE(value);
+  ASSERT_TRUE(packet->layout());
+  auto info = packet->layout()->getFieldInfo(value);
+  ASSERT_TRUE(info);
+  ASSERT_EQ(info->offset, 1u);
 }
 
 TEST(PrecompiledHeader, RestoresScopeLookup) {

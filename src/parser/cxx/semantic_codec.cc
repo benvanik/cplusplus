@@ -2215,6 +2215,8 @@ void SemanticEncoder::writeSymbolClassSymbol(
   out.varU32(static_cast<std::uint32_t>(self->hasLambdaCapture()));
   // ::cxx::ClassSymbol::hasUserDeclaredConstructors_
   out.varU32(static_cast<std::uint32_t>(self->hasUserDeclaredConstructors()));
+  // ::cxx::ClassSymbol::minimumAlignmentShift_
+  out.varU32(static_cast<std::uint32_t>(self->minimumAlignment()));
 }
 
 void SemanticEncoder::writeSymbolEnumSymbol(
@@ -9819,6 +9821,9 @@ void SemanticDecoder::readSymbolClassSymbol(
   // ::cxx::ClassSymbol::hasUserDeclaredConstructors_
   unsigned int value70 = static_cast<unsigned int>(in.varU32());
   self->setHasUserDeclaredConstructors(std::move(value70));
+  // ::cxx::ClassSymbol::minimumAlignmentShift_
+  unsigned int value71 = static_cast<unsigned int>(in.varU32());
+  self->setMinimumAlignment(std::move(value71));
 }
 
 void SemanticDecoder::readSymbolEnumSymbol(

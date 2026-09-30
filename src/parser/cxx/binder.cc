@@ -50,6 +50,7 @@
 
 #include <algorithm>
 #include <format>
+#include <limits>
 
 namespace cxx {
 namespace {
@@ -894,6 +895,26 @@ void Binder::bind(ElaboratedTypeSpecifierAST* ast, DeclSpecs& declSpecs,
     }
 
     ast->symbol = classSymbol;
+
+    if (!classSymbol->isComplete()) {
+      applyDeclarationAttributes(classSymbol, ast->attributeList);
+    } else {
+      static constexpr AttributeSpelling kLayoutAttributeSpellings[] = {
+          {AttributeSyntax::kGnu, "", "packed"},
+          {AttributeSyntax::kCxx, "gnu", "packed"},
+          {AttributeSyntax::kGnu, "", "aligned"},
+          {AttributeSyntax::kCxx, "gnu", "aligned"},
+      };
+      visitAttributesBySpelling(
+          unit_, ast->attributeList, kLayoutAttributeSpellings,
+          [&](AttributeRef attribute) {
+            warning(attribute.location,
+                    std::format("'{}' attribute declaration must precede "
+                                "definition",
+                                attribute.spelling->name));
+            return true;
+          });
+    }
 
     if (auto alignment = explicitAlignment(ast->attributeList, location)) {
       checkRedeclaredAlignment(classSymbol, *alignment, location);
@@ -3232,6 +3253,10 @@ auto Binder::validatedAlignment(std::optional<std::intmax_t> value,
     error(loc, "requested alignment is not a power of 2");
     return std::nullopt;
   }
+  if (*value > std::numeric_limits<int>::max()) {
+    error(loc, "requested alignment exceeds the supported layout range");
+    return std::nullopt;
+  }
   return static_cast<int>(*value);
 }
 
@@ -3242,22 +3267,30 @@ auto Binder::alignedAttribute(List<AttributeSpecifierAST*>* attributeList)
       {AttributeSyntax::kCxx, "gnu", "aligned"},
   };
 
-  auto attribute =
-      findAttributeBySpelling(unit_, attributeList, kAlignedSpellings);
-  if (!attribute) return std::nullopt;
+  std::optional<int> strictest;
+  visitAttributesBySpelling(
+      unit_, attributeList, kAlignedSpellings, [&](AttributeRef attribute) {
+        std::optional<int> requested;
+        auto clause = attribute.argumentClause;
+        if (!clause || !clause->expressionList) {
+          requested = static_cast<int>(
+              control()->memoryLayout()->alignedAttributeAlignment());
+        } else {
+          auto expression = clause->expressionList->value;
+          if (isDependent(unit_, expression)) return true;
 
-  auto clause = attribute.argumentClause;
-  if (!clause || !clause->expressionList)
-    return static_cast<int>(
-        control()->memoryLayout()->alignedAttributeAlignment());
+          ASTInterpreter interp{unit_};
+          auto value = interp.evaluate(expression);
+          requested =
+              value
+                  ? validatedAlignment(interp.toInt(*value), attribute.location)
+                  : validatedAlignment(std::nullopt, attribute.location);
+        }
 
-  auto expression = clause->expressionList->value;
-  if (isDependent(unit_, expression)) return std::nullopt;
-
-  ASTInterpreter interp{unit_};
-  auto value = interp.evaluate(expression);
-  if (!value) return validatedAlignment(std::nullopt, attribute.location);
-  return validatedAlignment(interp.toInt(*value), attribute.location);
+        if (requested) strictest = std::max(strictest.value_or(0), *requested);
+        return true;
+      });
+  return strictest;
 }
 
 void Binder::applyAlignedAttribute(
@@ -3268,6 +3301,12 @@ void Binder::applyAlignedAttribute(
   if (auto field = symbol_cast<FieldSymbol>(symbol)) {
     field->setExplicitAlignment(
         std::max(field->explicitAlignment(), *requested));
+    return;
+  }
+
+  if (auto classSymbol = symbol_cast<ClassSymbol>(symbol)) {
+    classSymbol->setMinimumAlignment(
+        std::max(classSymbol->minimumAlignment(), *requested));
     return;
   }
 

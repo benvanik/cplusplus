@@ -1795,6 +1795,16 @@ void ClassSymbol::setExplicitAlignment(int alignment) {
   explicitAlignment_ = alignment;
 }
 
+auto ClassSymbol::minimumAlignment() const -> int {
+  if (!minimumAlignmentShift_) return 0;
+  return static_cast<int>(1u << (minimumAlignmentShift_ - 1));
+}
+
+void ClassSymbol::setMinimumAlignment(int alignment) {
+  minimumAlignmentShift_ =
+      alignment ? std::countr_zero(static_cast<unsigned>(alignment)) + 1 : 0;
+}
+
 auto ClassSymbol::packAlignment() const -> int { return packAlignment_; }
 
 void ClassSymbol::setPackAlignment(int alignment) {
