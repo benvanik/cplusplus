@@ -34,11 +34,13 @@
 #include <cxx/symbols.h>
 #include <cxx/template_equivalence.h>
 #include <cxx/translation_unit.h>
+#include <cxx/triple.h>
 #include <cxx/type_checker.h>
 #include <cxx/type_traits.h>
 #include <cxx/types.h>
 #include <cxx/views/symbols.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <optional>
@@ -3394,6 +3396,181 @@ auto TypeTraits::is_trivially_copyable(const Type* type) -> bool {
     return is_trivially_copyable_class(*this, classType->definition());
   }
   return false;
+}
+
+namespace {
+[[nodiscard]] auto objectSizeInBits(const MemoryLayout& memoryLayout,
+                                    const Type* type)
+    -> std::optional<std::uint64_t> {
+  auto size = memoryLayout.sizeOf(type);
+  if (!size) return std::nullopt;
+  return static_cast<std::uint64_t>(*size) * 8;
+}
+
+[[nodiscard]] auto usesMicrosoftMultipleInheritanceModel(
+    ClassSymbol* classSymbol) -> bool {
+  while (classSymbol && !classSymbol->baseClasses().empty()) {
+    if (classSymbol->baseClasses().size() > 1) return true;
+    auto baseClass = resolved_base_class(classSymbol->baseClasses().front());
+    if (!baseClass) return false;
+    if (classSymbol->isPolymorphic() && !baseClass->isPolymorphic())
+      return true;
+    classSymbol = baseClass;
+  }
+  return false;
+}
+
+[[nodiscard]] auto memberPointerHasPadding(TypeTraits& traits, const Type* type)
+    -> bool {
+  auto functionPointer = unqualified_cast<MemberFunctionPointerType>(type);
+  if (!functionPointer) return false;
+
+  auto memoryLayout = traits.control()->memoryLayout();
+  auto target = Triple{memoryLayout->triple()};
+  if (target.os() != TripleOS::kWindows) return false;
+  if (memoryLayout->sizeOfPointer() != 8) return false;
+
+  auto classType = unqualified_cast<ClassType>(functionPointer->classType());
+  if (!classType || !classType->isComplete()) return true;
+  auto classSymbol = classType->definition();
+  if (classSymbol->hasVirtualBaseSubobjects()) return false;
+  return usesMicrosoftMultipleInheritanceModel(classSymbol);
+}
+
+[[nodiscard]] auto recordOccupiedBits(TypeTraits& traits,
+                                      ClassSymbol* classSymbol)
+    -> std::optional<std::uint64_t>;
+
+[[nodiscard]] auto fieldOccupiedBits(TypeTraits& traits, FieldSymbol* field,
+                                     const ClassLayout::MemberInfo& info)
+    -> std::optional<std::uint64_t> {
+  auto type = traits.remove_cv(field->type());
+  auto memoryLayout = traits.control()->memoryLayout();
+
+  if (field->isBitField()) {
+    if (!field->name()) return 0;
+
+    if (auto bitInt = type_cast<BitIntType>(type)) {
+      if (info.bitWidth > static_cast<std::uint32_t>(bitInt->numBits()))
+        return std::nullopt;
+    } else if (auto bitInt = type_cast<UnsignedBitIntType>(type)) {
+      if (info.bitWidth > static_cast<std::uint32_t>(bitInt->numBits()))
+        return std::nullopt;
+    } else {
+      auto typeSize = objectSizeInBits(*memoryLayout, type);
+      if (!typeSize || info.bitWidth > *typeSize) return std::nullopt;
+      if (!traits.has_unique_object_representations(type)) return std::nullopt;
+    }
+    return info.bitWidth;
+  }
+
+  if (auto classType = type_cast<ClassType>(type);
+      classType && !classType->isUnion()) {
+    return recordOccupiedBits(traits, classType->definition());
+  }
+
+  if (traits.is_reference(type)) return objectSizeInBits(*memoryLayout, type);
+  if (!traits.has_unique_object_representations(type)) return std::nullopt;
+  return objectSizeInBits(*memoryLayout, type);
+}
+
+[[nodiscard]] auto recordOccupiedBits(TypeTraits& traits,
+                                      ClassSymbol* classSymbol)
+    -> std::optional<std::uint64_t> {
+  if (!classSymbol) return std::nullopt;
+  classSymbol = classSymbol->resolvedDefinition();
+  if (!classSymbol->isComplete() || classSymbol->isUnion()) return std::nullopt;
+
+  auto layout = classSymbol->layout();
+  if (!layout || layout->hasVtable()) return std::nullopt;
+
+  struct BaseSubobject {
+    ClassSymbol* classSymbol = nullptr;
+    std::uint64_t offset = 0;
+  };
+
+  std::vector<BaseSubobject> bases;
+  bases.reserve(classSymbol->baseClasses().size());
+  for (auto base : classSymbol->baseClasses()) {
+    if (base->isVirtual()) return std::nullopt;
+    auto baseClass = resolved_base_class(base);
+    if (!baseClass) return std::nullopt;
+    auto info = layout->getBaseInfo(baseClass);
+    if (!info) return std::nullopt;
+    bases.push_back({baseClass, info->offset});
+  }
+  std::ranges::sort(bases, {}, &BaseSubobject::offset);
+
+  std::uint64_t occupiedBits = 0;
+  for (const auto& base : bases) {
+    auto size = recordOccupiedBits(traits, base.classSymbol);
+    if (!size) return std::nullopt;
+    if (*size == 0) continue;
+    if (base.offset * 8 != occupiedBits) return std::nullopt;
+    occupiedBits += *size;
+  }
+
+  for (auto field : classSymbol->members() | views::non_static_fields) {
+    auto info = layout->getFieldInfo(field);
+    if (!info) return std::nullopt;
+    auto size = fieldOccupiedBits(traits, field, *info);
+    if (!size) return std::nullopt;
+    if (*size == 0) continue;
+    auto offset = info->offset * 8 + info->bitOffset;
+    if (offset != occupiedBits) return std::nullopt;
+    occupiedBits += *size;
+  }
+
+  return occupiedBits;
+}
+}  // namespace
+
+auto TypeTraits::has_unique_object_representations(const Type* type) -> bool {
+  if (!type) return false;
+
+  auto objectType = remove_cv(remove_all_extents(type));
+  if (auto classType = type_cast<ClassType>(objectType)) {
+    requireCompleteClass(classType->symbol());
+  }
+
+  if (is_array(type)) return has_unique_object_representations(objectType);
+  if (!is_trivially_copyable(objectType)) return false;
+
+  auto memoryLayout = control()->memoryLayout();
+  if (auto bitInt = type_cast<BitIntType>(objectType)) {
+    auto size = objectSizeInBits(*memoryLayout, bitInt);
+    return size && *size == static_cast<std::uint64_t>(bitInt->numBits());
+  }
+  if (auto bitInt = type_cast<UnsignedBitIntType>(objectType)) {
+    auto size = objectSizeInBits(*memoryLayout, bitInt);
+    return size && *size == static_cast<std::uint64_t>(bitInt->numBits());
+  }
+
+  if (is_integral_or_enum(objectType)) return true;
+  if (is_pointer(objectType)) return true;
+  if (is_member_pointer(objectType)) {
+    return !memberPointerHasPadding(*this, objectType);
+  }
+
+  auto classType = type_cast<ClassType>(objectType);
+  if (!classType || !classType->isComplete()) return false;
+  auto classSymbol = classType->definition();
+  auto layout = classSymbol->layout();
+  if (!layout) return false;
+
+  if (classSymbol->isUnion()) {
+    bool hasField = false;
+    for (auto field : classSymbol->members() | views::non_static_fields) {
+      hasField = true;
+      if (!has_unique_object_representations(field->type())) return false;
+      auto fieldSize = memoryLayout->sizeOf(field->type());
+      if (!fieldSize || *fieldSize != layout->size()) return false;
+    }
+    return hasField;
+  }
+
+  auto occupiedBits = recordOccupiedBits(*this, classSymbol);
+  return occupiedBits && *occupiedBits == layout->size() * 8;
 }
 
 auto TypeTraits::is_non_trivial_for_calls(const Type* type) -> bool {

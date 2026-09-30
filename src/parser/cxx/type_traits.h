@@ -326,6 +326,7 @@ class TypeTraits {
   auto is_nothrow_assignable(const Type* to, const Type* from) -> bool;
   auto is_trivially_assignable(const Type* to, const Type* from) -> bool;
   auto is_trivially_copyable(const Type* type) -> bool;
+  auto has_unique_object_representations(const Type* type) -> bool;
   auto is_non_trivial_for_calls(const Type* type) -> bool;
   auto is_abstract(const Type* type) -> bool;
   auto is_destructible(const Type* type) -> bool;
