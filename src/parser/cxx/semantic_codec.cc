@@ -3813,6 +3813,11 @@ void SemanticEncoder::writeAstIfStatementAST(
   out.varU32(static_cast<std::uint32_t>(astRef(self->elseStatement)));
   // ::cxx::IfStatementAST::symbol
   out.varU32(static_cast<std::uint32_t>(symbolRef(self->symbol)));
+  // ::cxx::IfStatementAST::constexprValue
+  out.boolean(self->constexprValue.has_value());
+  if (self->constexprValue.has_value()) {
+    out.boolean((*self->constexprValue));
+  }
 }
 
 void SemanticEncoder::writeAstConstevalIfStatementAST(
@@ -12256,6 +12261,13 @@ void SemanticDecoder::readAstIfStatementAST(
   cxx::BlockSymbol* value11 =
       symbol_cast<BlockSymbol>(symbolAt(SymbolRef{in.varU32()}));
   self->symbol = std::move(value11);
+  // ::cxx::IfStatementAST::constexprValue
+  std::optional<bool> value12;
+  if (in.boolean()) {
+    bool value13 = in.boolean();
+    value12 = std::move(value13);
+  }
+  self->constexprValue = std::move(value12);
 }
 
 void SemanticDecoder::readAstConstevalIfStatementAST(
