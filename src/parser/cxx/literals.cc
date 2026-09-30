@@ -962,6 +962,8 @@ auto FloatLiteral::Components::from(std::string_view text,
   const auto firstChar = literalText.data();
   if (components.suffix == FloatingPointSuffix::kF16)
     components.value = roundFloat16(std::strtold(firstChar, nullptr));
+  else if (components.suffix == FloatingPointSuffix::kBF16)
+    components.value = roundBFloat16(std::strtold(firstChar, nullptr));
   else
     components.value = std::strtod(firstChar, nullptr);
 

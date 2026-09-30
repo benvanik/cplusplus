@@ -256,6 +256,9 @@ struct ASTInterpreter::ExpressionVisitor {
       case TypeKind::kFloat16:
         return ConstValue{
             roundFloat16(op(toLongDouble(*left), toLongDouble(*right)))};
+      case TypeKind::kBFloat16:
+        return ConstValue{
+            roundBFloat16(op(toLongDouble(*left), toLongDouble(*right)))};
       case TypeKind::kFloat:
         return ConstValue{op(toFloat(*left), toFloat(*right))};
       case TypeKind::kLongDouble:
@@ -276,6 +279,8 @@ struct ASTInterpreter::ExpressionVisitor {
     switch (type->kind()) {
       case TypeKind::kFloat16:
         return ConstValue{roundFloat16(toLongDouble(*operand))};
+      case TypeKind::kBFloat16:
+        return ConstValue{roundBFloat16(toLongDouble(*operand))};
       case TypeKind::kFloat:
         return ConstValue{toFloat(*operand)};
       case TypeKind::kDouble:
@@ -314,6 +319,8 @@ struct ASTInterpreter::ExpressionVisitor {
     switch (type->kind()) {
       case TypeKind::kFloat16:
         return ConstValue{roundFloat16(-toLongDouble(*operand))};
+      case TypeKind::kBFloat16:
+        return ConstValue{roundBFloat16(-toLongDouble(*operand))};
       case TypeKind::kFloat:
         return ConstValue{-toFloat(*operand)};
       case TypeKind::kDouble:
@@ -2591,6 +2598,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
     }
 
     case TypeKind::kFloat16:
+    case TypeKind::kBFloat16:
       return interp.toArithmeticType(*value, ast->type);
 
     case TypeKind::kFloat: {

@@ -434,6 +434,8 @@ auto MlirEmitter::floatingType(FloatKind kind) -> TypeRef {
   switch (kind) {
     case FloatKind::Half:
       return wrap(mlir::Float16Type::get(context()));
+    case FloatKind::BFloat:
+      return wrap(mlir::BFloat16Type::get(context()));
     case FloatKind::Single:
       return wrap(mlir::Float32Type::get(context()));
     case FloatKind::Double:

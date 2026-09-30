@@ -726,6 +726,8 @@ auto StandardConversion::commonArithmeticType(const Type* a, const Type* b)
         return 2;
       case TypeKind::kFloat16:
         return 1;
+      case TypeKind::kBFloat16:
+        return 0;
       default:
         return -1;
     }

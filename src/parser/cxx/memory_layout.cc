@@ -39,6 +39,11 @@ struct FloatingPointFormatOf {
     return FloatingPointFormat{.exponentBits = 5, .significandDigits = 11};
   }
 
+  [[nodiscard]] auto operator()(const BFloat16Type*) const
+      -> std::optional<FloatingPointFormat> {
+    return FloatingPointFormat{.exponentBits = 8, .significandDigits = 8};
+  }
+
   [[nodiscard]] auto operator()(const FloatType*) const
       -> std::optional<FloatingPointFormat> {
     return FloatingPointFormat{.exponentBits = 8, .significandDigits = 24};
@@ -236,6 +241,11 @@ struct SizeOf {
   }
 
   auto operator()(const Float16Type* type) const -> std::optional<std::size_t> {
+    return 2;
+  }
+
+  auto operator()(const BFloat16Type* type) const
+      -> std::optional<std::size_t> {
     return 2;
   }
 

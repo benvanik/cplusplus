@@ -184,6 +184,7 @@ struct IsIntegral {
 
 struct IsFloatingPoint {
   auto operator()(const Float16Type*) const -> bool { return true; }
+  auto operator()(const BFloat16Type*) const -> bool { return true; }
   auto operator()(const FloatType*) const -> bool { return true; }
   auto operator()(const DoubleType*) const -> bool { return true; }
   auto operator()(const LongDoubleType*) const -> bool { return true; }
@@ -217,6 +218,7 @@ struct IsSigned {
   auto operator()(const DoubleType*) const -> bool { return true; }
   auto operator()(const LongDoubleType*) const -> bool { return true; }
   auto operator()(const Float16Type*) const -> bool { return true; }
+  auto operator()(const BFloat16Type*) const -> bool { return true; }
   auto operator()(const BitIntType*) const -> bool { return true; }
 
   auto operator()(const QualType* type) const -> bool {
@@ -815,6 +817,10 @@ struct IsSameVisitor {
   }
 
   auto operator()(const Float16Type*, const Float16Type*) const -> bool {
+    return true;
+  }
+
+  auto operator()(const BFloat16Type*, const BFloat16Type*) const -> bool {
     return true;
   }
 
@@ -1867,6 +1873,11 @@ auto TypeTraits::is_narrowing_conversion(const Type* from, const Type* to) const
   if (is_floating_point(from) && is_integral(to)) return true;
 
   if (is_floating_point(from) && is_floating_point(to)) {
+    if ((from->kind() == TypeKind::kFloat16 &&
+         to->kind() == TypeKind::kBFloat16) ||
+        (from->kind() == TypeKind::kBFloat16 &&
+         to->kind() == TypeKind::kFloat16))
+      return true;
     auto fromSize = control()->memoryLayout()->sizeOf(from);
     auto toSize = control()->memoryLayout()->sizeOf(to);
     if (fromSize && toSize && *fromSize > *toSize) return true;

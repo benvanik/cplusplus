@@ -190,6 +190,7 @@ struct Control::Private {
   DoubleType doubleType;
   LongDoubleType longDoubleType;
   Float16Type float16Type;
+  BFloat16Type bfloat16Type;
 
   std::set<QualType> qualTypes;
   std::set<BoundedArrayType> boundedArrayTypes;
@@ -555,6 +556,10 @@ auto Control::getLongDoubleType() -> const LongDoubleType* {
 }
 
 auto Control::getFloat16Type() -> const Float16Type* { return &d->float16Type; }
+
+auto Control::getBFloat16Type() -> const BFloat16Type* {
+  return &d->bfloat16Type;
+}
 
 auto Control::getQualType(const Type* elementType, CvQualifiers cvQualifiers)
     -> const QualType* {

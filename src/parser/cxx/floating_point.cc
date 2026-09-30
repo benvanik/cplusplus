@@ -26,22 +26,23 @@
 
 namespace cxx {
 
-auto roundFloat16(long double value) -> float {
-  constexpr int kPrecision = 11;
-  constexpr int kMinimumQuantumExponent = -24;
-  constexpr int kOverflowExponent = 16;
+namespace {
 
+auto roundFloatingPoint(long double value, int precision,
+                        int minimumNormalExponent, int overflowExponent)
+    -> float {
   if (!std::isfinite(value) || value == 0) return static_cast<float>(value);
 
   const auto magnitude = std::abs(value);
   int exponent = 0;
   std::frexp(magnitude, &exponent);
-  if (exponent > kOverflowExponent)
+  if (exponent > overflowExponent)
     return std::copysign(std::numeric_limits<float>::infinity(), value);
 
-  // Normal values have eleven significant bits. Subnormals share a fixed
-  // quantum of 2^-24, including rounding across zero and the normal boundary.
-  const auto quantum = std::max(exponent - kPrecision, kMinimumQuantumExponent);
+  // Subnormals share the minimum normal spacing. Scaling by this exact power
+  // of two preserves the rounding decision without an intermediate float
+  // conversion, which could double-round a wider source.
+  const auto quantum = std::max(exponent, minimumNormalExponent) - precision;
   const auto scaled = std::ldexp(magnitude, -quantum);
   auto integral = std::floor(scaled);
   const auto remainder = scaled - integral;
@@ -49,9 +50,19 @@ auto roundFloat16(long double value) -> float {
     integral = std::ceil(scaled);
 
   auto rounded = std::ldexp(integral, quantum);
-  if (rounded >= std::ldexp(1.0L, kOverflowExponent))
+  if (rounded >= std::ldexp(1.0L, overflowExponent))
     rounded = std::numeric_limits<float>::infinity();
   return static_cast<float>(std::copysign(rounded, value));
+}
+
+}  // namespace
+
+auto roundFloat16(long double value) -> float {
+  return roundFloatingPoint(value, 11, -13, 16);
+}
+
+auto roundBFloat16(long double value) -> float {
+  return roundFloatingPoint(value, 8, -125, 128);
 }
 
 }  // namespace cxx

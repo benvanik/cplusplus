@@ -202,6 +202,7 @@ export const CXX_KEYWORDS: string[] = [
   "_BitInt",
   "_Complex",
   "_Float16",
+  "__bf16",
   "_Generic",
 ];
 
@@ -429,6 +430,7 @@ export const C_KEYWORDS: string[] = [
   "__underlying_type",
   "_Complex",
   "_Float16",
+  "__bf16",
 ];
 
 export const C_TOKEN_ALIASES = {

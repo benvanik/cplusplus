@@ -165,6 +165,27 @@ int origin;
   ASSERT_TRUE(symbol_cast<VariableSymbol>(findMember(globalScope, "origin")));
 }
 
+TEST(PrecompiledHeader, RestoresBFloat16Type) {
+  Prefix prefix{"__bf16 value;"};
+
+  const auto data = prefix.emit();
+
+  ASSERT_TRUE(prefix.errors().empty());
+  ASSERT_FALSE(data.empty());
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  auto value =
+      symbol_cast<VariableSymbol>(findMember(consumer.globalScope(), "value"));
+  ASSERT_TRUE(value);
+  ASSERT_TRUE(type_cast<BFloat16Type>(value->type()));
+}
+
 TEST(PrecompiledHeader, RestoresRecordLayoutAttributes) {
   Prefix prefix{R"(
 struct __attribute__((packed, aligned(16))) Packet;

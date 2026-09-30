@@ -70,6 +70,7 @@ struct MlirDebugEmitter::ConvertDebugType {
   auto operator()(const DoubleType* type) -> mlir::LLVM::DITypeAttr;
   auto operator()(const LongDoubleType* type) -> mlir::LLVM::DITypeAttr;
   auto operator()(const Float16Type* type) -> mlir::LLVM::DITypeAttr;
+  auto operator()(const BFloat16Type* type) -> mlir::LLVM::DITypeAttr;
   auto operator()(const QualType* type) -> mlir::LLVM::DITypeAttr;
   auto operator()(const BoundedArrayType* type) -> mlir::LLVM::DITypeAttr;
   auto operator()(const UnboundedArrayType* type) -> mlir::LLVM::DITypeAttr;
@@ -377,6 +378,11 @@ auto MlirDebugEmitter::ConvertDebugType::operator()(const LongDoubleType* type)
 auto MlirDebugEmitter::ConvertDebugType::operator()(const Float16Type* type)
     -> mlir::LLVM::DITypeAttr {
   return basicType("_Float16", type, llvm::dwarf::DW_ATE_float);
+}
+
+auto MlirDebugEmitter::ConvertDebugType::operator()(const BFloat16Type* type)
+    -> mlir::LLVM::DITypeAttr {
+  return basicType("__bf16", type, llvm::dwarf::DW_ATE_float);
 }
 
 auto MlirDebugEmitter::ConvertDebugType::operator()(const QualType* type)

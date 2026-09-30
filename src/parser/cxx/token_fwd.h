@@ -118,6 +118,7 @@ class Token;
   V(_IMAGINARY, "_Imaginary")                   \
   V(_NORETURN, "_Noreturn")                     \
   V(__ATTRIBUTE__, "__attribute__")             \
+  V(__BF16, "__bf16")                           \
   V(__BUILTIN_BIT_CAST, "__builtin_bit_cast")   \
   V(__BUILTIN_META_INFO, "__builtin_meta_info") \
   V(__BUILTIN_OFFSETOF, "__builtin_offsetof")   \

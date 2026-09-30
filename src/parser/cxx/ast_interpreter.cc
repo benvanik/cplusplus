@@ -373,6 +373,12 @@ auto ASTInterpreter::toArithmeticType(const ConstValue& value, const Type* type)
       return ConstValue{roundFloat16(*result)};
     }
 
+    case TypeKind::kBFloat16: {
+      auto result = toLongDouble(value);
+      if (!result) return std::nullopt;
+      return ConstValue{roundBFloat16(*result)};
+    }
+
     case TypeKind::kFloat: {
       auto result = toFloat(value);
       if (!result) return std::nullopt;
