@@ -37,7 +37,12 @@ mlir_target_link_libraries(cxx-mlir PUBLIC
 
 if (CXX_ENABLE_LLVM_OPTIMIZER)
     if (NOT LLVM_LINK_LLVM_DYLIB)
-        llvm_map_components_to_libnames(cxx_mlir_llvm_libs passes)
+        llvm_map_components_to_libnames(cxx_mlir_llvm_libs
+            passes
+            AllTargetsCodeGens
+            AllTargetsDescs
+            AllTargetsInfos
+        )
         target_link_libraries(cxx-mlir PUBLIC ${cxx_mlir_llvm_libs})
     endif()
     target_compile_definitions(cxx-mlir PUBLIC CXX_WITH_LLVM_OPTIMIZER)
