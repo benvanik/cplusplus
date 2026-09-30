@@ -22,6 +22,7 @@
 #include <cxx/ast_interpreter.h>
 #include <cxx/ast_rewriter.h>
 #include <cxx/control.h>
+#include <cxx/floating_point.h>
 #include <cxx/literals.h>
 #include <cxx/memory_layout.h>
 #include <cxx/names.h>
@@ -366,6 +367,12 @@ auto ASTInterpreter::toArithmeticType(const ConstValue& value, const Type* type)
   }
 
   switch (type->kind()) {
+    case TypeKind::kFloat16: {
+      auto result = toLongDouble(value);
+      if (!result) return std::nullopt;
+      return ConstValue{roundFloat16(*result)};
+    }
+
     case TypeKind::kFloat: {
       auto result = toFloat(value);
       if (!result) return std::nullopt;

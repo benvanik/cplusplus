@@ -26,6 +26,7 @@
 #include <cxx/control.h>
 #include <cxx/decl.h>
 #include <cxx/dependent_types.h>
+#include <cxx/floating_point.h>
 #include <cxx/initialization.h>
 #include <cxx/lambda_captures.h>
 #include <cxx/literals.h>
@@ -252,6 +253,9 @@ struct ASTInterpreter::ExpressionVisitor {
                                         const ExpressionResult& right,
                                         auto&& op) -> ExpressionResult {
     switch (type->kind()) {
+      case TypeKind::kFloat16:
+        return ConstValue{
+            roundFloat16(op(toLongDouble(*left), toLongDouble(*right)))};
       case TypeKind::kFloat:
         return ConstValue{op(toFloat(*left), toFloat(*right))};
       case TypeKind::kLongDouble:
@@ -270,6 +274,8 @@ struct ASTInterpreter::ExpressionVisitor {
     if (unit()->typeTraits().is_integral_or_unscoped_enum(type)) return operand;
 
     switch (type->kind()) {
+      case TypeKind::kFloat16:
+        return ConstValue{roundFloat16(toLongDouble(*operand))};
       case TypeKind::kFloat:
         return ConstValue{toFloat(*operand)};
       case TypeKind::kDouble:
@@ -306,6 +312,8 @@ struct ASTInterpreter::ExpressionVisitor {
     }
 
     switch (type->kind()) {
+      case TypeKind::kFloat16:
+        return ConstValue{roundFloat16(-toLongDouble(*operand))};
       case TypeKind::kFloat:
         return ConstValue{-toFloat(*operand)};
       case TypeKind::kDouble:
@@ -2581,6 +2589,9 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
       if (!result.has_value()) return std::nullopt;
       return result.value();
     }
+
+    case TypeKind::kFloat16:
+      return interp.toArithmeticType(*value, ast->type);
 
     case TypeKind::kFloat: {
       if (ast->expression && ast->expression->type &&

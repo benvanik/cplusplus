@@ -22,10 +22,12 @@
 
 // cxx
 #include <cxx/diagnostics_client.h>
+#include <cxx/floating_point.h>
 
 #include <bit>
 #include <charconv>
 #include <cstdint>
+#include <cstdlib>
 #include <format>
 
 namespace cxx {
@@ -958,7 +960,10 @@ auto FloatLiteral::Components::from(std::string_view text,
   components.literalPart = text.substr(0, pos);
 
   const auto firstChar = literalText.data();
-  components.value = strtod(firstChar, nullptr);
+  if (components.suffix == FloatingPointSuffix::kF16)
+    components.value = roundFloat16(std::strtold(firstChar, nullptr));
+  else
+    components.value = std::strtod(firstChar, nullptr);
 
   components.isFloat = components.suffix == FloatingPointSuffix::kF;
   components.isLongDouble = components.suffix == FloatingPointSuffix::kL;
