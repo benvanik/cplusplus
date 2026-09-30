@@ -141,7 +141,16 @@ struct IsDependent {
     TypeExamination* previous;
   };
 
+  struct InitializerExamination {
+    // Initializer expression active in this dependency query.
+    ExpressionAST* initializer;
+    // Previous initializer examination on the active query path.
+    InitializerExamination* previous;
+  };
+
   TypeExamination* typesUnderExamination = nullptr;
+  // Active initializer examinations in this dependency query.
+  InitializerExamination* initializersUnderExamination = nullptr;
   std::array<NonDependentType, 8> nonDependentTypes;
   std::size_t nonDependentTypeCount = 0;
   std::vector<NonDependentType> dynamicNonDependentTypes;
@@ -384,7 +393,22 @@ struct IsDependent {
                                                   bool isConstexpr) -> bool {
     if (!initializer || !isPotentiallyConstant(symbol, isConstexpr))
       return false;
-    return isDependent(initializer);
+    return isDependentInitializer(initializer);
+  }
+
+  [[nodiscard]] auto isDependentInitializer(ExpressionAST* initializer)
+      -> bool {
+    for (auto examination = initializersUnderExamination; examination;
+         examination = examination->previous) {
+      if (examination->initializer == initializer) return false;
+    }
+
+    InitializerExamination examination{initializer,
+                                       initializersUnderExamination};
+    initializersUnderExamination = &examination;
+    const auto dependent = isDependent(initializer);
+    initializersUnderExamination = examination.previous;
+    return dependent;
   }
 
   [[nodiscard]] auto isDependent(const Type* type) -> bool {
@@ -541,7 +565,7 @@ struct IsDependent {
     if (auto var = symbol_cast<VariableSymbol>(symbol)) {
       if (!var->constValue().has_value()) {
         if (!var->initializer()) return true;
-        if (isDependent(var->initializer())) return true;
+        if (isDependentInitializer(var->initializer())) return true;
       }
     }
 
