@@ -252,6 +252,10 @@ struct [[nodiscard]] Codegen::ExpressionVisitor {
                               BuiltinFunctionKind builtinKind)
       -> std::optional<ExpressionResult>;
 
+  auto emitFloatingPointConversion(SourceLocation loc, ir::ValueRef value,
+                                   const Type* sourceType,
+                                   const Type* targetType) -> ir::ValueRef;
+
   auto emitArithmeticConversion(SourceLocation loc, ir::ValueRef value,
                                 const Type* sourceType, const Type* targetType)
       -> ir::ValueRef;
@@ -1234,10 +1238,9 @@ auto Codegen::ExpressionVisitor::operator()(TypeConstructionAST* ast)
 
   if (argKind == ir::TypeKind::Floating &&
       resultKind == ir::TypeKind::Floating) {
-    if (gen.emitter_.scalarWidth(argType) <
-        gen.emitter_.scalarWidth(resultType))
-      return {gen.emitter_.floatExtend(sourceLoc, argResult.value, resultType)};
-    return {gen.emitter_.floatTruncate(sourceLoc, argResult.value, resultType)};
+    return {emitFloatingPointConversion(sourceLoc, argResult.value,
+                                        ast->expressionList->value->type,
+                                        targetType)};
   }
 
   if (argKind == ir::TypeKind::Integer && resultKind == ir::TypeKind::Integer) {
@@ -1654,36 +1657,9 @@ auto Codegen::ExpressionVisitor::operator()(PostIncrExpressionAST* ast)
                                     gen.lvalueAlignment(ast->baseExpression));
     auto resultTy = gen.convertType(ast->baseExpression->type);
 
-    ir::ValueRef one;
-    double v = ast->op == TokenKind::T_PLUS_PLUS ? 1 : -1;
-
-    switch (gen.traits.remove_cvref(ast->baseExpression->type)->kind()) {
-      case TypeKind::kFloat:
-        one = gen.emitter_.constantLiteral(
-            ast->opLoc, gen.convertType(ast->baseExpression->type),
-            ir::Initializer::floatingValue(
-                gen.emitter_.floatingType(ir::FloatKind::Single), v));
-        break;
-
-      case TypeKind::kDouble:
-        one = gen.emitter_.constantLiteral(
-            ast->opLoc, gen.convertType(ast->baseExpression->type),
-            ir::Initializer::floatingValue(
-                gen.emitter_.floatingType(ir::FloatKind::Double), v));
-        break;
-
-      case TypeKind::kLongDouble:
-        one = gen.emitter_.constantLiteral(
-            ast->opLoc, gen.convertType(ast->baseExpression->type),
-            ir::Initializer::floatingValue(
-                gen.emitter_.floatingType(ir::FloatKind::Double), v));
-        break;
-
-      default:
-        auto op = gen.emitTodoExpr(ast->firstSourceLocation(),
-                                   "unsupported float type");
-        return {op};
-    }
+    const double value = ast->op == TokenKind::T_PLUS_PLUS ? 1 : -1;
+    auto one = gen.emitter_.constantLiteral(
+        ast->opLoc, resultTy, ir::Initializer::floatingValue(resultTy, value));
 
     auto addOp =
         gen.emitter_.binaryOp(loc, ir::BinaryOp::AddFloat, loadOp, one);
@@ -1962,37 +1938,10 @@ auto Codegen::ExpressionVisitor::emitUnaryOpTilde(UnaryExpressionAST* ast)
 auto Codegen::ExpressionVisitor::emitUnaryOpIncrDecrFloat(
     UnaryExpressionAST* ast, ExpressionResult expressionResult)
     -> ExpressionResult {
-  ir::ValueRef one;
-
-  switch (gen.traits.remove_cvref(ast->expression->type)->kind()) {
-    case TypeKind::kFloat:
-      one = gen.emitter_.constantLiteral(
-          ast->opLoc, gen.convertType(ast->expression->type),
-          ir::Initializer::floatingValue(
-              gen.emitter_.floatingType(ir::FloatKind::Single), 1.0));
-      break;
-
-    case TypeKind::kDouble:
-      one = gen.emitter_.constantLiteral(
-          ast->opLoc, gen.convertType(ast->expression->type),
-          ir::Initializer::floatingValue(
-              gen.emitter_.floatingType(ir::FloatKind::Double), 1.0));
-      break;
-
-    case TypeKind::kLongDouble:
-      one = gen.emitter_.constantLiteral(
-          ast->opLoc, gen.convertType(ast->expression->type),
-          ir::Initializer::floatingValue(
-              gen.emitter_.floatingType(ir::FloatKind::Double), 1.0));
-      break;
-
-    default:
-      return {gen.emitTodoExpr(ast->firstSourceLocation(),
-                               "unsupported float type")};
-  }
-
   auto loc = ast->opLoc;
   auto resultType = gen.convertType(ast->type);
+  auto one = gen.emitter_.constantLiteral(
+      loc, resultType, ir::Initializer::floatingValue(resultType, 1.0));
 
   auto loadOp = gen.emitter_.load(loc, resultType, expressionResult.value,
                                   gen.lvalueAlignment(ast->expression));
@@ -2993,24 +2942,8 @@ auto Codegen::ExpressionVisitor::emitNumericConversion(
 
     case ImplicitCastKind::kFloatingPointPromotion:
     case ImplicitCastKind::kFloatingPointConversion: {
-      auto srcWidth =
-          gen.emitter_.scalarWidth(gen.emitter_.typeOf(expressionResult.value));
-      auto dstWidth = gen.emitter_.scalarWidth(resultType);
-
-      if (srcWidth == dstWidth) {
-        return expressionResult;
-      }
-
-      if (srcWidth < dstWidth) {
-        auto op =
-            gen.emitter_.floatExtend(loc, expressionResult.value, resultType);
-        return {op};
-      }
-
-      auto op =
-          gen.emitter_.floatTruncate(loc, expressionResult.value, resultType);
-
-      return {op};
+      return {emitFloatingPointConversion(loc, expressionResult.value,
+                                          ast->expression->type, ast->type)};
     }
 
     case ImplicitCastKind::kFloatingIntegralConversion:
@@ -5402,6 +5335,29 @@ auto Codegen::emitCtorCall(SourceLocation loc, FunctionSymbol* ctor,
                   /*baseObjectStructor=*/!completeObject);
 }
 
+auto Codegen::ExpressionVisitor::emitFloatingPointConversion(
+    SourceLocation loc, ir::ValueRef value, const Type* sourceType,
+    const Type* targetType) -> ir::ValueRef {
+  if (gen.traits.is_same(sourceType, targetType)) return value;
+
+  auto sourceIrType = gen.emitter_.typeOf(value);
+  auto targetIrType = gen.convertType(targetType);
+  auto sourceWidth = gen.emitter_.scalarWidth(sourceIrType);
+  auto targetWidth = gen.emitter_.scalarWidth(targetIrType);
+
+  if (sourceWidth < targetWidth)
+    return gen.emitter_.floatExtend(loc, value, targetIrType);
+  if (sourceWidth > targetWidth)
+    return gen.emitter_.floatTruncate(loc, value, targetIrType);
+
+  // Equal storage widths do not imply equal floating-point formats. Bridge
+  // binary16 and bfloat16 (and other narrow peer formats) through binary32 so
+  // the emitter never returns a value carrying the source IR type.
+  auto bridgeType = gen.emitter_.floatingType(ir::FloatKind::Single);
+  auto extended = gen.emitter_.floatExtend(loc, value, bridgeType);
+  return gen.emitter_.floatTruncate(loc, extended, targetIrType);
+}
+
 auto Codegen::ExpressionVisitor::emitArithmeticConversion(
     SourceLocation loc, ir::ValueRef value, const Type* sourceType,
     const Type* targetType) -> ir::ValueRef {
@@ -5421,11 +5377,7 @@ auto Codegen::ExpressionVisitor::emitElementConversion(
   const auto sourceWidth = gen.emitter_.scalarWidth(sourceScalar);
 
   if (sourceIsFloating && targetIsFloating) {
-    auto targetWidth = gen.emitter_.scalarWidth(gen.convertType(targetType));
-    if (sourceWidth == targetWidth) return value;
-    if (sourceWidth < targetWidth)
-      return gen.emitter_.floatExtend(loc, value, resultType);
-    return gen.emitter_.floatTruncate(loc, value, resultType);
+    return emitFloatingPointConversion(loc, value, sourceType, targetType);
   }
 
   if (!sourceIsFloating && targetIsFloating) {

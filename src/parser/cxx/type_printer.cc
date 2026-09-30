@@ -294,6 +294,8 @@ class TypePrinter {
 
   void operator()(const Float16Type* type) { specifiers_.append("_Float16"); }
 
+  void operator()(const BFloat16Type* type) { specifiers_.append("__bf16"); }
+
   void operator()(const QualType* type) {
     if (auto ptrTy = type_cast<PointerType>(type->elementType())) {
       accept(ptrTy->elementType());

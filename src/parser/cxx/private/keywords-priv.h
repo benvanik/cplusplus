@@ -470,6 +470,18 @@ static inline auto classify6(const char* s) -> cxx::TokenKind {
         }
       }
     }
+  } else if (s[0] == '_') {
+    if (s[1] == '_') {
+      if (s[2] == 'b') {
+        if (s[3] == 'f') {
+          if (s[4] == '1') {
+            if (s[5] == '6') {
+              return cxx::TokenKind::T___BF16;
+            }
+          }
+        }
+      }
+    }
   } else if (s[0] == 'a') {
     if (s[1] == 'n') {
       if (s[2] == 'd') {

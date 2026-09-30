@@ -27,4 +27,8 @@ namespace cxx {
 // required.
 [[nodiscard]] auto roundFloat16(long double value) -> float;
 
+// Rounds to IEEE bfloat16 using round-to-nearest, ties-to-even. Every
+// bfloat16 value is represented exactly in the returned float.
+[[nodiscard]] auto roundBFloat16(long double value) -> float;
+
 }  // namespace cxx

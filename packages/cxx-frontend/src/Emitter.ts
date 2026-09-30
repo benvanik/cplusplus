@@ -126,7 +126,7 @@ export type FloatPredicate =
 
 /** @category Backend Enumerations */
 export type FloatKind =
-  "Half" | "Single" | "Double" | "X87DoubleExtended" | "Quad";
+  "Half" | "BFloat" | "Single" | "Double" | "X87DoubleExtended" | "Quad";
 
 /** @category Backend Enumerations */
 export type CastKind =

@@ -801,6 +801,9 @@ auto Parser::parse_literal(ExpressionAST*& yyast) -> bool {
       else if (components.suffix ==
                FloatLiteral::Components::FloatingPointSuffix::kF16)
         ast->type = control_->getFloat16Type();
+      else if (components.suffix ==
+               FloatLiteral::Components::FloatingPointSuffix::kBF16)
+        ast->type = control_->getBFloat16Type();
       else
         ast->type = control_->getDoubleType();
 
@@ -6577,6 +6580,7 @@ auto Parser::parse_primitive_type_specifier(SpecifierAST*& yyast,
     case TokenKind::T_FLOAT:
     case TokenKind::T_DOUBLE:
     case TokenKind::T__FLOAT16:
+    case TokenKind::T___BF16:
     case TokenKind::T___FLOAT80:
     case TokenKind::T___FLOAT128:
       makeFloatingPointTypeSpecifier();

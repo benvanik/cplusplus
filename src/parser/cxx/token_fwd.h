@@ -133,6 +133,7 @@ class Token;
   V(__SVUINT64_T, "__SVUint64_t")                       \
   V(__SVUINT8_T, "__SVUint8_t")                         \
   V(__ATTRIBUTE__, "__attribute__")                     \
+  V(__BF16, "__bf16")                                   \
   V(__BUILTIN_BIT_CAST, "__builtin_bit_cast")           \
   V(__BUILTIN_CONVERTVECTOR, "__builtin_convertvector") \
   V(__BUILTIN_META_INFO, "__builtin_meta_info")         \

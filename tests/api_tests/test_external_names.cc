@@ -55,6 +55,8 @@ TEST(ExternalNames, BuiltinTypes) {
   ASSERT_EQ("f", encoder.encode(control.getFloatType()));
   ASSERT_EQ("d", encoder.encode(control.getDoubleType()));
   ASSERT_EQ("e", encoder.encode(control.getLongDoubleType()));
+  ASSERT_EQ("DF16_", encoder.encode(control.getFloat16Type()));
+  ASSERT_EQ("DF16b", encoder.encode(control.getBFloat16Type()));
   // ASSERT_EQ("g", encoder.encode(control.getFloat128Type()));
   // ASSERT_EQ("z", encoder.encode(control.getEllipsisType()));
   ASSERT_EQ("Di", encoder.encode(control.getChar32Type()));

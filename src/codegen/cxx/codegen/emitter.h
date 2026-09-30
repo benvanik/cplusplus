@@ -38,6 +38,7 @@ namespace cxx::ir {
 
 enum class FloatKind {
   Half,
+  BFloat,
   Single,
   Double,
   X87DoubleExtended,

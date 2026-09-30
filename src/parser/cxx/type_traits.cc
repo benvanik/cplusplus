@@ -174,6 +174,7 @@ struct IsIntegral {
 
 struct IsFloatingPoint {
   auto operator()(const Float16Type*) const -> bool { return true; }
+  auto operator()(const BFloat16Type*) const -> bool { return true; }
   auto operator()(const FloatType*) const -> bool { return true; }
   auto operator()(const DoubleType*) const -> bool { return true; }
   auto operator()(const LongDoubleType*) const -> bool { return true; }
@@ -207,6 +208,7 @@ struct IsSigned {
   auto operator()(const DoubleType*) const -> bool { return true; }
   auto operator()(const LongDoubleType*) const -> bool { return true; }
   auto operator()(const Float16Type*) const -> bool { return true; }
+  auto operator()(const BFloat16Type*) const -> bool { return true; }
   auto operator()(const BitIntType*) const -> bool { return true; }
 
   auto operator()(const QualType* type) const -> bool {
@@ -805,6 +807,10 @@ struct IsSameVisitor {
   }
 
   auto operator()(const Float16Type*, const Float16Type*) const -> bool {
+    return true;
+  }
+
+  auto operator()(const BFloat16Type*, const BFloat16Type*) const -> bool {
     return true;
   }
 
@@ -1984,6 +1990,11 @@ auto TypeTraits::is_narrowing_conversion(const Type* from, const Type* to) const
   if (is_floating_point(from) && is_integral(to)) return true;
 
   if (is_floating_point(from) && is_floating_point(to)) {
+    if ((from->kind() == TypeKind::kFloat16 &&
+         to->kind() == TypeKind::kBFloat16) ||
+        (from->kind() == TypeKind::kBFloat16 &&
+         to->kind() == TypeKind::kFloat16))
+      return true;
     auto fromSize = control()->memoryLayout()->sizeOf(from);
     auto toSize = control()->memoryLayout()->sizeOf(to);
     if (fromSize && toSize && *fromSize > *toSize) return true;
@@ -2573,15 +2584,18 @@ auto TypeTraits::integer_conversion_rank(const Type* type) const
 
 auto TypeTraits::floating_point_conversion_rank(const Type* type) const -> int {
   struct Rank {
+    [[nodiscard]] auto operator()(const BFloat16Type*) const -> int {
+      return 0;
+    }
     [[nodiscard]] auto operator()(const Float16Type*) const -> int { return 1; }
     [[nodiscard]] auto operator()(const FloatType*) const -> int { return 2; }
     [[nodiscard]] auto operator()(const DoubleType*) const -> int { return 3; }
     [[nodiscard]] auto operator()(const LongDoubleType*) const -> int {
       return 4;
     }
-    [[nodiscard]] auto operator()(const Type*) const -> int { return 0; }
+    [[nodiscard]] auto operator()(const Type*) const -> int { return -1; }
   };
-  return type ? visit(Rank{}, remove_cv(type)) : 0;
+  return type ? visit(Rank{}, remove_cv(type)) : -1;
 }
 
 auto TypeTraits::representsAllValuesOf(const Type* target,

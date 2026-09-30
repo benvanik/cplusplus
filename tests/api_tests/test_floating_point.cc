@@ -36,6 +36,13 @@ auto positiveFloat16Value(std::uint16_t bits) -> float {
   return std::ldexp(static_cast<float>(0x400 | fraction), exponent - 25);
 }
 
+auto positiveBFloat16Value(std::uint16_t bits) -> float {
+  const auto exponent = (bits >> 7) & 0xff;
+  const auto fraction = bits & 0x7f;
+  if (exponent == 0) return std::ldexp(static_cast<float>(fraction), -133);
+  return std::ldexp(static_cast<float>(0x80 | fraction), exponent - 134);
+}
+
 }  // namespace
 
 TEST(FloatingPoint, RoundFloat16SpecialValues) {
@@ -87,5 +94,61 @@ TEST(FloatingPoint, RoundFloat16FiniteBoundaries) {
     EXPECT_EQ(upper, roundFloat16(std::nextafter(
                          midpoint, static_cast<long double>(upper))));
     EXPECT_EQ(-expectedMidpoint, roundFloat16(-midpoint));
+  }
+}
+
+TEST(FloatingPoint, RoundBFloat16SpecialValues) {
+  EXPECT_EQ(0.0f, roundBFloat16(0.0L));
+  EXPECT_FALSE(std::signbit(roundBFloat16(0.0L)));
+  EXPECT_EQ(0.0f, roundBFloat16(-0.0L));
+  EXPECT_TRUE(std::signbit(roundBFloat16(-0.0L)));
+
+  EXPECT_EQ(std::numeric_limits<float>::infinity(),
+            roundBFloat16(std::numeric_limits<long double>::infinity()));
+  EXPECT_EQ(-std::numeric_limits<float>::infinity(),
+            roundBFloat16(-std::numeric_limits<long double>::infinity()));
+  EXPECT_TRUE(
+      std::isnan(roundBFloat16(std::numeric_limits<long double>::quiet_NaN())));
+}
+
+TEST(FloatingPoint, RoundBFloat16NormalValues) {
+  EXPECT_EQ(1.0f, roundBFloat16(1.00390625L));
+  EXPECT_EQ(1.015625f, roundBFloat16(1.01171875L));
+  EXPECT_EQ(1.0078125f, roundBFloat16(0x1.0100000000001p0L));
+  EXPECT_EQ(-1.015625f, roundBFloat16(-1.01171875L));
+}
+
+TEST(FloatingPoint, RoundBFloat16SubnormalValues) {
+  EXPECT_EQ(0.0f, roundBFloat16(0x1p-134L));
+  EXPECT_EQ(0x1p-133f, roundBFloat16(0x1.0000000000001p-134L));
+  EXPECT_EQ(0x1p-132f, roundBFloat16(0x1.8p-133L));
+  EXPECT_EQ(0x1p-126f, roundBFloat16(0x1.fep-127L));
+}
+
+TEST(FloatingPoint, RoundBFloat16Overflow) {
+  constexpr auto kMaximum = 0x1.fep127f;
+  constexpr auto kThreshold = 0x1.ffp127L;
+  EXPECT_EQ(kMaximum, roundBFloat16(std::nextafter(
+                          kThreshold, static_cast<long double>(kMaximum))));
+  EXPECT_EQ(std::numeric_limits<float>::infinity(), roundBFloat16(kThreshold));
+  EXPECT_EQ(-std::numeric_limits<float>::infinity(),
+            roundBFloat16(-kThreshold));
+}
+
+TEST(FloatingPoint, RoundBFloat16FiniteBoundaries) {
+  for (std::uint16_t bits = 0; bits < 0x7f7f; ++bits) {
+    SCOPED_TRACE(bits);
+    const auto lower = positiveBFloat16Value(bits);
+    const auto upper = positiveBFloat16Value(bits + 1);
+    const auto midpoint =
+        (static_cast<long double>(lower) + static_cast<long double>(upper)) / 2;
+    const auto expectedMidpoint = (bits & 1) == 0 ? lower : upper;
+
+    EXPECT_EQ(lower, roundBFloat16(std::nextafter(
+                         midpoint, static_cast<long double>(lower))));
+    EXPECT_EQ(expectedMidpoint, roundBFloat16(midpoint));
+    EXPECT_EQ(upper, roundBFloat16(std::nextafter(
+                         midpoint, static_cast<long double>(upper))));
+    EXPECT_EQ(-expectedMidpoint, roundBFloat16(-midpoint));
   }
 }

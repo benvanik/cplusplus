@@ -71,12 +71,13 @@ const INLINE_KIND_TEXT: Record<InlineKind, string> = {
   AlwaysInline: " alwaysinline",
 };
 
-const FLOAT_WIDTH: Record<FloatKind, number> = {
-  Half: 16,
-  Single: 32,
-  Double: 64,
-  X87DoubleExtended: 80,
-  Quad: 128,
+const FLOAT_FORMAT: Record<FloatKind, { text: string; width: number }> = {
+  Half: { text: "f16", width: 16 },
+  BFloat: { text: "bf16", width: 16 },
+  Single: { text: "f32", width: 32 },
+  Double: { text: "f64", width: 64 },
+  X87DoubleExtended: { text: "f80", width: 80 },
+  Quad: { text: "f128", width: 128 },
 };
 
 interface TypeInfo {
@@ -360,8 +361,8 @@ export class TraceEmitter implements EmitterDelegate {
   }
 
   floatingType(kind: FloatKind): TypeRef {
-    const width = FLOAT_WIDTH[kind];
-    return this.#intern(`f${width}`, { kind: "Floating", width });
+    const { text, width } = FLOAT_FORMAT[kind];
+    return this.#intern(text, { kind: "Floating", width });
   }
 
   pointerType(elementType: TypeRef): TypeRef {
