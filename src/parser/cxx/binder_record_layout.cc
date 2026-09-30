@@ -230,6 +230,13 @@ auto Binder::BuildRecordLayout::operator()()
 }
 
 auto Binder::BuildRecordLayout::validate() -> std::expected<bool, std::string> {
+  if (memoryLayout->usesMicrosoftBitFieldLayout() &&
+      std::ranges::any_of(
+          views::members(classSymbol) | views::non_static_fields,
+          [](FieldSymbol* field) { return field->isBitField(); })) {
+    return std::unexpected("Microsoft ABI bit-field layout is not supported");
+  }
+
   for (auto base : classSymbol->baseClasses()) {
     auto baseClassSymbol = symbol_cast<ClassSymbol>(base->symbol());
     if (!baseClassSymbol) {
@@ -799,10 +806,25 @@ auto Binder::BuildRecordLayout::layoutBitfield(FieldSymbol* field)
     fieldInfo.allocUnitSizeBytes = (bitWidth + 7) / 8;
     layout->setFieldInfo(field, fieldInfo);
 
-    auto fieldSizeForUnion = std::max(fieldSizeBytes, (bitWidth + 7) / 8);
+    // Packing may shrink a union bit-field below its declared type's storage.
+    // Round the occupied payload to its effective alignment so natural fields
+    // retain their allocation unit while packed fields use only what they need.
+    auto fieldSizeForUnion =
+        align_to((bitWidth + 7) / 8, std::max(fieldAlign, 1));
     calculatedSize = std::max(calculatedSize, fieldSizeForUnion);
     calculatedAlignment = std::max(calculatedAlignment, fieldAlign);
     return true;
+  }
+
+  // An explicit alignment begins a new allocation unit. The boundary follows
+  // the request even when it is below the field type's natural alignment;
+  // aggregate alignment still uses fieldAlign below. A pragma pack cap may
+  // reduce the requested boundary.
+  if (field->explicitAlignment()) {
+    closeBitfieldRun();
+    auto boundary = packAlignment(field->explicitAlignment());
+    nextBitPos = align_to(nextBitPos, boundary * 8);
+    calculatedSize = nextBitPos / 8;
   }
 
   if (fieldSizeBits > 0 && keepsBitFieldInAllocationUnit(field)) {

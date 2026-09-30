@@ -20,6 +20,7 @@
 
 #include <cxx/memory_layout.h>
 #include <cxx/symbols.h>
+#include <cxx/triple.h>
 #include <cxx/types.h>
 
 #include <bit>
@@ -598,6 +599,13 @@ auto MemoryLayout::usesArmMemberPointerAbi() const -> bool {
   const auto arch = this->arch();
   return arch.starts_with("arm") || arch.starts_with("aarch64") ||
          arch.starts_with("thumb") || isWebAssembly();
+}
+
+auto MemoryLayout::usesMicrosoftBitFieldLayout() const -> bool {
+  const auto target = Triple{triple_};
+  return target.os() == TripleOS::kWindows ||
+         target.environment() == TripleEnvironment::kMSVC ||
+         target.environment() == TripleEnvironment::kMinGW;
 }
 
 auto MemoryLayout::zeroWidthBitFieldAlignsAggregate() const -> bool {
