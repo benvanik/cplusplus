@@ -8763,6 +8763,20 @@ auto TypeChecker::check_bool_condition(ExpressionAST*& expr) -> bool {
   return false;
 }
 
+void TypeChecker::check_if_statement(IfStatementAST* ast) {
+  if (!check_bool_condition(ast->condition) || !ast->constexprLoc ||
+      ast->constexprValue.has_value() || isDependent(unit_, ast->condition))
+    return;
+
+  ASTInterpreter interpreter{unit_, scope_};
+  if (auto value = interpreter.evaluate(ast->condition))
+    ast->constexprValue = interpreter.toBool(*value);
+
+  if (!ast->constexprValue.has_value())
+    error(ast->condition->firstSourceLocation(),
+          "condition of 'if constexpr' is not a constant expression");
+}
+
 void TypeChecker::check_integral_condition(ExpressionAST*& expr) {
   if (!expr || !expr->type) return;
   if (isDependent(unit_, expr->type)) return;

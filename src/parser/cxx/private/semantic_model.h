@@ -896,6 +896,8 @@ inline constexpr FieldDescriptor kSemanticFieldModelStorage[] = {
     {"::cxx::IfStatementAST", "elseStatement", FieldPersistence::kPersisted,
      ""},
     {"::cxx::IfStatementAST", "symbol", FieldPersistence::kPersisted, ""},
+    {"::cxx::IfStatementAST", "constexprValue", FieldPersistence::kPersisted,
+     ""},
     {"::cxx::ConstevalIfStatementAST", "attributeList",
      FieldPersistence::kPersisted, ""},
     {"::cxx::ConstevalIfStatementAST", "ifLoc", FieldPersistence::kPersisted,

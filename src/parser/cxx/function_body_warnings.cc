@@ -101,7 +101,9 @@ class JumpFinder final : ASTVisitor {
   auto preVisit(AST*) -> bool override { return !found_; }
 
   void visit(IfStatementAST* ast) override {
-    if (auto taken = foldCondition(unit_, ast->condition)) {
+    if (auto taken = ast->constexprValue.has_value()
+                         ? ast->constexprValue
+                         : foldCondition(unit_, ast->condition)) {
       accept(*taken ? ast->statement : ast->elseStatement);
       return;
     }
@@ -210,7 +212,9 @@ auto ReachabilityAnalysis::completesNormally(StatementAST* stmt) -> bool {
 
     case ASTKind::IfStatement: {
       auto ast = static_cast<IfStatementAST*>(stmt);
-      if (auto value = conditionValue(ast->condition)) {
+      if (auto value = ast->constexprValue.has_value()
+                           ? ast->constexprValue
+                           : conditionValue(ast->condition)) {
         if (*value) return completesNormally(ast->statement);
         return completesNormally(ast->elseStatement);
       }

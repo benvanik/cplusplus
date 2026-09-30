@@ -183,6 +183,10 @@ auto ASTInterpreter::StatementVisitor::operator()(IfStatementAST* ast)
   auto mark = interp.beginAutomaticScope();
   auto result = [&]() -> StatementResult {
     (void)interp.statement(ast->initializer);
+    if (interp.aborted()) return {};
+    if (ast->constexprValue.has_value())
+      return interp.statement(*ast->constexprValue ? ast->statement
+                                                   : ast->elseStatement);
     auto condition = evaluateCondition(ast->condition);
     if (!condition.has_value()) return {};
     if (*condition) return interp.statement(ast->statement);

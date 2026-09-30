@@ -2378,6 +2378,7 @@ class IfStatementAST final : public StatementAST {
   SourceLocation elseLoc;
   StatementAST* elseStatement = nullptr;
   BlockSymbol* symbol = nullptr;
+  std::optional<bool> constexprValue;
 
   void accept(ASTVisitor* visitor) override { visitor->visit(this); }
 
@@ -2394,15 +2395,14 @@ class IfStatementAST final : public StatementAST {
       SourceLocation lparenLoc, StatementAST* initializer,
       ExpressionAST* condition, SourceLocation rparenLoc,
       StatementAST* statement, SourceLocation elseLoc,
-      StatementAST* elseStatement, BlockSymbol* symbol) -> IfStatementAST*;
+      StatementAST* elseStatement, BlockSymbol* symbol,
+      std::optional<bool> constexprValue) -> IfStatementAST*;
 
-  [[nodiscard]] static auto create(Arena* arena,
-                                   List<AttributeSpecifierAST*>* attributeList,
-                                   StatementAST* initializer,
-                                   ExpressionAST* condition,
-                                   StatementAST* statement,
-                                   StatementAST* elseStatement,
-                                   BlockSymbol* symbol) -> IfStatementAST*;
+  [[nodiscard]] static auto create(
+      Arena* arena, List<AttributeSpecifierAST*>* attributeList,
+      StatementAST* initializer, ExpressionAST* condition,
+      StatementAST* statement, StatementAST* elseStatement, BlockSymbol* symbol,
+      std::optional<bool> constexprValue) -> IfStatementAST*;
 
  protected:
   IfStatementAST() : StatementAST(Kind) {}

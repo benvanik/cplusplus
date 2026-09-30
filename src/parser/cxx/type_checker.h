@@ -83,6 +83,7 @@ class TypeChecker {
                                         ScopeSymbol* functionScope);
 
   auto check_bool_condition(ExpressionAST*& ast) -> bool;
+  void check_if_statement(IfStatementAST* ast);
   void check_integral_condition(ExpressionAST*& ast);
   void check_init_declarator(InitDeclaratorAST* initDecl,
                              SpecifierAST* typeSpecifier,
