@@ -11187,30 +11187,19 @@ auto Parser::parse_simple_template_id(
     return unqualifiedLookup(lexicalScope(), identifier);
   };
 
-  auto signatureHelpSymbol = [&]() -> Symbol* {
-    if (!isCompletionRequested()) return nullptr;
-    auto identifier = unit_->identifier(currentLocation());
-    return findTemplatedSymbolInLookupScope(lookupCandidate(identifier),
-                                            identifier);
-  }();
-
-  LookaheadParser lookahead{this};
-
-  SimpleTemplateIdAST* templateId = nullptr;
-  if (!parse_unresolved_simple_template_id(templateId, signatureHelpSymbol))
-    return false;
-  if (!templateId->greaterLoc) return false;
-
-  const auto dependentQualifier =
-      memberAccess.isDependent ||
-      (binder_.inTemplate() && isDependent(unit_, nestedNameSpecifier));
-
-  Symbol* candidate = lookupCandidate(templateId->identifier);
+  // Resolve the leading name before speculating on arguments. The existing
+  // context checks can reject known non-templates without parsing the list.
+  auto identifier = unit_->identifier(currentLocation());
+  Symbol* candidate = lookupCandidate(identifier);
 
   if (symbol_cast<NonTypeParameterSymbol>(candidate)) return false;
 
   auto primaryTemplateSymbol =
-      findTemplatedSymbolInLookupScope(candidate, templateId->identifier);
+      findTemplatedSymbolInLookupScope(candidate, identifier);
+
+  const auto dependentQualifier =
+      memberAccess.isDependent ||
+      (binder_.inTemplate() && isDependent(unit_, nestedNameSpecifier));
 
   if (!isTemplateIntroduced && context != TypeNameContext::kTypeOnly &&
       dependentQualifier && !primaryTemplateSymbol)
@@ -11218,6 +11207,15 @@ auto Parser::parse_simple_template_id(
 
   if (candidate && !primaryTemplateSymbol && !isTemplateIntroduced)
     return false;
+
+  LookaheadParser lookahead{this};
+
+  SimpleTemplateIdAST* templateId = nullptr;
+  if (!parse_unresolved_simple_template_id(
+          templateId,
+          isCompletionRequested() ? primaryTemplateSymbol : nullptr))
+    return false;
+  if (!templateId->greaterLoc) return false;
 
   templateId->symbol = primaryTemplateSymbol;
 
