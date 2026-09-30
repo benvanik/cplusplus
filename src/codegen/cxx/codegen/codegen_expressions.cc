@@ -1793,38 +1793,13 @@ auto Codegen::ExpressionVisitor::codegenBuiltinVectorReduce(
 
 auto Codegen::ExpressionVisitor::operator()(BuiltinOffsetofExpressionAST* ast)
     -> ExpressionResult {
-  if (ast->symbol) {
-    auto loc = ast->firstSourceLocation();
-    auto resultType = gen.convertType(ast->type);
-
-    auto classType = unqualified_cast<ClassType>(ast->typeId->type);
-    if (!classType) {
-      return {gen.emitTodoExpr(ast->firstSourceLocation(),
-                               "__builtin_offsetof requires a class type")};
-    }
-
-    auto classSymbol = classType->symbol();
-    auto layout = classSymbol->layout();
-    if (!layout) {
-      return {gen.emitTodoExpr(ast->firstSourceLocation(),
-                               "class layout not computed")};
-    }
-
-    auto fieldInfo = layout->getFieldInfo(ast->symbol);
-    if (!fieldInfo) {
-      return {gen.emitTodoExpr(ast->firstSourceLocation(),
-                               "field not found in layout")};
-    }
-
-    auto op = gen.emitter_.constantInt(loc, resultType, fieldInfo->offset);
-
-    return {op};
+  auto loc = ast->firstSourceLocation();
+  if (!ast->value) {
+    cxx_runtime_error("cannot generate an unresolved offsetof expression");
   }
 
-  auto op =
-      gen.emitTodoExpr(ast->firstSourceLocation(), to_string(ast->kind()));
-
-  return {op};
+  auto resultType = gen.convertType(ast->type);
+  return {gen.emitter_.constantInt(loc, resultType, *ast->value)};
 }
 
 auto Codegen::ExpressionVisitor::operator()(TypeidExpressionAST* ast)

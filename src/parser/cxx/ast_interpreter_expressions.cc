@@ -2110,23 +2110,13 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
 
 auto ASTInterpreter::ExpressionVisitor::operator()(
     BuiltinOffsetofExpressionAST* ast) -> ExpressionResult {
-  auto typeIdResult = interp.typeId(ast->typeId);
+  if (!ast->value) return std::nullopt;
 
-  if (!ast->symbol) return std::nullopt;
-
-  auto classType = type_cast<ClassType>(ast->typeId->type);
-  if (!classType) return std::nullopt;
-
-  auto classSymbol = classType->symbol();
-  unit()->typeTraits().requireCompleteClass(classSymbol);
-  classSymbol = classSymbol->resolvedDefinition();
-  auto layout = classSymbol->layout();
-  if (!layout) return std::nullopt;
-
-  auto fieldInfo = layout->getFieldInfo(ast->symbol);
-  if (!fieldInfo) return std::nullopt;
-
-  return static_cast<int>(fieldInfo->offset);
+  auto constant = unit()->typeTraits().integral_constant(
+      ast->type,
+      static_cast<ConstInt::Wide>(static_cast<ConstInt::UWide>(*ast->value)));
+  if (!constant) return std::nullopt;
+  return ConstValue{*constant};
 }
 
 auto ASTInterpreter::ExpressionVisitor::operator()(TypeidExpressionAST* ast)

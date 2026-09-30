@@ -2984,7 +2984,7 @@ auto Parser::parse_builtin_offsetof_expression(ExpressionAST*& yyast,
   ast->identifier = unit_->identifier(ast->identifierLoc);
 
   auto it = &ast->designatorList;
-  while (lookat_designator()) {
+  while (lookat(TokenKind::T_DOT) || lookat(TokenKind::T_LBRACKET)) {
     DesignatorAST* designator = nullptr;
 
     parse_designator(designator);
