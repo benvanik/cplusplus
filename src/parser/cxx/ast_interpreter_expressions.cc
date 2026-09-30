@@ -3214,9 +3214,9 @@ auto ASTInterpreter::ExpressionVisitor::operator()(TypeTraitExpressionAST* ast)
         return unit()->typeTraits().is_base_of(firstType, secondType);
       }
 
-      case BuiltinTypeTraitKind::T___HAS_UNIQUE_OBJECT_REPRESENTATIONS: {
-        break;
-      }
+      case BuiltinTypeTraitKind::T___HAS_UNIQUE_OBJECT_REPRESENTATIONS:
+        return unit()->typeTraits().has_unique_object_representations(
+            firstType);
 
       case BuiltinTypeTraitKind::T___HAS_VIRTUAL_DESTRUCTOR:
         return unit()->typeTraits().has_virtual_destructor(firstType);
