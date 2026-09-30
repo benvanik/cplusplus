@@ -9987,6 +9987,7 @@ auto Parser::parse_member_declaration_helper(DeclarationAST*& yyast) -> bool {
     auto ast = FunctionDefinitionAST::create(pool_);
     yyast = ast;
 
+    ast->attributeList = attributes;
     ast->declSpecifierList = declSpecifierList;
     ast->declarator = declarator;
     ast->requiresClause = requiresClause;
