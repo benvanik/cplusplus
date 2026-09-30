@@ -183,6 +183,31 @@ struct Packet {
   ASSERT_EQ(info->offset, 1u);
 }
 
+TEST(PrecompiledHeader, RestoresPackedEnumSemantics) {
+  Prefix prefix{R"(
+enum Packed { value = 255 } __attribute__((packed));
+)"};
+
+  const auto data = prefix.emit();
+
+  ASSERT_TRUE(prefix.errors().empty());
+  ASSERT_FALSE(data.empty());
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  auto packed =
+      symbol_cast<EnumSymbol>(findMember(consumer.globalScope(), "Packed"));
+  ASSERT_TRUE(packed);
+  ASSERT_TRUE(findAttribute(packed->attributes(), "packed"));
+  ASSERT_TRUE(type_cast<UnsignedCharType>(packed->underlyingType()));
+  ASSERT_TRUE(type_cast<IntType>(packed->promotionType()));
+}
+
 TEST(PrecompiledHeader, RestoresScopeLookup) {
   Prefix prefix{"struct Point { int x; };\nint origin;\n"};
 

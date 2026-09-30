@@ -6508,6 +6508,7 @@ class EnumSpecifierAST final : public SpecifierAST {
   List<EnumeratorAST*>* enumeratorList = nullptr;
   SourceLocation commaLoc;
   SourceLocation rbraceLoc;
+  List<AttributeSpecifierAST*>* trailingAttributeList = nullptr;
   Symbol* symbol = nullptr;
 
   void accept(ASTVisitor* visitor) override { visitor->visit(this); }
@@ -6525,16 +6526,17 @@ class EnumSpecifierAST final : public SpecifierAST {
       NestedNameSpecifierAST* nestedNameSpecifier, NameIdAST* unqualifiedId,
       SourceLocation colonLoc, List<SpecifierAST*>* typeSpecifierList,
       SourceLocation lbraceLoc, List<EnumeratorAST*>* enumeratorList,
-      SourceLocation commaLoc, SourceLocation rbraceLoc, Symbol* symbol)
+      SourceLocation commaLoc, SourceLocation rbraceLoc,
+      List<AttributeSpecifierAST*>* trailingAttributeList, Symbol* symbol)
       -> EnumSpecifierAST*;
 
-  [[nodiscard]] static auto create(Arena* arena,
-                                   List<AttributeSpecifierAST*>* attributeList,
-                                   NestedNameSpecifierAST* nestedNameSpecifier,
-                                   NameIdAST* unqualifiedId,
-                                   List<SpecifierAST*>* typeSpecifierList,
-                                   List<EnumeratorAST*>* enumeratorList,
-                                   Symbol* symbol) -> EnumSpecifierAST*;
+  [[nodiscard]] static auto create(
+      Arena* arena, List<AttributeSpecifierAST*>* attributeList,
+      NestedNameSpecifierAST* nestedNameSpecifier, NameIdAST* unqualifiedId,
+      List<SpecifierAST*>* typeSpecifierList,
+      List<EnumeratorAST*>* enumeratorList,
+      List<AttributeSpecifierAST*>* trailingAttributeList, Symbol* symbol)
+      -> EnumSpecifierAST*;
 
  protected:
   EnumSpecifierAST() : SpecifierAST(Kind) {}

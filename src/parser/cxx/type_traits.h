@@ -235,6 +235,12 @@ class TypeTraits {
   [[nodiscard]] auto promoted_integer_type(const Type* type) const
       -> const Type*;
 
+  /**
+   * Returns the representation and permitted arithmetic promotion of an
+   * unscoped enumeration. A fixed enumeration may promote to its underlying
+   * type or that type's integer promotion. A non-fixed enumeration promotes
+   * only to its retained range-based promotion.
+   */
   [[nodiscard]] auto promoted_enumeration_types(const EnumType* enumType) const
       -> std::pair<const Type*, const Type*>;
 

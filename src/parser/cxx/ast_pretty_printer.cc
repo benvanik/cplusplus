@@ -3864,6 +3864,10 @@ void ASTPrettyPrinter::SpecifierVisitor::operator()(EnumSpecifierAST* ast) {
     accept.writeToken(ast->rbraceLoc);
     newline();
   }
+
+  for (auto it = ast->trailingAttributeList; it; it = it->next) {
+    accept(it->value);
+  }
 }
 
 void ASTPrettyPrinter::SpecifierVisitor::operator()(ClassSpecifierAST* ast) {

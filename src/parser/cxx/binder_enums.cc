@@ -85,46 +85,48 @@ struct TypedEnumeratorValue {
   return std::nullopt;
 }
 
-[[nodiscard]] auto widenedEnumeratorValue(Control* control,
-                                          const TypeTraits& traits,
-                                          const ConstInt& value)
-    -> std::optional<TypedEnumeratorValue> {
-  const std::array<const Type*, 6> candidates = {
+[[nodiscard]] auto integralPromotionCandidates(Control* control)
+    -> std::array<const Type*, 6> {
+  return {
       control->getIntType(),         control->getUnsignedIntType(),
       control->getLongIntType(),     control->getUnsignedLongIntType(),
       control->getLongLongIntType(), control->getUnsignedLongLongIntType(),
   };
+}
+
+[[nodiscard]] auto widenedEnumeratorValue(Control* control,
+                                          const TypeTraits& traits,
+                                          const ConstInt& value)
+    -> std::optional<TypedEnumeratorValue> {
+  const auto candidates = integralPromotionCandidates(control);
   return firstRepresentingType(traits, candidates, value);
 }
 
-[[nodiscard]] auto nonfixedUnderlyingType(Control* control,
-                                          const TypeTraits& traits,
-                                          EnumSpecifierAST* ast)
-    -> const Type* {
-  if (!ast->enumeratorList) return control->getIntType();
+struct CompletedEnumerationTypes {
+  // Integer type used for object representation.
+  const Type* underlyingType = nullptr;
+  // Range-based arithmetic promotion.
+  const Type* promotionType = nullptr;
+  // Whether every enumerator has a resolved integral value.
+  bool valuesResolved = false;
+};
 
+[[nodiscard]] auto enumerationHasNegativeValue(EnumSpecifierAST* ast)
+    -> std::optional<bool> {
   bool hasNegativeValue = false;
   for (auto enumerator : ListView{ast->enumeratorList}) {
-    if (!enumerator->symbol || !enumerator->symbol->value()) return nullptr;
+    if (!enumerator->symbol || !enumerator->symbol->value())
+      return std::nullopt;
     auto value = std::get_if<ConstInt>(&*enumerator->symbol->value());
-    if (!value) return nullptr;
+    if (!value) return std::nullopt;
     hasNegativeValue |= value->isNegative();
   }
+  return hasNegativeValue;
+}
 
-  const std::array<const Type*, 3> signedCandidates = {
-      control->getIntType(),
-      control->getLongIntType(),
-      control->getLongLongIntType(),
-  };
-  const std::array<const Type*, 3> unsignedCandidates = {
-      control->getUnsignedIntType(),
-      control->getUnsignedLongIntType(),
-      control->getUnsignedLongLongIntType(),
-  };
-  auto candidates = hasNegativeValue
-                        ? std::span<const Type* const>{signedCandidates}
-                        : std::span<const Type* const>{unsignedCandidates};
-
+[[nodiscard]] auto firstTypeRepresentingEnumerators(
+    const TypeTraits& traits, EnumSpecifierAST* ast,
+    std::span<const Type* const> candidates) -> const Type* {
   for (auto type : candidates) {
     bool representsAllValues = true;
     for (auto enumerator : ListView{ast->enumeratorList}) {
@@ -136,8 +138,57 @@ struct TypedEnumeratorValue {
     }
     if (representsAllValues) return type;
   }
-
   return nullptr;
+}
+
+[[nodiscard]] auto completedEnumerationTypes(Control* control,
+                                             const TypeTraits& traits,
+                                             EnumSpecifierAST* ast, bool packed)
+    -> CompletedEnumerationTypes {
+  auto hasNegativeValue = enumerationHasNegativeValue(ast);
+  if (!hasNegativeValue.has_value()) return {};
+
+  const Type* underlyingType = nullptr;
+  if (!ast->enumeratorList && !packed) {
+    underlyingType = control->getIntType();
+  } else if (packed) {
+    const std::array<const Type*, 5> signedCandidates = {
+        control->getSignedCharType(),  control->getShortIntType(),
+        control->getIntType(),         control->getLongIntType(),
+        control->getLongLongIntType(),
+    };
+    const std::array<const Type*, 5> unsignedCandidates = {
+        control->getUnsignedCharType(),
+        control->getUnsignedShortIntType(),
+        control->getUnsignedIntType(),
+        control->getUnsignedLongIntType(),
+        control->getUnsignedLongLongIntType(),
+    };
+    const auto candidates =
+        *hasNegativeValue ? std::span<const Type* const>{signedCandidates}
+                          : std::span<const Type* const>{unsignedCandidates};
+    underlyingType = firstTypeRepresentingEnumerators(traits, ast, candidates);
+  } else {
+    const std::array<const Type*, 3> signedCandidates = {
+        control->getIntType(),
+        control->getLongIntType(),
+        control->getLongLongIntType(),
+    };
+    const std::array<const Type*, 3> unsignedCandidates = {
+        control->getUnsignedIntType(),
+        control->getUnsignedLongIntType(),
+        control->getUnsignedLongLongIntType(),
+    };
+    const auto candidates =
+        *hasNegativeValue ? std::span<const Type* const>{signedCandidates}
+                          : std::span<const Type* const>{unsignedCandidates};
+    underlyingType = firstTypeRepresentingEnumerators(traits, ast, candidates);
+  }
+
+  const auto promotionCandidates = integralPromotionCandidates(control);
+  auto promotionType =
+      firstTypeRepresentingEnumerators(traits, ast, promotionCandidates);
+  return {underlyingType, promotionType, true};
 }
 
 [[nodiscard]] auto provisionalInitializerType(const TypeTraits& traits,
@@ -275,19 +326,14 @@ void Binder::complete(EnumSpecifierAST* ast) {
   if (isCxx()) {
     auto unscoped = symbol_cast<EnumSymbol>(ast->symbol);
     if (unscoped && !unscoped->hasFixedUnderlyingType()) {
-      auto type = nonfixedUnderlyingType(control(), traits, ast);
-      if (type) {
-        unscoped->setUnderlyingType(type);
-      } else {
-        bool hasUnresolvedValue = false;
-        for (auto enumerator : ListView{ast->enumeratorList}) {
-          hasUnresolvedValue |=
-              !enumerator->symbol || !enumerator->symbol->value();
-        }
-        if (!hasUnresolvedValue) {
-          error(ast->enumLoc,
-                "no integral type can represent all enumerator values");
-        }
+      const auto completed = completedEnumerationTypes(control(), traits, ast,
+                                                       unscoped->isPacked());
+      if (completed.underlyingType && completed.promotionType) {
+        unscoped->setUnderlyingType(completed.underlyingType);
+        unscoped->setPromotionType(completed.promotionType);
+      } else if (completed.valuesResolved) {
+        error(ast->enumLoc,
+              "no integral type can represent all enumerator values");
       }
     }
   }
