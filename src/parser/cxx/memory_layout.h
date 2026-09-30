@@ -95,6 +95,8 @@ class MemoryLayout {
   [[nodiscard]] auto isWebAssembly() const -> bool;
   [[nodiscard]] auto isDarwin() const -> bool;
   [[nodiscard]] auto usesArmMemberPointerAbi() const -> bool;
+  /** Returns true when record bit-fields use Microsoft ABI allocation rules. */
+  [[nodiscard]] auto usesMicrosoftBitFieldLayout() const -> bool;
   [[nodiscard]] auto zeroWidthBitFieldAlignsAggregate() const -> bool;
   [[nodiscard]] auto structorsReturnThis() const -> bool;
   [[nodiscard]] auto defaultNewAlignment() const -> std::size_t;
