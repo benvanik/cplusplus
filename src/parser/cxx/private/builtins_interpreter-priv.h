@@ -89,6 +89,8 @@ auto cxx::ASTInterpreter::builtinEvaluatesItsOwnArguments(
     case BuiltinFunctionKind::T___BUILTIN_ISLESSEQUAL:
     case BuiltinFunctionKind::T___BUILTIN_ISLESSGREATER:
     case BuiltinFunctionKind::T___BUILTIN_ISUNORDERED:
+    case BuiltinFunctionKind::T___BUILTIN_REDUCE_AND:
+    case BuiltinFunctionKind::T___BUILTIN_REDUCE_OR:
     case BuiltinFunctionKind::T___BUILTIN_ADD_OVERFLOW:
     case BuiltinFunctionKind::T___BUILTIN_SUB_OVERFLOW:
       return true;
@@ -248,6 +250,12 @@ auto cxx::ASTInterpreter::evaluateBuiltinCall(cxx::BuiltinFunctionKind kind,
 
     case BuiltinFunctionKind::T___BUILTIN_ISUNORDERED:
       return evaluateBuiltinFloatComparison(ast);
+
+    case BuiltinFunctionKind::T___BUILTIN_REDUCE_AND:
+      return evaluateBuiltinVectorReduction(ast);
+
+    case BuiltinFunctionKind::T___BUILTIN_REDUCE_OR:
+      return evaluateBuiltinVectorReduction(ast);
 
     case BuiltinFunctionKind::T___BUILTIN_ADD_OVERFLOW:
       return evaluateBuiltinArithmeticOverflow(ast);

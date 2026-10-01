@@ -482,6 +482,23 @@ auto MlirEmitter::vectorSplat(SourceLocation loc, TypeRef vectorType,
       builder_, getLocation(loc), type(vectorType), value(scalar)));
 }
 
+auto MlirEmitter::vectorReduction(SourceLocation loc, BinaryOp op,
+                                  ValueRef vector) -> ValueRef {
+  mlir::vector::CombiningKind kind;
+  switch (op) {
+    case BinaryOp::AndInt:
+      kind = mlir::vector::CombiningKind::AND;
+      break;
+    case BinaryOp::OrInt:
+      kind = mlir::vector::CombiningKind::OR;
+      break;
+    default:
+      cxx_runtime_error("invalid integer vector reduction operation");
+  }
+  return wrap(mlir::vector::ReductionOp::create(builder_, getLocation(loc),
+                                                kind, value(vector)));
+}
+
 auto MlirEmitter::functionType(std::span<const TypeRef> parameters,
                                std::span<const TypeRef> results,
                                bool isVariadic) -> TypeRef {

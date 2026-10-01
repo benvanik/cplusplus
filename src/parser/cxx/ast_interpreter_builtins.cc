@@ -173,6 +173,44 @@ auto ASTInterpreter::evaluateBuiltinFloatComparison(CallExpressionAST* ast)
   }
 }
 
+auto ASTInterpreter::evaluateBuiltinVectorReduction(CallExpressionAST* ast)
+    -> std::optional<ConstValue> {
+  auto argument = argumentAt(ast, 0);
+  if (!argument) return std::nullopt;
+
+  auto value = evaluate(argument);
+  if (!value) return std::nullopt;
+
+  auto elements = std::get_if<std::shared_ptr<InitializerList>>(&*value);
+  if (!elements || !*elements || (*elements)->elements.empty())
+    return std::nullopt;
+
+  auto kind = resolveBuiltinFunctionKind(
+      ast_cast<IdExpressionAST>(ast->baseExpression));
+  std::optional<ConstInt> result;
+  for (const auto& elementWithType : (*elements)->elements) {
+    auto integer = std::get_if<ConstInt>(&std::get<0>(elementWithType));
+    if (!integer) return std::nullopt;
+    if (!result) {
+      result = *integer;
+      continue;
+    }
+
+    switch (kind) {
+      case BuiltinFunctionKind::T___BUILTIN_REDUCE_AND:
+        result = *result & *integer;
+        break;
+      case BuiltinFunctionKind::T___BUILTIN_REDUCE_OR:
+        result = *result | *integer;
+        break;
+      default:
+        return std::nullopt;
+    }
+  }
+
+  return ConstValue{*result};
+}
+
 auto ASTInterpreter::evaluateBuiltinAddressof(CallExpressionAST* ast)
     -> std::optional<ConstValue> {
   return evaluateAddress(argumentAt(ast, 0));

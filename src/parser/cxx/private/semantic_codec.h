@@ -485,6 +485,8 @@ class SemanticEncoder final : public SemanticEncoderBase {
                                     cxx::CppCastExpressionAST* self);
   void writeAstBuiltinBitCastExpressionAST(
       ByteWriter& out, cxx::BuiltinBitCastExpressionAST* self);
+  void writeAstBuiltinConvertVectorExpressionAST(
+      ByteWriter& out, cxx::BuiltinConvertVectorExpressionAST* self);
   void writeAstBuiltinOffsetofExpressionAST(
       ByteWriter& out, cxx::BuiltinOffsetofExpressionAST* self);
   void writeAstTypeidExpressionAST(ByteWriter& out,
@@ -1186,6 +1188,8 @@ class SemanticDecoder final : public SemanticDecoderBase {
                                    cxx::CppCastExpressionAST* self);
   void readAstBuiltinBitCastExpressionAST(
       ByteReader& in, cxx::BuiltinBitCastExpressionAST* self);
+  void readAstBuiltinConvertVectorExpressionAST(
+      ByteReader& in, cxx::BuiltinConvertVectorExpressionAST* self);
   void readAstBuiltinOffsetofExpressionAST(
       ByteReader& in, cxx::BuiltinOffsetofExpressionAST* self);
   void readAstTypeidExpressionAST(ByteReader& in,

@@ -259,6 +259,10 @@ struct IsPotentiallyThrowing {
     return apply(ast->expression);
   }
 
+  auto operator()(BuiltinConvertVectorExpressionAST* ast) -> bool {
+    return apply(ast->expression);
+  }
+
   auto operator()(VaArgExpressionAST* ast) -> bool {
     return apply(ast->expression);
   }
@@ -643,6 +647,8 @@ struct TypeChecker::Visitor {
       -> bool;
   [[nodiscard]] auto checkBuiltinFloatComparison(CallExpressionAST* ast)
       -> bool;
+  [[nodiscard]] auto checkBuiltinVectorReduction(CallExpressionAST* ast)
+      -> bool;
 
   [[nodiscard]] auto checkBuiltinInvoke(CallExpressionAST* ast) -> bool;
   [[nodiscard]] auto checkBuiltinAddressof(CallExpressionAST* ast) -> bool;
@@ -758,6 +764,7 @@ struct TypeChecker::Visitor {
   void operator()(PostIncrExpressionAST* ast);
   void operator()(CppCastExpressionAST* ast);
   void operator()(BuiltinBitCastExpressionAST* ast);
+  void operator()(BuiltinConvertVectorExpressionAST* ast);
   void operator()(BuiltinOffsetofExpressionAST* ast);
   void operator()(TypeidExpressionAST* ast);
   void operator()(TypeidOfTypeExpressionAST* ast);
@@ -2454,6 +2461,41 @@ auto TypeChecker::Visitor::checkBuiltinFloatComparison(CallExpressionAST* ast)
                       check.unit_->tokenText(ast->firstSourceLocation())));
   }
 
+  return true;
+}
+
+auto TypeChecker::Visitor::checkBuiltinVectorReduction(CallExpressionAST* ast)
+    -> bool {
+  auto arguments = ListView{ast->expressionList};
+  auto it = arguments.begin();
+  if (it == arguments.end() || ++it != arguments.end()) {
+    error(ast->firstSourceLocation(),
+          std::format("'{}' requires one argument",
+                      check.unit_->tokenText(ast->firstSourceLocation())));
+    return true;
+  }
+
+  auto& argument = ast->expressionList->value;
+  if (!argument || !argument->type) return true;
+
+  if (is_dependent_type(argument->type) || isDependent(check.unit_, argument)) {
+    ast->type = dependent_type();
+    ast->valueCategory = ValueCategory::kPrValue;
+    return true;
+  }
+
+  auto vectorType =
+      unqualified_cast<VectorType>(traits.remove_cvref(argument->type));
+  if (!vectorType || !traits.is_integral(vectorType->elementType())) {
+    error(argument->firstSourceLocation(),
+          std::format("argument to '{}' must be an integer vector",
+                      check.unit_->tokenText(ast->firstSourceLocation())));
+    return true;
+  }
+
+  stdconv_.prepareOperand(argument);
+  ast->type = traits.remove_cv(vectorType->elementType());
+  ast->valueCategory = ValueCategory::kPrValue;
   return true;
 }
 
@@ -4403,6 +4445,50 @@ void TypeChecker::Visitor::operator()(BuiltinBitCastExpressionAST* ast) {
   }
 
   ast->type = ast->typeId->type;
+  ast->valueCategory = ValueCategory::kPrValue;
+}
+
+void TypeChecker::Visitor::operator()(BuiltinConvertVectorExpressionAST* ast) {
+  if (!ast->typeId || !ast->typeId->type) {
+    error(ast->firstSourceLocation(), "expected a type");
+    return;
+  }
+
+  if (!ast->expression || !ast->expression->type) return;
+
+  auto targetType = traits.remove_cv(ast->typeId->type);
+  auto sourceType = traits.remove_cv(ast->expression->type);
+
+  if (is_dependent_type(targetType) || is_dependent_type(sourceType)) {
+    ast->type = targetType;
+    ast->valueCategory = ValueCategory::kPrValue;
+    return;
+  }
+
+  auto sourceVector = type_cast<VectorType>(sourceType);
+  auto targetVector = type_cast<VectorType>(targetType);
+  if (!sourceVector || !targetVector) {
+    error(
+        ast->convertLoc,
+        "__builtin_convertvector requires source and destination vector types");
+    return;
+  }
+
+  if (sourceVector->elementCount() != targetVector->elementCount()) {
+    error(ast->convertLoc,
+          "__builtin_convertvector requires the same number of elements");
+    return;
+  }
+
+  if (!traits.is_arithmetic(sourceVector->elementType()) ||
+      !traits.is_arithmetic(targetVector->elementType())) {
+    error(ast->convertLoc,
+          "__builtin_convertvector requires arithmetic element types");
+    return;
+  }
+
+  stdconv_.prepareOperand(ast->expression);
+  ast->type = targetType;
   ast->valueCategory = ValueCategory::kPrValue;
 }
 

@@ -235,6 +235,8 @@ struct ASTPrettyPrinter::ExpressionVisitor {
 
   void operator()(BuiltinBitCastExpressionAST* ast);
 
+  void operator()(BuiltinConvertVectorExpressionAST* ast);
+
   void operator()(BuiltinOffsetofExpressionAST* ast);
 
   void operator()(TypeidExpressionAST* ast);
@@ -2862,6 +2864,28 @@ void ASTPrettyPrinter::ExpressionVisitor::operator()(
     accept.writeToken(ast->commaLoc);
   }
   accept(ast->expression);
+  if (ast->rparenLoc) {
+    nospace();
+    accept.writeToken(ast->rparenLoc);
+  }
+}
+
+void ASTPrettyPrinter::ExpressionVisitor::operator()(
+    BuiltinConvertVectorExpressionAST* ast) {
+  if (ast->convertLoc) {
+    accept.writeToken(ast->convertLoc);
+  }
+  if (ast->lparenLoc) {
+    nospace();
+    accept.writeToken(ast->lparenLoc);
+    nospace();
+  }
+  accept(ast->expression);
+  if (ast->commaLoc) {
+    nospace();
+    accept.writeToken(ast->commaLoc);
+  }
+  accept(ast->typeId);
   if (ast->rparenLoc) {
     nospace();
     accept.writeToken(ast->rparenLoc);

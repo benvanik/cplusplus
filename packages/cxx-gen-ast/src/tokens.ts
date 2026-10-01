@@ -181,6 +181,7 @@ export const CXX_KEYWORDS: string[] = [
 
   "__attribute__",
   "__builtin_bit_cast",
+  "__builtin_convertvector",
   "__builtin_offsetof",
   "__builtin_va_arg",
   "__builtin_va_list",
@@ -415,6 +416,7 @@ export const C_KEYWORDS: string[] = [
 
   "__attribute__",
   "__builtin_bit_cast",
+  "__builtin_convertvector",
   "__builtin_offsetof",
   "__builtin_va_arg",
   "__builtin_va_list",

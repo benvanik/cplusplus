@@ -167,6 +167,12 @@ auto cxx::Codegen::ExpressionVisitor::codegenBuiltinDispatch(
     case BuiltinFunctionKind::T___BUILTIN_ISUNORDERED:
       return codegenBuiltinFloatComparison(ast);
 
+    case BuiltinFunctionKind::T___BUILTIN_REDUCE_AND:
+      return codegenBuiltinVectorReduction(ast);
+
+    case BuiltinFunctionKind::T___BUILTIN_REDUCE_OR:
+      return codegenBuiltinVectorReduction(ast);
+
     case BuiltinFunctionKind::T___BUILTIN_ADD_OVERFLOW:
       return codegenBuiltinArithmeticOverflow(ast);
 

@@ -2592,6 +2592,11 @@ struct ExternalNameEncoder::EncodeExpression {
     return false;
   }
 
+  [[nodiscard]] auto operator()(BuiltinConvertVectorExpressionAST*) const
+      -> bool {
+    return false;
+  }
+
   [[nodiscard]] auto operator()(BuiltinOffsetofExpressionAST*) const -> bool {
     return false;
   }

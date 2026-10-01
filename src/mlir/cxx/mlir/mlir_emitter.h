@@ -145,6 +145,9 @@ class MlirEmitter final : public Emitter {
   [[nodiscard]] auto vectorSplat(SourceLocation loc, TypeRef vectorType,
                                  ValueRef scalar) -> ValueRef override;
 
+  [[nodiscard]] auto vectorReduction(SourceLocation loc, BinaryOp op,
+                                     ValueRef vector) -> ValueRef override;
+
   [[nodiscard]] auto functionType(std::span<const TypeRef> parameters,
                                   std::span<const TypeRef> results,
                                   bool isVariadic) -> TypeRef override;

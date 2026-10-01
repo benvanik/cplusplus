@@ -488,6 +488,12 @@ auto cxx::TypeChecker::Visitor::typeCheckBuiltinDispatch(
     case BuiltinFunctionKind::T___BUILTIN_ISUNORDERED:
       return checkBuiltinFloatComparison(ast);
 
+    case BuiltinFunctionKind::T___BUILTIN_REDUCE_AND:
+      return checkBuiltinVectorReduction(ast);
+
+    case BuiltinFunctionKind::T___BUILTIN_REDUCE_OR:
+      return checkBuiltinVectorReduction(ast);
+
     case BuiltinFunctionKind::T___BUILTIN_ADD_OVERFLOW:
       return checkBuiltinArithmeticOverflow(ast);
 

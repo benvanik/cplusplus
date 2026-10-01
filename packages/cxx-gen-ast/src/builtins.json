@@ -4419,6 +4419,24 @@
     "typeCheck": "checkBuiltinFloatComparison"
   },
   {
+    "name": "__builtin_reduce_and",
+    "prototype": "constexpr int __builtin_reduce_and(...)",
+    "constexpr": true,
+    "noexcept": true,
+    "eval": "evaluateBuiltinVectorReduction",
+    "codegen": "codegenBuiltinVectorReduction",
+    "typeCheck": "checkBuiltinVectorReduction"
+  },
+  {
+    "name": "__builtin_reduce_or",
+    "prototype": "constexpr int __builtin_reduce_or(...)",
+    "constexpr": true,
+    "noexcept": true,
+    "eval": "evaluateBuiltinVectorReduction",
+    "codegen": "codegenBuiltinVectorReduction",
+    "typeCheck": "checkBuiltinVectorReduction"
+  },
+  {
     "name": "__builtin_trap",
     "prototype": "void __builtin_trap()",
     "constexpr": false,

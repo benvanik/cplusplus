@@ -111,6 +111,7 @@ struct [[nodiscard]] Codegen::ExpressionVisitor {
   auto operator()(PostIncrExpressionAST* ast) -> ExpressionResult;
   auto operator()(CppCastExpressionAST* ast) -> ExpressionResult;
   auto operator()(BuiltinBitCastExpressionAST* ast) -> ExpressionResult;
+  auto operator()(BuiltinConvertVectorExpressionAST* ast) -> ExpressionResult;
   auto operator()(BuiltinOffsetofExpressionAST* ast) -> ExpressionResult;
   auto operator()(TypeidExpressionAST* ast) -> ExpressionResult;
   auto operator()(TypeidOfTypeExpressionAST* ast) -> ExpressionResult;
@@ -255,11 +256,23 @@ struct [[nodiscard]] Codegen::ExpressionVisitor {
                                    const Type* sourceType,
                                    const Type* targetType) -> ir::ValueRef;
 
+  auto emitFloatingPointConversion(SourceLocation loc, ir::ValueRef value,
+                                   const Type* sourceType,
+                                   const Type* targetType,
+                                   ir::TypeRef targetIrType,
+                                   ir::TypeRef bridgeIrType) -> ir::ValueRef;
+
   auto saturateFloat8E4M3FN(SourceLocation loc, ir::ValueRef value,
                             ir::TypeRef scalarType) -> ir::ValueRef;
 
   auto emitArithmeticConversion(SourceLocation loc, ir::ValueRef value,
                                 const Type* sourceType, const Type* targetType)
+      -> ir::ValueRef;
+
+  auto emitArithmeticConversion(SourceLocation loc, ir::ValueRef value,
+                                const Type* sourceType, const Type* targetType,
+                                ir::TypeRef targetIrType,
+                                ir::TypeRef floatingBridgeIrType)
       -> ir::ValueRef;
 
   auto emitComplexPart(SourceLocation loc, ir::ValueRef value,
@@ -318,6 +331,8 @@ struct [[nodiscard]] Codegen::ExpressionVisitor {
   auto codegenBuiltinArithmeticOverflow(CallExpressionAST* ast)
       -> ExpressionResult;
   auto codegenBuiltinFloatComparison(CallExpressionAST* ast)
+      -> ExpressionResult;
+  auto codegenBuiltinVectorReduction(CallExpressionAST* ast)
       -> ExpressionResult;
 
   auto codegenBuiltinAddressof(CallExpressionAST* ast) -> ExpressionResult;
@@ -1736,6 +1751,37 @@ auto Codegen::ExpressionVisitor::operator()(BuiltinBitCastExpressionAST* ast)
   auto target =
       gen.emitter_.bitcast(loc, gen.emitter_.pointerType(targetType), storage);
   return {gen.emitter_.load(loc, targetType, target, alignment)};
+}
+
+auto Codegen::ExpressionVisitor::operator()(
+    BuiltinConvertVectorExpressionAST* ast) -> ExpressionResult {
+  auto source = gen.expression(ast->expression);
+  if (!source.value) return source;
+
+  auto sourceType = unqualified_cast<VectorType>(ast->expression->type);
+  auto targetType = unqualified_cast<VectorType>(ast->type);
+  auto sourceElement = sourceType->elementType();
+  auto targetElement = targetType->elementType();
+  if (gen.traits.is_same(sourceElement, targetElement)) return source;
+
+  auto loc = ast->convertLoc;
+  if (is_bool(targetElement)) {
+    auto zero =
+        gen.emitter_.constantZero(loc, gen.emitter_.typeOf(source.value));
+    if (gen.traits.is_floating_point(sourceElement)) {
+      return {gen.emitter_.compareFloat(
+          loc, ir::FloatPredicate::UnorderedNotEqual, source.value, zero)};
+    }
+    return {gen.emitter_.compareInt(loc, ir::IntPredicate::NotEqual,
+                                    source.value, zero)};
+  }
+
+  auto resultType = gen.convertType(ast->type);
+  auto bridgeType =
+      gen.emitter_.vectorType(gen.emitter_.floatingType(ir::FloatKind::Single),
+                              targetType->elementCount());
+  return {emitArithmeticConversion(loc, source.value, sourceElement,
+                                   targetElement, resultType, bridgeType)};
 }
 
 auto Codegen::ExpressionVisitor::operator()(BuiltinOffsetofExpressionAST* ast)
@@ -5358,20 +5404,27 @@ auto Codegen::emitCtorCall(SourceLocation loc, FunctionSymbol* ctor,
 auto Codegen::ExpressionVisitor::emitFloatingPointConversion(
     SourceLocation loc, ir::ValueRef value, const Type* sourceType,
     const Type* targetType) -> ir::ValueRef {
+  return emitFloatingPointConversion(
+      loc, value, sourceType, targetType, gen.convertType(targetType),
+      gen.emitter_.floatingType(ir::FloatKind::Single));
+}
+
+auto Codegen::ExpressionVisitor::emitFloatingPointConversion(
+    SourceLocation loc, ir::ValueRef value, const Type* sourceType,
+    const Type* targetType, ir::TypeRef targetIrType, ir::TypeRef bridgeIrType)
+    -> ir::ValueRef {
   if (gen.traits.is_same(sourceType, targetType)) return value;
 
-  auto sourceIrType = gen.emitter_.typeOf(value);
-  auto targetIrType = gen.convertType(targetType);
-  auto sourceWidth = gen.emitter_.scalarWidth(sourceIrType);
-  auto targetWidth = gen.emitter_.scalarWidth(targetIrType);
+  auto sourceWidth = gen.emitter_.scalarWidth(gen.convertType(sourceType));
+  auto targetWidth = gen.emitter_.scalarWidth(gen.convertType(targetType));
 
   if (unqualified_cast<Float8E4M3FNType>(targetType)) {
-    auto saturationType = sourceIrType;
+    auto saturationScalarType = gen.convertType(sourceType);
     if (sourceWidth == targetWidth) {
-      saturationType = gen.emitter_.floatingType(ir::FloatKind::Single);
-      value = gen.emitter_.floatExtend(loc, value, saturationType);
+      saturationScalarType = gen.emitter_.floatingType(ir::FloatKind::Single);
+      value = gen.emitter_.floatExtend(loc, value, bridgeIrType);
     }
-    value = saturateFloat8E4M3FN(loc, value, saturationType);
+    value = saturateFloat8E4M3FN(loc, value, saturationScalarType);
     return gen.emitter_.floatTruncate(loc, value, targetIrType);
   }
 
@@ -5383,8 +5436,7 @@ auto Codegen::ExpressionVisitor::emitFloatingPointConversion(
   // Equal storage widths do not imply equal floating-point formats. Bridge
   // binary16 and bfloat16 (and other narrow peer formats) through binary32 so
   // the emitter never returns a value carrying the source IR type.
-  auto bridgeType = gen.emitter_.floatingType(ir::FloatKind::Single);
-  auto extended = gen.emitter_.floatExtend(loc, value, bridgeType);
+  auto extended = gen.emitter_.floatExtend(loc, value, bridgeIrType);
   return gen.emitter_.floatTruncate(loc, extended, targetIrType);
 }
 
@@ -5416,46 +5468,56 @@ auto Codegen::ExpressionVisitor::saturateFloat8E4M3FN(SourceLocation loc,
 auto Codegen::ExpressionVisitor::emitArithmeticConversion(
     SourceLocation loc, ir::ValueRef value, const Type* sourceType,
     const Type* targetType) -> ir::ValueRef {
-  if (gen.traits.is_same(sourceType, targetType)) return value;
+  return emitArithmeticConversion(
+      loc, value, sourceType, targetType, gen.convertType(targetType),
+      gen.emitter_.floatingType(ir::FloatKind::Single));
+}
 
-  auto resultType = gen.convertType(targetType);
+auto Codegen::ExpressionVisitor::emitArithmeticConversion(
+    SourceLocation loc, ir::ValueRef value, const Type* sourceType,
+    const Type* targetType, ir::TypeRef targetIrType,
+    ir::TypeRef floatingBridgeIrType) -> ir::ValueRef {
+  if (gen.traits.is_same(sourceType, targetType)) return value;
 
   const auto sourceIsFloating = gen.traits.is_floating_point(sourceType);
   const auto targetIsFloating = gen.traits.is_floating_point(targetType);
 
   if (sourceIsFloating && targetIsFloating) {
-    return emitFloatingPointConversion(loc, value, sourceType, targetType);
+    return emitFloatingPointConversion(loc, value, sourceType, targetType,
+                                       targetIrType, floatingBridgeIrType);
   }
 
   if (!sourceIsFloating && targetIsFloating) {
     if (unqualified_cast<Float8E4M3FNType>(targetType)) {
-      const auto bridgeType = gen.emitter_.floatingType(ir::FloatKind::Single);
-      value = gen.traits.is_signed(sourceType)
-                  ? gen.emitter_.signedIntToFloat(loc, value, bridgeType)
-                  : gen.emitter_.unsignedIntToFloat(loc, value, bridgeType);
-      value = saturateFloat8E4M3FN(loc, value, bridgeType);
-      return gen.emitter_.floatTruncate(loc, value, resultType);
+      value =
+          gen.traits.is_signed(sourceType)
+              ? gen.emitter_.signedIntToFloat(loc, value, floatingBridgeIrType)
+              : gen.emitter_.unsignedIntToFloat(loc, value,
+                                                floatingBridgeIrType);
+      value = saturateFloat8E4M3FN(
+          loc, value, gen.emitter_.floatingType(ir::FloatKind::Single));
+      return gen.emitter_.floatTruncate(loc, value, targetIrType);
     }
     if (gen.traits.is_signed(sourceType))
-      return gen.emitter_.signedIntToFloat(loc, value, resultType);
-    return gen.emitter_.unsignedIntToFloat(loc, value, resultType);
+      return gen.emitter_.signedIntToFloat(loc, value, targetIrType);
+    return gen.emitter_.unsignedIntToFloat(loc, value, targetIrType);
   }
 
   if (sourceIsFloating && !targetIsFloating) {
     if (gen.traits.is_signed(targetType))
-      return gen.emitter_.floatToSignedInt(loc, value, resultType);
-    return gen.emitter_.floatToUnsignedInt(loc, value, resultType);
+      return gen.emitter_.floatToSignedInt(loc, value, targetIrType);
+    return gen.emitter_.floatToUnsignedInt(loc, value, targetIrType);
   }
 
-  auto sourceWidth = gen.emitter_.scalarWidth(gen.emitter_.typeOf(value));
-  auto targetWidth = gen.emitter_.scalarWidth(resultType);
+  auto sourceWidth = gen.emitter_.scalarWidth(gen.convertType(sourceType));
+  auto targetWidth = gen.emitter_.scalarWidth(gen.convertType(targetType));
 
   if (sourceWidth == targetWidth) return value;
   if (targetWidth < sourceWidth)
-    return gen.emitter_.truncate(loc, value, resultType);
+    return gen.emitter_.truncate(loc, value, targetIrType);
   if (gen.traits.is_signed(sourceType))
-    return gen.emitter_.signExtend(loc, value, resultType);
-  return gen.emitter_.zeroExtend(loc, value, resultType);
+    return gen.emitter_.signExtend(loc, value, targetIrType);
+  return gen.emitter_.zeroExtend(loc, value, targetIrType);
 }
 
 auto Codegen::ExpressionVisitor::emitComplexPart(SourceLocation loc,
@@ -6025,6 +6087,28 @@ auto Codegen::ExpressionVisitor::codegenBuiltinFloatComparison(
 
   return {gen.emitter_.compareFloat(ast->firstSourceLocation(), predicate,
                                     left.value, right.value)};
+}
+
+auto Codegen::ExpressionVisitor::codegenBuiltinVectorReduction(
+    CallExpressionAST* ast) -> ExpressionResult {
+  auto argument = ast->expressionList ? ast->expressionList->value : nullptr;
+  if (!argument) return {};
+
+  auto value = gen.expression(argument);
+  if (!value.value) return {};
+
+  auto kind = resolveBuiltinFunctionKind(
+      ast_cast<IdExpressionAST>(ast->baseExpression));
+  switch (kind) {
+    case BuiltinFunctionKind::T___BUILTIN_REDUCE_AND:
+      return {gen.emitter_.vectorReduction(ast->firstSourceLocation(),
+                                           ir::BinaryOp::AndInt, value.value)};
+    case BuiltinFunctionKind::T___BUILTIN_REDUCE_OR:
+      return {gen.emitter_.vectorReduction(ast->firstSourceLocation(),
+                                           ir::BinaryOp::OrInt, value.value)};
+    default:
+      return {};
+  }
 }
 
 auto Codegen::ExpressionVisitor::codegenBuiltinArithmeticOverflow(

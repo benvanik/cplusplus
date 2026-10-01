@@ -95,6 +95,13 @@ class ASTInterpreter {
   [[nodiscard]] auto toArithmeticType(const ConstValue& value, const Type* type)
       -> std::optional<ConstValue>;
 
+  // Converts a typed arithmetic constant while preserving source signedness
+  // and rejecting floating values outside the destination integer domain.
+  [[nodiscard]] auto convertArithmetic(const ConstValue& value,
+                                       const Type* sourceType,
+                                       const Type* targetType)
+      -> std::optional<ConstValue>;
+
   [[nodiscard]] auto toFloat(const ConstValue& value) -> std::optional<float>;
 
   [[nodiscard]] auto toDouble(const ConstValue& value) -> std::optional<double>;
@@ -537,6 +544,9 @@ class ASTInterpreter {
       -> std::optional<ConstValue>;
 
   [[nodiscard]] auto evaluateBuiltinFloatComparison(CallExpressionAST* ast)
+      -> std::optional<ConstValue>;
+
+  [[nodiscard]] auto evaluateBuiltinVectorReduction(CallExpressionAST* ast)
       -> std::optional<ConstValue>;
 
   [[nodiscard]] auto evaluateBuiltinAddressof(CallExpressionAST* ast)

@@ -142,6 +142,19 @@ double scale(int n) { return n * 1.5; }
   assert.match(text, /MulFloat %\d+, %\d+ : f64/);
 });
 
+test("vector reductions produce scalar element values", async () => {
+  const text = await trace(`
+using Int4 = int __attribute__((ext_vector_type(4)));
+
+int all(Int4 value) { return __builtin_reduce_and(value); }
+int any(Int4 value) { return __builtin_reduce_or(value); }
+`);
+
+  checkWellFormed(text);
+  assert.match(text, /reduce\.AndInt %\d+ : i32/);
+  assert.match(text, /reduce\.OrInt %\d+ : i32/);
+});
+
 test("the wasm import and export attributes reach the emitter", async () => {
   const text = await trace(`
 extern "C" __attribute__((import_module("host")))

@@ -968,6 +968,12 @@ class JsEmitter final : public ir::Emitter {
         "vectorSplat", toVal(loc), toVal(vectorType), toVal(scalar)));
   }
 
+  auto vectorReduction(cxx::SourceLocation loc, cxx::ir::BinaryOp op,
+                       cxx::ir::ValueRef vector) -> cxx::ir::ValueRef override {
+    return toHandle<cxx::ir::ValueTag>(delegate_.call<val>(
+        "vectorReduction", toVal(loc), toVal(op), toVal(vector)));
+  }
+
   auto functionType(std::span<const cxx::ir::TypeRef> parameters,
                     std::span<const cxx::ir::TypeRef> results, bool isVariadic)
       -> cxx::ir::TypeRef override {

@@ -54,6 +54,7 @@ namespace {
 
 // clang-format off
 std::unordered_set<std::string_view> enabledBuiltins{
+    "__builtin_convertvector",
 
 #define VISIT_BUILTIN(_, name) name,
     FOR_EACH_BUILTIN_TEMPLATE(VISIT_BUILTIN)
