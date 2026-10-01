@@ -918,14 +918,27 @@ class ASTInterpreter {
   TypeTraits traits;
 
   struct ReferenceBinding {
+    // Canonical identity retaining referent storage when one is available.
     std::optional<ConstValue> address;
+    // Cached slot borrowed from address-owned or external storage.
     ConstValue* slot = nullptr;
   };
   [[nodiscard]] auto activeReference(const Symbol* symbol) const
       -> const ReferenceBinding*;
   struct Frame {
+    // An invocation frame is unique. Moving preserves its allocated storage,
+    // while copying would alias local state between separate scopes.
+    Frame() = default;
+    Frame(Frame&&) = default;
+    auto operator=(Frame&&) -> Frame& = default;
+    Frame(const Frame&) = delete;
+    auto operator=(const Frame&) -> Frame& = delete;
+
+    // Local slots owned by this invocation.
     std::unordered_map<const Symbol*, std::shared_ptr<ConstStorage>> locals;
+    // Reference bindings active within this invocation.
     std::unordered_map<const Symbol*, ReferenceBinding> references;
+    // Automatic objects in construction order for reverse destruction.
     std::vector<const Symbol*> automaticObjects;
   };
   std::deque<Frame> frames_;
