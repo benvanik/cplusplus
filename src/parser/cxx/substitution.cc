@@ -759,8 +759,6 @@ auto Substitution::CollectRawTemplateArgument::operator()(
   }
 
   auto unit = subst.unit_;
-  auto control = unit->control();
-
   auto interp = ASTInterpreter{unit};
 
   const auto isDependent = isDependentTemplateArgument(subst.unit_, ast);
@@ -782,7 +780,7 @@ auto Substitution::CollectRawTemplateArgument::operator()(
                                   .initializer = expression};
     }
 
-    if (subst.valueDependsOnParameterType(expression)) {
+    if (expression->type) {
       return NonTypeArgumentValue{.type = expression->type,
                                   .initializer = expression};
     }
@@ -979,6 +977,17 @@ void Substitution::doMake() {
     if (isPackParameter(parameter)) {
       if (auto deducedPack = deducedPackAt(argumentIndex)) {
         ++argumentIndex;
+        if (auto nonTypeParam =
+                ast_cast<NonTypeTemplateParameterAST>(parameter)) {
+          std::vector<Symbol*> elements;
+          elements.reserve(deducedPack->elements().size());
+          for (auto element : deducedPack->elements()) {
+            auto normalized = normalizeNonTypeArgument(nonTypeParam, element);
+            if (!normalized || hadError_) return;
+            elements.push_back(normalized);
+          }
+          deducedPack = control->getPackArgumentSymbol(elements);
+        }
         templateArguments_.push_back(deducedPack);
         continue;
       }
@@ -997,7 +1006,7 @@ void Substitution::doMake() {
         if (!checkArgumentKind(parameter, argumentIndex)) return;
         auto symbol = normalizeNonTypeArgument(
             nonTypeParam, argumentFor(parameter, argumentIndex++));
-        if (hadError_) return;
+        if (!symbol || hadError_) return;
         elements.push_back(symbol);
       }
 
@@ -1012,15 +1021,27 @@ void Substitution::doMake() {
       auto nonTypeParam = ast_cast<NonTypeTemplateParameterAST>(parameter);
       auto symbol = normalizeNonTypeArgument(
           nonTypeParam, argumentFor(parameter, argumentIndex++));
-      if (hadError_) return;
+      if (!symbol || hadError_) return;
       templateArguments_.push_back(symbol);
       continue;
     }
 
     if (!fillDefaults_ || !argumentCountIsKnown) break;
 
-    if (auto defaultArg = getDefaultTemplateArgument(parameter)) {
-      templateArguments_.push_back(defaultArg.value());
+    if (auto defaultArgument = getDefaultTemplateArgument(parameter)) {
+      auto argument = std::move(*defaultArgument);
+      if (auto nonTypeParam =
+              ast_cast<NonTypeTemplateParameterAST>(parameter)) {
+        auto symbol = std::get_if<Symbol*>(&argument);
+        if (!symbol) {
+          maybeReportMalformedTemplateArgument(
+              parameter->firstSourceLocation());
+          return;
+        }
+        *symbol = normalizeNonTypeArgument(nonTypeParam, *symbol);
+        if (!*symbol || hadError_) return;
+      }
+      templateArguments_.push_back(std::move(argument));
       continue;
     }
 
@@ -1108,6 +1129,13 @@ auto Substitution::injectedClassNameAsType(ClassSymbol* classTemplate) const
 
 void Substitution::maybeReportInvalidConstantExpression(SourceLocation loc) {
   error(loc, "template argument is not a constant expression");
+}
+
+void Substitution::maybeReportInvalidConvertedConstantExpression(
+    SourceLocation loc, const Type* targetType) {
+  error(loc, std::format("template argument is not a converted constant "
+                         "expression of type '{}'",
+                         to_string(targetType)));
 }
 
 void Substitution::maybeReportDefaultArgumentSubstitutionFailure(
@@ -1225,16 +1253,27 @@ auto Substitution::normalizeNonTypeArgument(
 
   normalized.type = targetType;
 
-  convertNonTypeArgument(normalized, targetType);
+  if (!convertNonTypeArgument(normalized, targetType)) {
+    auto initializer = normalized.initializer;
+    if (!hadError_) {
+      maybeReportInvalidConvertedConstantExpression(
+          initializer ? initializer->firstSourceLocation()
+                      : parameter->firstSourceLocation(),
+          targetType);
+    }
+    return nullptr;
+  }
+
+  auto argumentLocation = normalized.initializer
+                              ? normalized.initializer->firstSourceLocation()
+                              : parameter->firstSourceLocation();
 
   if (normalized.value && !isConstexprRepresentable(*normalized.value)) {
-    maybeReportInvalidConstantExpression(
-        normalized.initializer->firstSourceLocation());
+    maybeReportInvalidConstantExpression(argumentLocation);
   }
 
   if (lacksConvertedValue(normalized)) {
-    maybeReportInvalidConstantExpression(
-        normalized.initializer->firstSourceLocation());
+    maybeReportInvalidConstantExpression(argumentLocation);
   }
 
   return symbolOf(normalized);
@@ -1313,45 +1352,63 @@ void Substitution::bindReferenceArgument(NonTypeArgumentValue& argument,
   argument.value = std::move(address);
 }
 
-void Substitution::convertNonTypeArgument(NonTypeArgumentValue& argument,
-                                          const Type* targetType) {
-  if (!targetType) return;
+auto Substitution::convertNonTypeArgument(NonTypeArgumentValue& argument,
+                                          const Type* targetType) -> bool {
+  auto expression = argument.initializer;
+  if (type_cast<AutoType>(targetType) && expression) {
+    targetType = unit_->typeTraits().remove_cv(expression->type);
+  }
+  argument.type = targetType;
+
+  if (!targetType || !expression || !expression->type) return true;
 
   auto traits = unit_->typeTraits();
-  if (isDependent(unit_, targetType)) return;
-
-  auto expression = argument.initializer;
-  if (!expression || !expression->type) return;
-  if (isDependent(unit_, expression)) return;
+  if (isDependent(unit_, targetType) || isDependent(unit_, expression)) {
+    return true;
+  }
 
   if (traits.is_reference(targetType)) {
     bindReferenceArgument(argument, targetType);
-    return;
+    return true;
+  }
+
+  StandardConversion conversions{unit_};
+  if (traits.is_scalar(targetType)) {
+    auto constant =
+        conversions.convertConstantExpression(expression, targetType);
+    if (!constant) return false;
+    argument.initializer = constant;
+    argument.isConstexpr = true;
+    argument.value = *constant->constValue;
+    return true;
   }
 
   if (traits.is_same(traits.remove_cv(expression->type),
-                     traits.remove_cv(targetType)))
-    return;
+                     traits.remove_cv(targetType))) {
+    return true;
+  }
 
-  StandardConversion conversions{unit_};
+  if (!traits.is_class(targetType)) return true;
+
   auto converted = expression;
-  if (!conversions.convertImplicitly(converted, targetType)) return;
+  if (!conversions.convertImplicitly(converted, targetType)) return false;
 
   if (traits.is_narrowing_list_element(expression, targetType)) {
     error(expression->firstSourceLocation(),
           std::format("narrowing conversion from '{}' to '{}' in converted "
                       "constant expression",
                       to_string(expression->type), to_string(targetType)));
-    return;
+    return false;
   }
 
   auto interp = ASTInterpreter{unit_};
   auto value = interp.evaluate(converted);
-  if (!value.has_value()) return;
+  if (!value.has_value()) return false;
 
   argument.initializer = converted;
   argument.isConstexpr = true;
-  argument.value = value;
+  argument.value = std::move(*value);
+  return true;
 }
 
 auto Substitution::getDefaultTemplateArgument(TemplateParameterAST* parameter)

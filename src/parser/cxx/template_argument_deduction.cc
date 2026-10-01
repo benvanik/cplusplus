@@ -514,7 +514,17 @@ auto TemplateArgumentDeduction::valueSymbol(Symbol* value,
       traits.converted_constant_value(valueType, *variable->constValue());
   if (!converted) return nullptr;
 
-  return control_->getConstantArgumentSymbol(valueType, *converted);
+  if (auto integer = std::get_if<ConstInt>(&*converted);
+      integer && integer->magnitudeFitsInUIntMax()) {
+    return control_->getConstantArgumentSymbol(valueType, *converted);
+  }
+
+  auto argument = control_->newVariableSymbol(nullptr, {});
+  argument->setType(valueType);
+  argument->setInitializer(variable->initializer());
+  argument->setConstexpr(true);
+  argument->setConstValue(*converted);
+  return argument;
 }
 
 auto TemplateArgumentDeduction::symbolArgument(Symbol* symbol,

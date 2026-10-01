@@ -87,6 +87,14 @@ class StandardConversion {
       InitializationKind initializationKind =
           InitializationKind::kCopyInitialization) -> bool;
 
+  // Converts and retains a scalar converted constant expression. Returns null
+  // when the conversion sequence is not permitted in a converted constant
+  // expression or when evaluating the converted expression does not produce a
+  // constant value.
+  [[nodiscard]] auto convertConstantExpression(ExpressionAST* expression,
+                                               const Type* destinationType)
+      -> ConstExpressionAST*;
+
   void atomicToNonAtomic(ExpressionAST*& expr);
   void prepareOperand(ExpressionAST*& expr);
   void promoteOperand(ExpressionAST*& expr);
