@@ -32,7 +32,45 @@ namespace {
 struct TemplateArgumentPrinter {
   TypePrintOptions options;
 
-  auto const_value_to_string(const ConstValue& value) const -> std::string {
+  auto address_to_string(const ConstAddress& address, const Type* type) const
+      -> std::string {
+    auto symbol = address.symbol();
+    if (address.owner() || address.stringLiteral() || address.typeInfoFor())
+      return "<const-address>";
+    if (!symbol) return "nullptr";
+
+    auto name = to_string(symbol->name(), options);
+    for (auto scope = symbol->parent(); scope; scope = scope->parent()) {
+      if (auto enclosingClass = symbol_cast<ClassSymbol>(scope)) {
+        auto qualifier = to_string(enclosingClass->type(), "", options);
+        if (qualifier.starts_with("::")) qualifier.erase(0, 2);
+        name = qualifier + "::" + name;
+        break;
+      }
+      if (scope->name()) name = to_string(scope->name(), options) + "::" + name;
+    }
+
+    auto reference = type_cast<LvalueReferenceType>(type);
+    auto pointer = type_cast<PointerType>(type);
+    auto elementType = reference ? reference->elementType()
+                       : pointer ? pointer->elementType()
+                                 : nullptr;
+    auto storageType = unqualified_type(symbol->type());
+    const bool isArray = type_cast<BoundedArrayType>(storageType) ||
+                         type_cast<UnboundedArrayType>(storageType);
+    if (isArray && unqualified_type(elementType) != storageType) {
+      name += std::format("[{}]", address.offset());
+    } else if (address.offset() != 0) {
+      return std::format("(&{} + {})", name, address.offset());
+    }
+    return reference ? name : "&" + name;
+  }
+
+  auto const_value_to_string(const ConstValue& value,
+                             const Type* type = nullptr) const -> std::string {
+    if (auto address = std::get_if<std::shared_ptr<ConstAddress>>(&value)) {
+      return *address ? address_to_string(**address, type) : "<const-address>";
+    }
     if (auto v = std::get_if<ConstInt>(&value)) return v->toString();
     if (auto v = std::get_if<ConstFloat>(&value))
       return std::format("{}", v->toDouble());
@@ -80,7 +118,8 @@ struct TemplateArgumentPrinter {
     if (symbol->isTypeAlias()) return to_string(symbol->type(), "", options);
     if (symbol->isVariable()) {
       auto var = static_cast<const VariableSymbol*>(symbol);
-      if (auto cst = var->constValue()) return const_value_to_string(*cst);
+      if (auto cst = var->constValue())
+        return const_value_to_string(*cst, var->type());
     }
     if (auto type = symbol->type()) return to_string(type, "", options);
     return to_string(symbol->name(), options);

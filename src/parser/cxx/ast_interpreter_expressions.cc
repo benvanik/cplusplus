@@ -42,6 +42,7 @@
 #include <cxx/views/symbols.h>
 
 #include <format>
+#include <limits>
 
 namespace cxx {
 namespace {
@@ -77,6 +78,25 @@ namespace {
     return std::nullopt;
   }
   return result;
+}
+
+[[nodiscard]] auto checkedOffsetAdd(std::intmax_t left, std::intmax_t right)
+    -> std::optional<std::intmax_t> {
+  if (right > 0 && left > std::numeric_limits<std::intmax_t>::max() - right)
+    return std::nullopt;
+  if (right < 0 && left < std::numeric_limits<std::intmax_t>::min() - right)
+    return std::nullopt;
+  return left + right;
+}
+
+[[nodiscard]] auto checkedOffsetSubtract(std::intmax_t left,
+                                         std::intmax_t right)
+    -> std::optional<std::intmax_t> {
+  if (right > 0 && left < std::numeric_limits<std::intmax_t>::min() + right)
+    return std::nullopt;
+  if (right < 0 && left > std::numeric_limits<std::intmax_t>::max() + right)
+    return std::nullopt;
+  return left - right;
 }
 
 [[nodiscard]] auto stringLiteralElement(const StringLiteral* literal,
@@ -1059,10 +1079,7 @@ auto ASTInterpreter::loadAddress(const ConstAddress& address,
   } else if (auto slot = lookupLocalSlot(sym)) {
     storage = *slot;
   } else if (auto var = symbol_cast<VariableSymbol>(sym)) {
-    if (auto cv = var->constValue())
-      storage = cv;
-    else if (var->initializer())
-      storage = expression(var->initializer());
+    storage = readVariable(var->resolvedDefinition());
   } else if (auto field = symbol_cast<FieldSymbol>(sym);
              field && field->isStatic()) {
     storage = evaluateStaticField(field);
@@ -1507,17 +1524,61 @@ auto ASTInterpreter::addressOfLvalue(ExpressionAST* ast)
     return std::make_shared<ConstAddress>(objLit->symbol);
   }
 
-  if (auto subExpr = ast_cast<SubscriptExpressionAST>(ast)) {
-    auto idExpr = ast_cast<IdExpressionAST>(subExpr->baseExpression);
-    if (!idExpr || !idExpr->symbol) return std::nullopt;
+  if (auto string = ast_cast<StringLiteralExpressionAST>(ast))
+    return std::make_shared<ConstAddress>(string->literal);
 
-    auto indexVal = evaluate(subExpr->indexExpression);
-    if (!indexVal) return std::nullopt;
+  if (auto subscript = ast_cast<SubscriptExpressionAST>(ast)) {
+    if (subscript->symbol) return std::nullopt;
 
-    auto index = toInt(*indexVal);
+    auto base = subscript->baseExpression;
+    auto value = traits.is_array(traits.remove_cvref(base->type))
+                     ? addressOfLvalue(base)
+                     : expression(base);
+    if (!value) return std::nullopt;
+
+    auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value);
+    if (!address || !*address) return std::nullopt;
+
+    // The offset represents one array level. Nested subobjects need a selected
+    // subobject path and cannot be flattened into this representation.
+    if (auto symbol = (*address)->symbol()) {
+      auto storageType = traits.remove_cvref(symbol->type());
+      auto elementType = traits.is_array(storageType)
+                             ? traits.remove_extent(storageType)
+                             : storageType;
+      if (!traits.is_same(traits.remove_cv(elementType),
+                          traits.remove_cvref(subscript->type)))
+        return std::nullopt;
+    }
+
+    auto indexValue = expression(subscript->indexExpression);
+    if (!indexValue) return std::nullopt;
+    auto index = toInt(*indexValue);
     if (!index) return std::nullopt;
+    auto offset = checkedOffsetAdd((*address)->offset(), *index);
+    if (!offset) return std::nullopt;
 
-    return std::make_shared<ConstAddress>(idExpr->symbol, *index);
+    auto result = std::make_shared<ConstAddress>(**address);
+    result->setOffset(*offset);
+    return result;
+  }
+
+  if (auto unary = ast_cast<UnaryExpressionAST>(ast);
+      unary && unary->op == TokenKind::T_STAR && !unary->symbol) {
+    auto value = expression(unary->expression);
+    if (!value ||
+        !std::holds_alternative<std::shared_ptr<ConstAddress>>(*value))
+      return std::nullopt;
+    return value;
+  }
+
+  if (auto conditional = ast_cast<ConditionalExpressionAST>(ast)) {
+    auto value = expression(conditional->condition);
+    if (!value) return std::nullopt;
+    auto condition = toBool(*value);
+    if (!condition) return std::nullopt;
+    return addressOfLvalue(*condition ? conditional->iftrueExpression
+                                      : conditional->iffalseExpression);
   }
 
   if (auto call = ast_cast<CallExpressionAST>(ast))
@@ -1649,7 +1710,7 @@ auto ASTInterpreter::readVariable(VariableSymbol* variable)
       if (!value) return std::nullopt;
       auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value);
       if (!address || !*address) return std::nullopt;
-      return loadAddress(**address, 0);
+      return loadAddress(**address, 0, variable->type());
     }
     return variable->constValue();
   }
@@ -2245,7 +2306,11 @@ auto ASTInterpreter::ExpressionVisitor::evaluateOperatorCall(
 
 auto ASTInterpreter::ExpressionVisitor::operator()(UnaryExpressionAST* ast)
     -> ExpressionResult {
-  auto expressionResult = interp.expression(ast->expression);
+  // Builtin address formation evaluates its operand as an lvalue. Evaluating
+  // it as a value first would duplicate side effects in the operand.
+  auto expressionResult = ast->op == TokenKind::T_AMP && !ast->symbol
+                              ? ExpressionResult{std::nullopt}
+                              : interp.expression(ast->expression);
 
   if (ast->symbol) return evaluateOperatorCall(ast->symbol, expressionResult);
 
@@ -2590,29 +2655,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
   }
 
   if (ast->castKind == ImplicitCastKind::kArrayToPointerConversion) {
-    auto innerExpr = Initializer{ast->expression}.clause();
-    if (auto id = ast_cast<IdExpressionAST>(innerExpr)) {
-      if (auto var = symbol_cast<VariableSymbol>(id->symbol)) {
-        if (unit()->typeTraits().is_array(var->type()))
-          return std::make_shared<ConstAddress>(var);
-      } else if (auto field = symbol_cast<FieldSymbol>(id->symbol)) {
-        if (unit()->typeTraits().is_array(field->type())) {
-          if (auto owner = interp.fieldOwner(innerExpr))
-            return std::make_shared<ConstAddress>(owner, field);
-        }
-      }
-    }
-    if (auto member = ast_cast<MemberExpressionAST>(innerExpr)) {
-      if (auto field = symbol_cast<FieldSymbol>(member->symbol)) {
-        if (unit()->typeTraits().is_array(field->type())) {
-          if (auto owner = interp.fieldOwner(innerExpr))
-            return std::make_shared<ConstAddress>(owner, field);
-        }
-      }
-    }
-    if (auto objLit = ast_cast<ObjectLiteralExpressionAST>(innerExpr)) {
-      if (objLit->symbol) return std::make_shared<ConstAddress>(objLit->symbol);
-    }
+    return interp.addressOfLvalue(ast->expression);
   }
 
   auto value = evaluate(ast->expression);
@@ -2662,29 +2705,34 @@ auto ASTInterpreter::ExpressionVisitor::applyBinaryOp(
   if (op == TokenKind::T_PLUS || op == TokenKind::T_MINUS) {
     auto rebased = [](const ConstAddress& a,
                       std::intmax_t off) -> std::shared_ptr<ConstAddress> {
-      if (a.stringLiteral())
-        return std::make_shared<ConstAddress>(a.stringLiteral(), off);
-      if (a.owner())
-        return std::make_shared<ConstAddress>(a.owner(), a.symbol(), off);
-      return std::make_shared<ConstAddress>(a.symbol(), off);
+      auto result = std::make_shared<ConstAddress>(a);
+      result->setOffset(off);
+      return result;
     };
 
     if (leftAddr && rightAddr && op == TokenKind::T_MINUS) {
+      if (!(*leftAddr)->sameTarget(**rightAddr)) return std::nullopt;
+      auto offset =
+          checkedOffsetSubtract(offsetOf(**leftAddr), offsetOf(**rightAddr));
+      if (!offset) return std::nullopt;
       const auto width = static_cast<int>(memoryLayout()->sizeOfPointer()) * 8;
-      auto difference =
-          ConstInt::make(offsetOf(**leftAddr) - offsetOf(**rightAddr), width,
-                         /*isSigned=*/true);
+      auto difference = ConstInt::make(*offset, width, /*isSigned=*/true);
       if (!difference) return std::nullopt;
       return ConstValue{*difference};
     }
     if (leftAddr && right.has_value()) {
       auto n = toInt(*right);
-      auto delta = op == TokenKind::T_PLUS ? n : -n;
-      return ConstValue{rebased(**leftAddr, offsetOf(**leftAddr) + delta)};
+      auto offset = op == TokenKind::T_PLUS
+                        ? checkedOffsetAdd(offsetOf(**leftAddr), n)
+                        : checkedOffsetSubtract(offsetOf(**leftAddr), n);
+      if (!offset) return std::nullopt;
+      return ConstValue{rebased(**leftAddr, *offset)};
     }
     if (rightAddr && op == TokenKind::T_PLUS && left.has_value()) {
       auto n = toInt(*left);
-      return ConstValue{rebased(**rightAddr, offsetOf(**rightAddr) + n)};
+      auto offset = checkedOffsetAdd(offsetOf(**rightAddr), n);
+      if (!offset) return std::nullopt;
+      return ConstValue{rebased(**rightAddr, *offset)};
     }
   }
 

@@ -153,8 +153,8 @@ class ConstAddress {
  public:
   ConstAddress() = default;
 
-  explicit ConstAddress(Symbol* symbol, std::intmax_t offset = 0)
-      : symbol_(symbol), offset_(offset) {}
+  // Symbol addresses use the canonical declaration as their identity.
+  explicit ConstAddress(Symbol* symbol, std::intmax_t offset = 0);
 
   explicit ConstAddress(const StringLiteral* string, std::intmax_t offset = 0)
       : string_(string), offset_(offset) {}

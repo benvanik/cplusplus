@@ -560,13 +560,17 @@ auto TemplateArgumentDeduction::packArgument(int slot) -> TemplateArgumentAST* {
   const auto isValuePack = static_cast<bool>(
       ast_cast<NonTypeTemplateParameterAST>(deduction_->parameter(slot)));
   auto elementType = nonTypeParameterType(slot);
+  const auto specifiedLength = deduction_->specifiedPackLength(slot);
 
   std::vector<Symbol*> elements;
   elements.reserve(deduced->elements().size());
+  std::size_t index = 0;
   for (auto element : deduced->elements()) {
-    if (isValuePack) element = valueSymbol(element, elementType);
+    if (isValuePack && index >= specifiedLength)
+      element = valueSymbol(element, elementType);
     if (!element) return nullptr;
     elements.push_back(element);
+    ++index;
   }
 
   return symbolArgument(control_->getPackArgumentSymbol(elements), nullptr);
