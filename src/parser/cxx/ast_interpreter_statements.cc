@@ -670,7 +670,8 @@ auto ASTInterpreter::initializeAutomaticVariable(Symbol* symbol,
 
   if (!initVal.has_value()) return false;
 
-  if (var && traits.is_class(traits.remove_cv(var->type())))
+  if (var && (traits.is_class(traits.remove_cv(var->type())) ||
+              traits.is_vector(traits.remove_cv(var->type()))))
     initVal = cloneValue(*initVal);
   setLocal(symbol, *initVal);
   if (var) registerAutomaticObject(var);

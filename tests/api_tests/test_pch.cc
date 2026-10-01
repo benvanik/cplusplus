@@ -212,6 +212,51 @@ TEST(PrecompiledHeader, RestoresFloat8Types) {
   ASSERT_TRUE(type_cast<Float8E5M2Type>(e5m2->type()));
 }
 
+TEST(PrecompiledHeader, RestoresVectorConstant) {
+  Prefix prefix{R"(
+using Int4 = int __attribute__((ext_vector_type(4)));
+constexpr Int4 lanes{1, 2};
+)"};
+
+  const auto data = prefix.emit();
+
+  ASSERT_TRUE(prefix.errors().empty());
+  ASSERT_FALSE(data.empty());
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  auto lanes =
+      symbol_cast<VariableSymbol>(findMember(consumer.globalScope(), "lanes"));
+  ASSERT_TRUE(lanes);
+
+  auto vectorType = unqualified_cast<VectorType>(lanes->type());
+  ASSERT_TRUE(vectorType);
+  EXPECT_EQ(vectorType->elementCount(), 4u);
+  ASSERT_TRUE(type_cast<IntType>(vectorType->elementType()));
+
+  ASSERT_TRUE(lanes->constValue());
+  auto list =
+      std::get_if<std::shared_ptr<InitializerList>>(&*lanes->constValue());
+  ASSERT_TRUE(list);
+  ASSERT_TRUE(*list);
+  ASSERT_EQ((*list)->elements.size(), 4u);
+
+  ASTInterpreter interpreter{&consumer, consumer.globalScope()};
+  const std::intmax_t expected[] = {1, 2, 0, 0};
+  for (std::size_t index = 0; index < (*list)->elements.size(); ++index) {
+    const auto& [value, type] = (*list)->elements[index];
+    EXPECT_TRUE(consumer.typeTraits().is_same(type, vectorType->elementType()));
+    auto integer = interpreter.toInt(value);
+    ASSERT_TRUE(integer);
+    EXPECT_EQ(*integer, expected[index]);
+  }
+}
+
 TEST(PrecompiledHeader, RestoresRecordLayoutAttributes) {
   Prefix prefix{R"(
 struct __attribute__((packed, aligned(16))) Packet;

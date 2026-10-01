@@ -141,6 +141,14 @@ auto ASTInterpreter::zeroInitialize(const Type* type)
     if (!zero) return std::nullopt;
     return ConstValue{std::make_shared<ConstComplex>(*zero, *zero)};
   }
+  if (auto vectorType = unqualified_cast<VectorType>(type)) {
+    auto zero = zeroInitialize(vectorType->elementType());
+    if (!zero) return std::nullopt;
+    auto list = std::make_shared<InitializerList>();
+    list->elements.assign(vectorType->elementCount(),
+                          {*zero, vectorType->elementType()});
+    return ConstValue{std::move(list)};
+  }
   if (auto arrayType = type_cast<BoundedArrayType>(type)) {
     auto list = std::make_shared<InitializerList>();
     list->elements.reserve(arrayType->size());
@@ -856,6 +864,9 @@ struct ASTInterpreter::ExpressionVisitor {
 
   [[nodiscard]] auto arrayValue(BracedInitListAST* ast,
                                 const BoundedArrayType* type)
+      -> ExpressionResult;
+
+  [[nodiscard]] auto vectorValue(BracedInitListAST* ast, const VectorType* type)
       -> ExpressionResult;
 
   [[nodiscard]] auto operator()(ParenInitializerAST* ast) -> ExpressionResult;
@@ -2622,6 +2633,26 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
   auto value = evaluate(ast->expression);
   if (!value.has_value()) return std::nullopt;
 
+  if (ast->castKind == ImplicitCastKind::kVectorSplat) {
+    auto vectorType = unqualified_cast<VectorType>(ast->type);
+    if (!vectorType) return std::nullopt;
+    auto list = std::make_shared<InitializerList>();
+    list->elements.assign(vectorType->elementCount(),
+                          {*value, vectorType->elementType()});
+    return ConstValue{std::move(list)};
+  }
+
+  if (ast->castKind == ImplicitCastKind::kVectorConversion) {
+    auto sourceType = unqualified_cast<VectorType>(ast->expression->type);
+    auto targetType = unqualified_cast<VectorType>(ast->type);
+    if (!sourceType || !targetType ||
+        sourceType->elementCount() != targetType->elementCount() ||
+        !unit()->typeTraits().is_same(sourceType->elementType(),
+                                      targetType->elementType()))
+      return std::nullopt;
+    return value;
+  }
+
   switch (ast->type->kind()) {
     case TypeKind::kBool: {
       auto result = interp.toBool(*value);
@@ -3576,6 +3607,24 @@ auto ASTInterpreter::ExpressionVisitor::arrayValue(BracedInitListAST* ast,
   return ConstValue{std::move(list)};
 }
 
+auto ASTInterpreter::ExpressionVisitor::vectorValue(BracedInitListAST* ast,
+                                                    const VectorType* type)
+    -> ExpressionResult {
+  auto value = interp.zeroInitialize(type);
+  if (!value) return std::nullopt;
+
+  auto list = std::get<std::shared_ptr<InitializerList>>(*value);
+  std::size_t index = 0;
+  for (auto node : ListView{ast->expressionList}) {
+    if (index >= list->elements.size()) return std::nullopt;
+    auto element = interp.evaluate(node);
+    if (!element) return std::nullopt;
+    std::get<0>(list->elements[index++]) = std::move(*element);
+  }
+
+  return value;
+}
+
 auto ASTInterpreter::ExpressionVisitor::complexValue(
     BracedInitListAST* ast, const ComplexType* complexType)
     -> ExpressionResult {
@@ -3605,6 +3654,9 @@ auto ASTInterpreter::ExpressionVisitor::operator()(BracedInitListAST* ast)
 
   if (auto arrayType = type_cast<BoundedArrayType>(ast->type))
     return arrayValue(ast, arrayType);
+
+  if (auto vectorType = unqualified_cast<VectorType>(ast->type))
+    return vectorValue(ast, vectorType);
 
   if (auto complexType = unqualified_cast<ComplexType>(ast->type))
     return complexValue(ast, complexType);
