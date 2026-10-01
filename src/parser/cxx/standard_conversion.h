@@ -46,6 +46,13 @@ enum class ClassAdjustment { kNone, kDerivedToBase, kBaseToDerived };
 
 enum class ConversionContext { kImplicit, kStandardOnly };
 
+// Destination types considered when converting a class operand for a builtin.
+enum class BuiltinOperandKind {
+  kIntegral,
+  kArithmetic,
+  kArithmeticOrPointer,
+};
+
 struct AggregateListConversion {
   bool viable = false;
   bool narrows = false;
@@ -114,8 +121,8 @@ class StandardConversion {
 
   void convertPointer(ExpressionAST*& expr, const Type* targetType);
 
-  [[nodiscard]] auto convertClassOperandForBuiltinOperator(ExpressionAST*& expr)
-      -> bool;
+  [[nodiscard]] auto convertClassOperandForBuiltinOperator(
+      ExpressionAST*& expr, BuiltinOperandKind kind) -> bool;
 
   [[nodiscard]] auto isNullPointerConstant(ExpressionAST* expr) const -> bool;
 
