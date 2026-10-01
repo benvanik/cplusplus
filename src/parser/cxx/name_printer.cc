@@ -26,6 +26,7 @@
 #include <cxx/token.h>
 #include <cxx/types.h>
 
+#include <cstdint>
 #include <format>
 
 namespace cxx {
@@ -35,8 +36,53 @@ namespace {
 struct TemplateArgumentPrinter {
   detail::PrintOptions options;
 
-  [[nodiscard]] auto const_value_to_string(const ConstValue& value) const
+  [[nodiscard]] auto address_to_string(const ConstAddress& address,
+                                       const Type* type) const -> std::string {
+    const auto reference = type_cast<LvalueReferenceType>(type);
+    const auto pointer = type_cast<PointerType>(type);
+    if (!reference && !pointer) return "<const-address>";
+
+    if (address.owner() || address.storage() || address.stringLiteral() ||
+        address.typeInfoFor())
+      return "<const-address>";
+    auto root = address.root() ? address.root() : address.symbol();
+    if (!root) return pointer ? "nullptr" : "<const-address>";
+
+    auto designation = detail::renderQualifiedName(root, options);
+    if (designation.starts_with("::")) designation.erase(0, 2);
+    for (const auto& step : address.subobjectPath()) {
+      if (auto index = std::get_if<std::size_t>(&step)) {
+        designation += std::format("[{}]", *index);
+        continue;
+      }
+      auto symbol = std::get<Symbol*>(step);
+      if (symbol_cast<BaseClassSymbol>(symbol)) continue;
+      auto name = detail::renderName(symbol->name(), options);
+      if (!name.empty()) designation += "." + name;
+    }
+
+    auto pointerExpression = false;
+    if (auto array = unqualified_cast<BoundedArrayType>(address.arrayType());
+        array && address.offset() >= 0 &&
+        static_cast<std::uintmax_t>(address.offset()) == array->size()) {
+      designation = std::format("({} + {})", designation, address.offset());
+      pointerExpression = true;
+    } else if (address.arrayType()) {
+      designation += std::format("[{}]", address.offset());
+    } else if (address.offset() != 0) {
+      designation = std::format("(&{} + {})", designation, address.offset());
+      pointerExpression = true;
+    }
+    if (reference || pointerExpression) return designation;
+    return "&" + designation;
+  }
+
+  [[nodiscard]] auto const_value_to_string(const ConstValue& value,
+                                           const Type* type = nullptr) const
       -> std::string {
+    if (auto address = std::get_if<std::shared_ptr<ConstAddress>>(&value)) {
+      return *address ? address_to_string(**address, type) : "<const-address>";
+    }
     if (auto v = std::get_if<ConstInt>(&value)) return v->toString();
     if (auto v = std::get_if<ConstFloat>(&value))
       return std::format("{}", v->toDouble());
@@ -97,7 +143,7 @@ struct TemplateArgumentPrinter {
       auto var = static_cast<const VariableSymbol*>(symbol);
       if (auto cst = var->constValue()) {
         if (auto boolean = bool_to_string(var->type(), *cst)) return *boolean;
-        return const_value_to_string(*cst);
+        return const_value_to_string(*cst, var->type());
       }
     }
     if (auto type = symbol->type())

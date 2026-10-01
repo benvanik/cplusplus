@@ -974,6 +974,11 @@ class TypePrinter {
 };
 }  // namespace
 
+auto detail::renderQualifiedName(Symbol* symbol, PrintOptions options)
+    -> std::string {
+  return sourceQualifiedName(symbol, options);
+}
+
 auto detail::renderType(const Type* type, const std::string& identifier,
                         PrintOptions options) -> std::string {
   if (!type) return {};

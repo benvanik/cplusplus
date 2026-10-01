@@ -43,6 +43,8 @@ struct PrintOptions : TypePrintOptions {
                               PrintOptions options) -> std::string;
 [[nodiscard]] auto renderName(const Name* name, PrintOptions options)
     -> std::string;
+[[nodiscard]] auto renderQualifiedName(Symbol* symbol, PrintOptions options)
+    -> std::string;
 [[nodiscard]] auto renderTemplateArgument(const TemplateArgument& argument,
                                           PrintOptions options) -> std::string;
 

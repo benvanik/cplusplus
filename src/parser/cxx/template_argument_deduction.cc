@@ -60,6 +60,8 @@ void TemplateArgumentDeduction::begin(TemplateDeclarationAST* templateDecl) {
   templateDecl_ = templateDecl;
   deduction_.emplace(unit_, templateDecl);
   explicitArguments_.assign(deduction_->parameterCount(), nullptr);
+  explicitPackSlot_ = -1;
+  explicitPackArguments_.clear();
 }
 
 auto TemplateArgumentDeduction::deduce(
@@ -190,12 +192,28 @@ auto TemplateArgumentDeduction::specifyExplicitArguments(
 
     if (isPackParameter(parameter)) {
       std::vector<Symbol*> elements;
+      const auto preserveSpellings = packMayBindReferences(slot);
+      if (preserveSpellings) {
+        explicitPackSlot_ = slot;
+        explicitPackArguments_.reserve(written.size() - index);
+      }
       for (; index < written.size(); ++index) {
         if (!matchesTemplateParameterKind(parameter, written[index]))
           return false;
+        const auto first = elements.size();
         for (const auto& element :
              expand_template_arguments(std::span{&(*arguments)[index], 1}))
           elements.push_back(std::get<Symbol*>(element));
+        if (preserveSpellings) {
+          const auto expansionCount = elements.size() - first;
+          const auto spelling =
+              expansionCount == 1 &&
+                      !TemplateArguments::isPackExpansion(written[index])
+                  ? written[index]
+                  : nullptr;
+          explicitPackArguments_.insert(explicitPackArguments_.end(),
+                                        expansionCount, spelling);
+        }
       }
       deduction_->specifyPackPrefix(slot,
                                     control_->getPackArgumentSymbol(elements));
@@ -503,6 +521,19 @@ auto TemplateArgumentDeduction::nonTypeParameterType(int slot) const
   return deduced ? deduced->type() : nullptr;
 }
 
+auto TemplateArgumentDeduction::packMayBindReferences(int slot) const -> bool {
+  if (auto type = nonTypeParameterType(slot)) return traits.is_reference(type);
+  auto parameter =
+      ast_cast<NonTypeTemplateParameterAST>(deduction_->parameter(slot));
+  auto declaredType = parameter && parameter->declaration
+                          ? parameter->declaration->type
+                          : nullptr;
+  if (!declaredType) return false;
+  if (traits.is_reference(declaredType)) return true;
+  if (type_cast<AutoType>(traits.remove_cv(declaredType))) return false;
+  return isDependent(unit_, declaredType);
+}
+
 auto TemplateArgumentDeduction::valueSymbol(Symbol* value,
                                             const Type* valueType) const
     -> Symbol* {
@@ -564,13 +595,32 @@ auto TemplateArgumentDeduction::packArgument(int slot) -> TemplateArgumentAST* {
   const auto isValuePack = static_cast<bool>(
       ast_cast<NonTypeTemplateParameterAST>(deduction_->parameter(slot)));
   auto elementType = nonTypeParameterType(slot);
+  const auto specifiedLength = deduction_->specifiedPackLength(slot);
+  const auto preservesIdentity = packMayBindReferences(slot);
 
   std::vector<Symbol*> elements;
   elements.reserve(deduced->elements().size());
+  std::size_t index = 0;
   for (auto element : deduced->elements()) {
-    if (isValuePack) element = valueSymbol(element, elementType);
+    if (isValuePack && index >= specifiedLength) {
+      element = valueSymbol(element, elementType);
+    } else if (preservesIdentity && slot == explicitPackSlot_ &&
+               index < explicitPackArguments_.size()) {
+      auto argument = ast_cast<ExpressionTemplateArgumentAST>(
+          explicitPackArguments_[index]);
+      auto variable = symbol_cast<VariableSymbol>(element);
+      if (argument && variable && !variable->initializer()) {
+        auto carrier = control_->newVariableSymbol(nullptr, {});
+        carrier->setType(variable->type());
+        carrier->setInitializer(argument->expression);
+        carrier->setConstexpr(variable->isConstexpr());
+        carrier->setConstValue(variable->constValue());
+        element = carrier;
+      }
+    }
     if (!element) return nullptr;
     elements.push_back(element);
+    ++index;
   }
 
   return symbolArgument(control_->getPackArgumentSymbol(elements), nullptr);

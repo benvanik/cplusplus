@@ -123,6 +123,8 @@ class TemplateArgumentDeduction {
 
   [[nodiscard]] auto nonTypeParameterType(int slot) const -> const Type*;
 
+  [[nodiscard]] auto packMayBindReferences(int slot) const -> bool;
+
   [[nodiscard]] auto valueSymbol(Symbol* value, const Type* valueType) const
       -> Symbol*;
 
@@ -141,5 +143,9 @@ class TemplateArgumentDeduction {
   TemplateDeclarationAST* templateDecl_ = nullptr;
   std::optional<TypeDeduction> deduction_;
   std::vector<TemplateArgumentAST*> explicitArguments_;
+  // Slot occupied by an explicitly written template-argument pack.
+  int explicitPackSlot_ = -1;
+  // Source arguments parallel to the explicitly specified pack prefix.
+  std::vector<TemplateArgumentAST*> explicitPackArguments_;
 };
 }  // namespace cxx
