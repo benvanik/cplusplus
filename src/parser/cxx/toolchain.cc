@@ -181,7 +181,10 @@ void Toolchain::addCommonMacros() {
   defineMacro("__ATOMIC_RELEASE", "3");
   defineMacro("__ATOMIC_SEQ_CST", "5");
   defineMacro("__BOOL_WIDTH__", "1");
-  defineMacro("__BYTE_ORDER__", "__ORDER_LITTLE_ENDIAN__");
+  defineMacro("__BYTE_ORDER__", memoryLayout()->byteOrder() ==
+                                        MemoryLayout::ByteOrder::kLittleEndian
+                                    ? "__ORDER_LITTLE_ENDIAN__"
+                                    : "__ORDER_BIG_ENDIAN__");
   defineMacro("__CHAR16_TYPE__", "unsigned short");
   defineMacro("__CHAR32_TYPE__", "unsigned int");
   defineMacro("__CHAR_BIT__", "8");
@@ -302,7 +305,11 @@ void Toolchain::addCommonMacros() {
   defineMacro("__LDBL_HAS_DENORM__", "1");
   defineMacro("__LDBL_HAS_INFINITY__", "1");
   defineMacro("__LDBL_HAS_QUIET_NAN__", "1");
-  defineMacro("__LITTLE_ENDIAN__", "1");
+  defineMacro(
+      memoryLayout()->byteOrder() == MemoryLayout::ByteOrder::kLittleEndian
+          ? "__LITTLE_ENDIAN__"
+          : "__BIG_ENDIAN__",
+      "1");
   defineMacro("__LLONG_WIDTH__", "64");
   defineMacro("__LONG_LONG_MAX__", "9223372036854775807LL");
   defineMacro("__MEMORY_SCOPE_DEVICE", "1");

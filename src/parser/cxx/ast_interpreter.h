@@ -102,6 +102,10 @@ class ASTInterpreter {
                                        const Type* targetType)
       -> std::optional<ConstValue>;
 
+  [[nodiscard]] auto bitCast(const ConstValue& value, const Type* sourceType,
+                             const Type* targetType)
+      -> std::optional<ConstValue>;
+
   [[nodiscard]] auto toFloat(const ConstValue& value) -> std::optional<float>;
 
   [[nodiscard]] auto toDouble(const ConstValue& value) -> std::optional<double>;
@@ -596,10 +600,6 @@ class ASTInterpreter {
       -> std::optional<ConstValue>;
 
   [[nodiscard]] auto evaluateBuiltinHugeVall(CallExpressionAST* ast)
-      -> std::optional<ConstValue>;
-
-  [[nodiscard]] auto bitCast(const ConstValue& value, const Type* sourceType,
-                             const Type* targetType)
       -> std::optional<ConstValue>;
 
  private:

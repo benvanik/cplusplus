@@ -60,10 +60,14 @@ struct FloatingPointFormat {
 
 class MemoryLayout {
  public:
-  explicit MemoryLayout(std::size_t bits);
+  enum class ByteOrder { kLittleEndian, kBigEndian };
+
+  explicit MemoryLayout(std::size_t bits,
+                        ByteOrder byteOrder = ByteOrder::kLittleEndian);
   ~MemoryLayout();
 
   [[nodiscard]] auto bits() const -> std::size_t;
+  [[nodiscard]] auto byteOrder() const -> ByteOrder;
   [[nodiscard]] auto sizeOfSizeType() const -> std::size_t;
   [[nodiscard]] auto sizeOfPointer() const -> std::size_t;
   [[nodiscard]] auto sizeOfLong() const -> std::size_t;
@@ -116,6 +120,9 @@ class MemoryLayout {
   void setTriple(std::string triple);
 
  private:
+  // Target object byte order.
+  ByteOrder byteOrder_ = ByteOrder::kLittleEndian;
+
   std::size_t bits_ = 0;
   std::size_t sizeOfPointer_ = 0;
   std::size_t sizeOfLong_ = 0;
