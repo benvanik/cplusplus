@@ -82,14 +82,27 @@ class ObjectRepresentation {
 
  private:
   struct BitRange {
-    std::uint64_t offset = 0;
-    std::uint32_t position = 0;
-    std::uint32_t width = 0;
+    // Byte offset of the storage containing the range.
+    std::uint64_t byteOffset = 0;
+
+    // Bit offset within the storage containing the range.
+    std::uint32_t bitPosition = 0;
+
+    // Number of value bits in the range.
+    std::uint32_t bitWidth = 0;
+
+    // Size in bytes of the scalar object or bit-field allocation unit.
+    std::uint32_t storageSizeBytes = 0;
   };
 
   struct Placement {
+    // Type of the placed subobject.
     const Type* type = nullptr;
-    std::uint64_t offset = 0;
+
+    // Byte offset of the placed subobject.
+    std::uint64_t byteOffset = 0;
+
+    // Bit-field range when the subobject is a bit-field.
     std::optional<BitRange> bitField;
   };
 
@@ -125,6 +138,13 @@ class ObjectRepresentation {
                                std::uint64_t offset)
       -> std::optional<ConstValue>;
 
+  [[nodiscard]] auto storeVector(const VectorType* type,
+                                 const ConstValue& value, std::uint64_t offset)
+      -> bool;
+
+  [[nodiscard]] auto loadVector(const VectorType* type, std::uint64_t offset)
+      -> std::optional<ConstValue>;
+
   [[nodiscard]] auto storeObject(const ClassType* type, const ConstValue& value,
                                  std::uint64_t offset) -> bool;
 
@@ -138,6 +158,11 @@ class ObjectRepresentation {
       -> std::optional<ConstValue>;
 
   [[nodiscard]] auto receivesIndeterminateValue(const Type* type) -> bool;
+
+  [[nodiscard]] static auto byteOffsetForBit(const BitRange& range,
+                                             std::uint32_t index,
+                                             MemoryLayout::ByteOrder byteOrder)
+      -> std::uint64_t;
 
   [[nodiscard]] auto memoryLayout() const -> MemoryLayout* {
     return interp_.control()->memoryLayout();
@@ -155,6 +180,8 @@ auto ObjectRepresentation::store(const Type* type, const ConstValue& value,
   auto unqualified = traits_.remove_cv(type);
   if (auto arrayType = type_cast<BoundedArrayType>(unqualified))
     return storeArray(arrayType, value, offset);
+  if (auto vectorType = type_cast<VectorType>(unqualified))
+    return storeVector(vectorType, value, offset);
   if (auto classType = type_cast<ClassType>(unqualified))
     return storeObject(classType, value, offset);
   return storeScalar(unqualified, value, offset);
@@ -165,6 +192,8 @@ auto ObjectRepresentation::load(const Type* type, std::uint64_t offset)
   auto unqualified = traits_.remove_cv(type);
   if (auto arrayType = type_cast<BoundedArrayType>(unqualified))
     return loadArray(arrayType, offset);
+  if (auto vectorType = type_cast<VectorType>(unqualified))
+    return loadVector(vectorType, offset);
   if (auto classType = type_cast<ClassType>(unqualified))
     return loadObject(classType, offset);
   return loadScalar(unqualified, offset);
@@ -186,22 +215,42 @@ auto ObjectRepresentation::placement(const ClassLayout& layout, Symbol* element,
   auto info = layout.getFieldInfo(field);
   if (!info) return std::nullopt;
   Placement result{field->type(), offset + info->offset};
-  if (field->isBitField())
-    result.bitField = BitRange{result.offset, info->bitOffset, info->bitWidth};
+  if (field->isBitField()) {
+    const auto storageWidthBits = info->allocUnitSizeBytes * 8;
+    if (!storageWidthBits ||
+        info->bitOffset + info->bitWidth > storageWidthBits) {
+      return std::nullopt;
+    }
+    auto bitPosition = info->bitOffset;
+    if (memoryLayout()->byteOrder() == MemoryLayout::ByteOrder::kBigEndian)
+      bitPosition = storageWidthBits - info->bitOffset - info->bitWidth;
+    result.bitField = BitRange{result.byteOffset, bitPosition, info->bitWidth,
+                               info->allocUnitSizeBytes};
+  }
   return result;
 }
 
 auto ObjectRepresentation::valueRange(const Type* type, std::uint64_t offset)
     -> std::optional<BitRange> {
+  std::size_t width = 0;
   if (auto representation = traits_.integral_representation(type)) {
-    return BitRange{offset, 0,
-                    static_cast<std::uint32_t>(representation->bits)};
+    width = representation->bits;
+  } else if (auto format = memoryLayout()->floatingPointFormat(type)) {
+    width = 1 + format->exponentBits + format->fractionBits();
+  } else {
+    return std::nullopt;
   }
-  if (auto format = memoryLayout()->floatingPointFormat(type)) {
-    auto width = 1 + format->exponentBits + format->fractionBits();
-    return BitRange{offset, 0, static_cast<std::uint32_t>(width)};
+
+  auto storageSizeBytes = memoryLayout()->sizeOf(type);
+  if (!storageSizeBytes ||
+      width > static_cast<std::size_t>(ConstInt::maxWidth) ||
+      width > *storageSizeBytes * 8 ||
+      *storageSizeBytes > std::numeric_limits<std::uint32_t>::max()) {
+    return std::nullopt;
   }
-  return std::nullopt;
+
+  return BitRange{offset, 0, static_cast<std::uint32_t>(width),
+                  static_cast<std::uint32_t>(*storageSizeBytes)};
 }
 
 auto ObjectRepresentation::valueBits(const Type* type, const ConstValue& value)
@@ -236,8 +285,11 @@ auto ObjectRepresentation::scalarValue(const Type* type, ConstInt::UWide bits)
     if (!value) return std::nullopt;
     return ConstValue{*value};
   }
-  if (auto format = memoryLayout()->floatingPointFormat(type))
+  if (auto format = memoryLayout()->floatingPointFormat(type)) {
+    const auto width = 1 + format->exponentBits + format->fractionBits();
+    if (width > std::numeric_limits<std::uint64_t>::digits) return std::nullopt;
     return interp_.toArithmeticType(ConstValue{format->value(bits)}, type);
+  }
   auto integer =
       traits_.integral_constant(type, static_cast<ConstInt::Wide>(bits));
   if (!integer) return std::nullopt;
@@ -247,27 +299,29 @@ auto ObjectRepresentation::scalarValue(const Type* type, ConstInt::UWide bits)
 
 auto ObjectRepresentation::storeBits(BitRange range, ConstInt::UWide bits)
     -> bool {
-  for (std::uint32_t index = 0; index < range.width; ++index) {
-    auto position = range.position + index;
-    auto byte = range.offset + position / 8;
-    if (byte >= bytes_.size()) return false;
-    auto mask = static_cast<std::uint8_t>(1u << (position % 8));
-    defined_[byte] |= mask;
-    if ((bits >> index) & 1) bytes_[byte] |= mask;
+  const auto byteOrder = memoryLayout()->byteOrder();
+  for (std::uint32_t index = 0; index < range.bitWidth; ++index) {
+    auto bitPosition = range.bitPosition + index;
+    auto byteOffset = byteOffsetForBit(range, index, byteOrder);
+    if (byteOffset >= bytes_.size()) return false;
+    auto mask = static_cast<std::uint8_t>(1u << (bitPosition % 8));
+    defined_[byteOffset] |= mask;
+    if ((bits >> index) & 1) bytes_[byteOffset] |= mask;
   }
   return true;
 }
 
 auto ObjectRepresentation::loadBits(BitRange range) const
     -> std::optional<ConstInt::UWide> {
+  const auto byteOrder = memoryLayout()->byteOrder();
   ConstInt::UWide bits = 0;
-  for (std::uint32_t index = 0; index < range.width; ++index) {
-    auto position = range.position + index;
-    auto byte = range.offset + position / 8;
-    if (byte >= bytes_.size()) return std::nullopt;
-    auto mask = static_cast<std::uint8_t>(1u << (position % 8));
-    if (!(defined_[byte] & mask)) return std::nullopt;
-    if (bytes_[byte] & mask) bits |= ConstInt::UWide(1) << index;
+  for (std::uint32_t index = 0; index < range.bitWidth; ++index) {
+    auto bitPosition = range.bitPosition + index;
+    auto byteOffset = byteOffsetForBit(range, index, byteOrder);
+    if (byteOffset >= bytes_.size()) return std::nullopt;
+    auto mask = static_cast<std::uint8_t>(1u << (bitPosition % 8));
+    if (!(defined_[byteOffset] & mask)) return std::nullopt;
+    if (bytes_[byteOffset] & mask) bits |= ConstInt::UWide(1) << index;
   }
   return bits;
 }
@@ -325,6 +379,50 @@ auto ObjectRepresentation::loadArray(const BoundedArrayType* type,
   return ConstValue{std::move(list)};
 }
 
+auto ObjectRepresentation::storeVector(const VectorType* type,
+                                       const ConstValue& value,
+                                       std::uint64_t offset) -> bool {
+  auto elementType = traits_.remove_cv(type->elementType());
+  auto elementSize = memoryLayout()->sizeOf(elementType);
+  auto objectSize = memoryLayout()->sizeOf(type);
+  if (!elementSize || !*elementSize || !objectSize ||
+      traits_.is_bool(elementType) ||
+      *objectSize != *elementSize * type->elementCount()) {
+    return false;
+  }
+
+  auto list = std::get_if<std::shared_ptr<InitializerList>>(&value);
+  if (!list || !*list || (*list)->size() != type->elementCount()) return false;
+
+  for (std::size_t index = 0; index < type->elementCount(); ++index) {
+    const auto& element = std::get<0>((*list)->element(index));
+    if (!store(elementType, element, offset + index * *elementSize))
+      return false;
+  }
+  return true;
+}
+
+auto ObjectRepresentation::loadVector(const VectorType* type,
+                                      std::uint64_t offset)
+    -> std::optional<ConstValue> {
+  auto elementType = traits_.remove_cv(type->elementType());
+  auto elementSize = memoryLayout()->sizeOf(elementType);
+  auto objectSize = memoryLayout()->sizeOf(type);
+  if (!elementSize || !*elementSize || !objectSize ||
+      traits_.is_bool(elementType) ||
+      *objectSize != *elementSize * type->elementCount()) {
+    return std::nullopt;
+  }
+
+  auto list = std::make_shared<InitializerList>();
+  for (std::size_t index = 0; index < type->elementCount(); ++index) {
+    auto element = load(elementType, offset + index * *elementSize);
+    if (!element) return std::nullopt;
+    list->append(std::move(*element), elementType);
+  }
+  return ConstValue{std::move(list)};
+}
+
 auto ObjectRepresentation::storeObject(const ClassType* type,
                                        const ConstValue& value,
                                        std::uint64_t offset) -> bool {
@@ -359,7 +457,7 @@ auto ObjectRepresentation::loadObject(const ClassType* type,
 auto ObjectRepresentation::storeElement(const Placement& placement,
                                         const ConstValue& value) -> bool {
   if (!placement.bitField)
-    return store(placement.type, value, placement.offset);
+    return store(placement.type, value, placement.byteOffset);
   if (std::holds_alternative<IndeterminateValue>(value)) return true;
   auto bits = valueBits(traits_.remove_cv(placement.type), value);
   if (!bits) return false;
@@ -368,14 +466,14 @@ auto ObjectRepresentation::storeElement(const Placement& placement,
 
 auto ObjectRepresentation::loadElement(const Placement& placement)
     -> std::optional<ConstValue> {
-  if (!placement.bitField) return load(placement.type, placement.offset);
+  if (!placement.bitField) return load(placement.type, placement.byteOffset);
   auto type = traits_.remove_cv(placement.type);
   auto bits = loadBits(*placement.bitField);
   if (!bits) return std::nullopt;
   auto representation = traits_.integral_representation(type);
   if (!representation) return std::nullopt;
   auto narrow = ConstInt::make(static_cast<ConstInt::Wide>(*bits),
-                               static_cast<int>(placement.bitField->width),
+                               static_cast<int>(placement.bitField->bitWidth),
                                representation->isSigned);
   if (!narrow) return std::nullopt;
   return scalarValue(type, static_cast<ConstInt::UWide>(narrow->toWide()));
@@ -390,6 +488,18 @@ auto ObjectRepresentation::receivesIndeterminateValue(const Type* type)
   auto byte = lookupStandardLibraryType(interp_.translationUnit(),
                                         WellKnownName::T_BYTE);
   return byte && enumType->symbol() == byte;
+}
+
+auto ObjectRepresentation::byteOffsetForBit(const BitRange& range,
+                                            std::uint32_t index,
+                                            MemoryLayout::ByteOrder byteOrder)
+    -> std::uint64_t {
+  const auto bitPosition = range.bitPosition + index;
+  auto byteIndex = bitPosition / 8;
+  if (byteOrder == MemoryLayout::ByteOrder::kBigEndian) {
+    byteIndex = range.storageSizeBytes - byteIndex - 1;
+  }
+  return range.byteOffset + byteIndex;
 }
 }  // namespace
 

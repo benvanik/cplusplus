@@ -592,7 +592,8 @@ template <typename Float>
 }
 }  // namespace
 
-MemoryLayout::MemoryLayout(std::size_t bits) : bits_(bits) {
+MemoryLayout::MemoryLayout(std::size_t bits, ByteOrder byteOrder)
+    : byteOrder_(byteOrder), bits_(bits) {
   sizeOfPointer_ = bits / 8;
   sizeOfLong_ = bits / 8;
   sizeOfLongLong_ = sizeOfLong_;
@@ -624,6 +625,8 @@ MemoryLayout::MemoryLayout(const Triple& triple)
 }
 
 auto MemoryLayout::bits() const -> std::size_t { return bits_; }
+
+auto MemoryLayout::byteOrder() const -> ByteOrder { return byteOrder_; }
 
 auto MemoryLayout::sizeOfSizeType() const -> std::size_t {
   return sizeOfPointer_;
