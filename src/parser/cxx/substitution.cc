@@ -1166,6 +1166,42 @@ auto Substitution::checkNonTypeParameterType(
   return true;
 }
 
+namespace {
+
+[[nodiscard]] auto designatesObject(Symbol* referent) -> bool {
+  if (symbol_cast<VariableSymbol>(referent)) return true;
+  auto field = symbol_cast<FieldSymbol>(referent);
+  return field && field->isStatic();
+}
+
+[[nodiscard]] auto isPermittedTemplateAddress(const ConstValue& value,
+                                              bool isReference) -> bool {
+  if (auto integer = std::get_if<ConstInt>(&value))
+    return !isReference && integer->isZero();
+
+  auto address = std::get_if<std::shared_ptr<ConstAddress>>(&value);
+  if (!address || !*address) return false;
+  if ((*address)->stringLiteral() || (*address)->typeInfoFor() ||
+      (*address)->owner())
+    return false;
+
+  auto symbol = (*address)->symbol();
+  if (!symbol) return !isReference && (*address)->offset() == 0;
+  if (symbol_cast<FunctionSymbol>(symbol)) return (*address)->offset() == 0;
+  if (!has_static_storage_duration(symbol)) return false;
+
+  const auto offset = (*address)->offset();
+  if (offset < 0) return false;
+  if (unqualified_cast<UnboundedArrayType>(symbol->type())) return offset == 0;
+
+  auto array = unqualified_cast<BoundedArrayType>(symbol->type());
+  const auto extent = array ? array->size() : std::uint64_t{1};
+  return isReference ? static_cast<std::uintmax_t>(offset) < extent
+                     : static_cast<std::uintmax_t>(offset) <= extent;
+}
+
+}  // namespace
+
 auto Substitution::normalizeNonTypeArgument(
     NonTypeTemplateParameterAST* parameter, Symbol* argument) -> Symbol* {
   if (!parameter) return argument;
@@ -1236,10 +1272,17 @@ auto Substitution::normalizeNonTypeArgument(
     return nullptr;
   }
 
-  if (auto value = normalizedArgument->constValue();
-      value && !isConstexprRepresentable(*value)) {
-    maybeReportInvalidConstantExpression(
-        normalizedArgument->initializer()->firstSourceLocation());
+  auto traits = unit_->typeTraits();
+  if (auto value = normalizedArgument->constValue()) {
+    const bool isAddressParameter =
+        traits.is_reference(targetType) || traits.is_pointer(targetType);
+    const bool isValidAddress =
+        !isAddressParameter ||
+        isPermittedTemplateAddress(*value, traits.is_reference(targetType));
+    if (!isConstexprRepresentable(*value) || !isValidAddress) {
+      maybeReportInvalidConstantExpression(
+          normalizedArgument->initializer()->firstSourceLocation());
+    }
   }
 
   if (lacksConvertedValue(normalizedArgument)) {
@@ -1257,23 +1300,14 @@ auto Substitution::valueDependsOnParameterType(ExpressionAST* expression) const
   return unit_->typeTraits().is_class(expression->type);
 }
 
-namespace {
-
-[[nodiscard]] auto designatesObject(Symbol* referent) -> bool {
-  if (symbol_cast<VariableSymbol>(referent)) return true;
-  auto field = symbol_cast<FieldSymbol>(referent);
-  return field && field->isStatic();
-}
-
-}  // namespace
-
 auto Substitution::isConstexprRepresentable(const ConstValue& value) const
     -> bool {
   if (auto address = std::get_if<std::shared_ptr<ConstAddress>>(&value)) {
     if (!*address) return false;
     if ((*address)->stringLiteral() || (*address)->typeInfoFor()) return false;
     auto referent = (*address)->symbol();
-    if (!referent || (*address)->owner()) return true;
+    if ((*address)->owner()) return false;
+    if (!referent) return true;
     if (!designatesObject(referent)) return true;
     return has_static_storage_duration(referent);
   }
@@ -1299,27 +1333,27 @@ auto Substitution::lacksConvertedValue(VariableSymbol* argument) const -> bool {
   return !isDependent(unit_, initializer);
 }
 
-void Substitution::bindReferenceArgument(VariableSymbol* argument,
-                                         const Type* targetType) {
+auto Substitution::bindReferenceArgument(VariableSymbol* argument,
+                                         const Type* targetType) -> bool {
   argument->setConstValue(std::nullopt);
 
   auto expression = argument->initializer();
-  if (!is_glvalue(expression)) return;
-
-  auto traits = unit_->typeTraits();
-  if (!traits.is_reference_compatible(traits.remove_reference(targetType),
-                                      expression->type))
-    return;
+  StandardConversion conversions{unit_};
+  auto sequence = conversions.computeConversionSequence(expression, targetType);
+  if (!sequence || sequence.form != ConversionSequenceForm::kStandard ||
+      !sequence.binding.bindsToGlvalue())
+    return false;
 
   auto converted = expression;
-  if (!TypeChecker{unit_}.implicit_conversion(converted, targetType)) return;
+  conversions.applyConversionSequence(sequence, converted);
 
   auto address = ASTInterpreter{unit_}.evaluateAddress(converted);
-  if (!address.has_value()) return;
+  if (!address.has_value()) return false;
 
   argument->setInitializer(converted);
   argument->setConstexpr(true);
   argument->setConstValue(std::move(address));
+  return true;
 }
 
 auto Substitution::convertNonTypeArgument(VariableSymbol* argument,
@@ -1338,8 +1372,7 @@ auto Substitution::convertNonTypeArgument(VariableSymbol* argument,
   }
 
   if (traits.is_reference(targetType)) {
-    bindReferenceArgument(argument, targetType);
-    return true;
+    return bindReferenceArgument(argument, targetType);
   }
 
   StandardConversion conversions{unit_};

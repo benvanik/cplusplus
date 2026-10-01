@@ -102,6 +102,9 @@ auto ConstObject::mutableSubobject(const Symbol* symbol) -> ConstValue* {
   return nullptr;
 }
 
+ConstAddress::ConstAddress(Symbol* symbol, std::intmax_t offset)
+    : symbol_(symbol ? symbol->canonical() : nullptr), offset_(offset) {}
+
 auto ConstAddress::sameTarget(const ConstAddress& other) const -> bool {
   return symbol_ == other.symbol_ && owner_ == other.owner_ &&
          string_ == other.string_ && typeInfoFor_ == other.typeInfoFor_;

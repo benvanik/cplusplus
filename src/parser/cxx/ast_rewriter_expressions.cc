@@ -611,6 +611,13 @@ auto ASTRewriter::ExpressionVisitor::operator()(IdExpressionAST* ast)
       if (auto var = symbol_cast<VariableSymbol>(substituted)) {
         if (var->type()) copy->type = var->type();
 
+        auto traits = translationUnit()->typeTraits();
+        if (traits.is_reference(var->type())) {
+          copy->type = traits.remove_reference(var->type());
+          copy->valueCategory = ValueCategory::kLValue;
+          return copy;
+        }
+
         if (auto constant = scalarTemplateArgument(var, copy->type))
           return constant;
 
