@@ -65,4 +65,14 @@ auto roundBFloat16(long double value) -> float {
   return roundFloatingPoint(value, 8, -125, 128);
 }
 
+auto roundFloat8E4M3FN(long double value) -> float {
+  if (std::isnan(value)) return static_cast<float>(value);
+  if (std::abs(value) > 448.0L) return std::copysign(448.0f, value);
+  return roundFloatingPoint(value, 4, -5, 9);
+}
+
+auto roundFloat8E5M2(long double value) -> float {
+  return roundFloatingPoint(value, 3, -13, 16);
+}
+
 }  // namespace cxx

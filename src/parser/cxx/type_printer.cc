@@ -288,6 +288,14 @@ class TypePrinter {
 
   void operator()(const BFloat16Type* type) { specifiers_.append("__bf16"); }
 
+  void operator()(const Float8E4M3FNType* type) {
+    specifiers_.append("__float8_e4m3fn");
+  }
+
+  void operator()(const Float8E5M2Type* type) {
+    specifiers_.append("__float8_e5m2");
+  }
+
   void operator()(const QualType* type) {
     if (auto ptrTy = type_cast<PointerType>(type->elementType())) {
       accept(ptrTy->elementType());

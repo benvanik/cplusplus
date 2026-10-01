@@ -316,6 +316,10 @@ inline auto toVal(cxx::ir::FloatKind value) -> val {
       return val("Half");
     case cxx::ir::FloatKind::BFloat:
       return val("BFloat");
+    case cxx::ir::FloatKind::Float8E4M3FN:
+      return val("Float8E4M3FN");
+    case cxx::ir::FloatKind::Float8E5M2:
+      return val("Float8E5M2");
     case cxx::ir::FloatKind::Single:
       return val("Single");
     case cxx::ir::FloatKind::Double:
@@ -333,6 +337,8 @@ inline auto toEnum<cxx::ir::FloatKind>(const val& value) -> cxx::ir::FloatKind {
   const auto name = toString(value);
   if (name == "Half") return cxx::ir::FloatKind::Half;
   if (name == "BFloat") return cxx::ir::FloatKind::BFloat;
+  if (name == "Float8E4M3FN") return cxx::ir::FloatKind::Float8E4M3FN;
+  if (name == "Float8E5M2") return cxx::ir::FloatKind::Float8E5M2;
   if (name == "Single") return cxx::ir::FloatKind::Single;
   if (name == "Double") return cxx::ir::FloatKind::Double;
   if (name == "X87DoubleExtended") return cxx::ir::FloatKind::X87DoubleExtended;

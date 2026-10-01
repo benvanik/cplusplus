@@ -473,6 +473,8 @@ struct IsDependent {
   auto operator()(const LongDoubleType* type) -> bool { return false; }
   auto operator()(const Float16Type* type) -> bool { return false; }
   auto operator()(const BFloat16Type* type) -> bool { return false; }
+  auto operator()(const Float8E4M3FNType* type) -> bool { return false; }
+  auto operator()(const Float8E5M2Type* type) -> bool { return false; }
 
   auto operator()(const QualType* type) -> bool {
     return isDependent(type->elementType());

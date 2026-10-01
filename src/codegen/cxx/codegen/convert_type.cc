@@ -73,6 +73,8 @@ struct Codegen::ConvertType {
   auto operator()(const LongDoubleType* type) -> ir::TypeRef;
   auto operator()(const Float16Type* type) -> ir::TypeRef;
   auto operator()(const BFloat16Type* type) -> ir::TypeRef;
+  auto operator()(const Float8E4M3FNType* type) -> ir::TypeRef;
+  auto operator()(const Float8E5M2Type* type) -> ir::TypeRef;
   auto operator()(const QualType* type) -> ir::TypeRef;
   auto operator()(const BoundedArrayType* type) -> ir::TypeRef;
   auto operator()(const UnboundedArrayType* type) -> ir::TypeRef;
@@ -250,6 +252,16 @@ auto Codegen::ConvertType::operator()(const Float16Type* type) -> ir::TypeRef {
 
 auto Codegen::ConvertType::operator()(const BFloat16Type* type) -> ir::TypeRef {
   return gen.emitter_.floatingType(ir::FloatKind::BFloat);
+}
+
+auto Codegen::ConvertType::operator()(const Float8E4M3FNType* type)
+    -> ir::TypeRef {
+  return gen.emitter_.floatingType(ir::FloatKind::Float8E4M3FN);
+}
+
+auto Codegen::ConvertType::operator()(const Float8E5M2Type* type)
+    -> ir::TypeRef {
+  return gen.emitter_.floatingType(ir::FloatKind::Float8E5M2);
 }
 
 auto Codegen::ConvertType::operator()(const QualType* type) -> ir::TypeRef {

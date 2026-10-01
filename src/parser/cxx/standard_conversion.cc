@@ -719,21 +719,28 @@ auto StandardConversion::commonArithmeticType(const Type* a, const Type* b)
   auto fpRank = [](const Type* t) -> int {
     switch (t->kind()) {
       case TypeKind::kLongDouble:
-        return 4;
+        return 5;
       case TypeKind::kDouble:
-        return 3;
+        return 4;
       case TypeKind::kFloat:
-        return 2;
+        return 3;
       case TypeKind::kFloat16:
-        return 1;
+        return 2;
       case TypeKind::kBFloat16:
+        return 1;
+      case TypeKind::kFloat8E4M3FN:
+      case TypeKind::kFloat8E5M2:
         return 0;
       default:
         return -1;
     }
   };
-  if (traits.is_floating_point(a) || traits.is_floating_point(b))
-    return fpRank(a) >= fpRank(b) ? a : b;
+  if (traits.is_floating_point(a) || traits.is_floating_point(b)) {
+    const auto aRank = fpRank(a);
+    const auto bRank = fpRank(b);
+    if (aRank == bRank && !traits.is_same(a, b)) return nullptr;
+    return aRank >= bRank ? a : b;
+  }
 
   auto isBitInt = [](const Type* t) {
     return t->kind() == TypeKind::kBitInt ||

@@ -175,8 +175,10 @@ struct [[nodiscard]] Codegen::ExpressionVisitor {
                               ir::ValueRef left, ir::ValueRef right)
       -> ExpressionResult;
   auto emitBinaryArithmeticOpFloat(SourceLocation loc, TokenKind op,
-                                   ir::TypeRef resultType, ir::ValueRef left,
-                                   ir::ValueRef right) -> ExpressionResult;
+                                   ir::TypeRef resultType,
+                                   const Type* arithmeticType,
+                                   ir::ValueRef left, ir::ValueRef right)
+      -> ExpressionResult;
   auto emitBinaryArithmeticOpIntegral(SourceLocation loc, TokenKind op,
                                       ir::TypeRef resultType,
                                       const Type* leftType, ir::ValueRef left,
@@ -252,6 +254,9 @@ struct [[nodiscard]] Codegen::ExpressionVisitor {
   auto emitFloatingPointConversion(SourceLocation loc, ir::ValueRef value,
                                    const Type* sourceType,
                                    const Type* targetType) -> ir::ValueRef;
+
+  auto saturateFloat8E4M3FN(SourceLocation loc, ir::ValueRef value,
+                            ir::TypeRef scalarType) -> ir::ValueRef;
 
   auto emitArithmeticConversion(SourceLocation loc, ir::ValueRef value,
                                 const Type* sourceType, const Type* targetType)
@@ -1232,8 +1237,17 @@ auto Codegen::ExpressionVisitor::operator()(TypeConstructionAST* ast)
 
   if (argKind == ir::TypeKind::Integer &&
       resultKind == ir::TypeKind::Floating) {
-    return {
-        gen.emitter_.signedIntToFloat(sourceLoc, argResult.value, resultType)};
+    if (unqualified_cast<Float8E4M3FNType>(targetType)) {
+      return {emitArithmeticConversion(sourceLoc, argResult.value,
+                                       ast->expressionList->value->type,
+                                       targetType)};
+    }
+    if (gen.traits.is_signed(ast->expressionList->value->type)) {
+      return {gen.emitter_.signedIntToFloat(sourceLoc, argResult.value,
+                                            resultType)};
+    }
+    return {gen.emitter_.unsignedIntToFloat(sourceLoc, argResult.value,
+                                            resultType)};
   }
 
   if (argKind == ir::TypeKind::Floating &&
@@ -1664,8 +1678,10 @@ auto Codegen::ExpressionVisitor::operator()(PostIncrExpressionAST* ast)
     auto one = gen.emitter_.constantLiteral(
         ast->opLoc, resultTy, ir::Initializer::floatingValue(resultTy, value));
 
-    auto addOp =
-        gen.emitter_.binaryOp(loc, ir::BinaryOp::AddFloat, loadOp, one);
+    auto addOp = emitBinaryArithmeticOp(loc, TokenKind::T_PLUS, resultTy,
+                                        ast->baseExpression->type, loadOp, one)
+                     .value;
+    if (!addOp) return {};
     gen.emitter_.store(loc, addOp, expressionResult.value,
                        gen.lvalueAlignment(ast->baseExpression));
     return {loadOp};
@@ -1900,12 +1916,13 @@ auto Codegen::ExpressionVisitor::emitUnaryOpIncrDecrFloat(
   auto loadOp = gen.emitter_.load(loc, resultType, expressionResult.value,
                                   gen.lvalueAlignment(ast->expression));
 
-  ir::ValueRef addOp;
-
-  if (ast->op == TokenKind::T_MINUS_MINUS)
-    addOp = gen.emitter_.binaryOp(loc, ir::BinaryOp::SubFloat, loadOp, one);
-  else
-    addOp = gen.emitter_.binaryOp(loc, ir::BinaryOp::AddFloat, loadOp, one);
+  auto addOp = emitBinaryArithmeticOp(loc,
+                                      ast->op == TokenKind::T_MINUS_MINUS
+                                          ? TokenKind::T_MINUS
+                                          : TokenKind::T_PLUS,
+                                      resultType, ast->type, loadOp, one)
+                   .value;
+  if (!addOp) return {};
 
   gen.emitter_.store(loc, addOp, expressionResult.value,
                      gen.lvalueAlignment(ast->expression));
@@ -2883,6 +2900,10 @@ auto Codegen::ExpressionVisitor::emitNumericConversion(
       }
 
       if (gen.traits.is_floating_point(ast->type)) {
+        if (unqualified_cast<Float8E4M3FNType>(ast->type)) {
+          return {emitArithmeticConversion(loc, expressionResult.value,
+                                           ast->expression->type, ast->type)};
+        }
         if (gen.traits.is_signed(ast->expression->type)) {
           auto op = gen.emitter_.signedIntToFloat(loc, expressionResult.value,
                                                   resultType);
@@ -3491,7 +3512,52 @@ auto Codegen::ExpressionVisitor::emitComplexComparisonOp(
 
 auto Codegen::ExpressionVisitor::emitBinaryArithmeticOpFloat(
     SourceLocation loc, TokenKind binop, ir::TypeRef resultType,
-    ir::ValueRef left, ir::ValueRef right) -> ExpressionResult {
+    const Type* arithmeticType, ir::ValueRef left, ir::ValueRef right)
+    -> ExpressionResult {
+  auto elementType = arithmeticType;
+  const auto vectorType = unqualified_cast<VectorType>(arithmeticType);
+  if (vectorType) elementType = vectorType->elementType();
+
+  const auto isFloat8E4M3FN =
+      unqualified_cast<Float8E4M3FNType>(elementType) != nullptr;
+  const auto isFloat8E5M2 =
+      unqualified_cast<Float8E5M2Type>(elementType) != nullptr;
+
+  if (isFloat8E4M3FN || isFloat8E5M2) {
+    const auto floatType = gen.emitter_.floatingType(ir::FloatKind::Single);
+    const auto bridgeType =
+        vectorType
+            ? gen.emitter_.vectorType(floatType, vectorType->elementCount())
+            : floatType;
+    left = gen.emitter_.floatExtend(loc, left, bridgeType);
+    right = gen.emitter_.floatExtend(loc, right, bridgeType);
+
+    ir::ValueRef result;
+    switch (binop) {
+      case TokenKind::T_PLUS:
+        result =
+            gen.emitter_.binaryOp(loc, ir::BinaryOp::AddFloat, left, right);
+        break;
+      case TokenKind::T_MINUS:
+        result =
+            gen.emitter_.binaryOp(loc, ir::BinaryOp::SubFloat, left, right);
+        break;
+      case TokenKind::T_STAR:
+        result =
+            gen.emitter_.binaryOp(loc, ir::BinaryOp::MulFloat, left, right);
+        break;
+      case TokenKind::T_SLASH:
+        result =
+            gen.emitter_.binaryOp(loc, ir::BinaryOp::DivFloat, left, right);
+        break;
+      default:
+        return {gen.emitTodoExpr(loc, "float arithmetic operator")};
+    }
+
+    if (isFloat8E4M3FN) result = saturateFloat8E4M3FN(loc, result, floatType);
+    return {gen.emitter_.floatTruncate(loc, result, resultType)};
+  }
+
   switch (binop) {
     case TokenKind::T_PLUS:
       return {gen.emitter_.binaryOp(loc, ir::BinaryOp::AddFloat, left, right)};
@@ -3584,16 +3650,18 @@ auto Codegen::ExpressionVisitor::emitBinaryArithmeticOp(
     return emitComplexArithmeticOp(loc, op, complexType, left, right);
   }
 
-  if (gen.traits.is_vector(leftType))
-    leftType = gen.traits.get_element_type(leftType);
+  const auto elementType = gen.traits.is_vector(leftType)
+                               ? gen.traits.get_element_type(leftType)
+                               : leftType;
 
-  if (gen.traits.is_floating_point(leftType)) {
-    return emitBinaryArithmeticOpFloat(loc, op, resultType, left, right);
+  if (gen.traits.is_floating_point(elementType)) {
+    return emitBinaryArithmeticOpFloat(loc, op, resultType, leftType, left,
+                                       right);
   }
 
-  if (gen.traits.is_integral(leftType)) {
-    return emitBinaryArithmeticOpIntegral(loc, op, resultType, leftType, left,
-                                          right);
+  if (gen.traits.is_integral(elementType)) {
+    return emitBinaryArithmeticOpIntegral(loc, op, resultType, elementType,
+                                          left, right);
   }
 
   return {gen.emitTodoExpr(loc, "arithmetic operator")};
@@ -5297,6 +5365,16 @@ auto Codegen::ExpressionVisitor::emitFloatingPointConversion(
   auto sourceWidth = gen.emitter_.scalarWidth(sourceIrType);
   auto targetWidth = gen.emitter_.scalarWidth(targetIrType);
 
+  if (unqualified_cast<Float8E4M3FNType>(targetType)) {
+    auto saturationType = sourceIrType;
+    if (sourceWidth == targetWidth) {
+      saturationType = gen.emitter_.floatingType(ir::FloatKind::Single);
+      value = gen.emitter_.floatExtend(loc, value, saturationType);
+    }
+    value = saturateFloat8E4M3FN(loc, value, saturationType);
+    return gen.emitter_.floatTruncate(loc, value, targetIrType);
+  }
+
   if (sourceWidth < targetWidth)
     return gen.emitter_.floatExtend(loc, value, targetIrType);
   if (sourceWidth > targetWidth)
@@ -5308,6 +5386,31 @@ auto Codegen::ExpressionVisitor::emitFloatingPointConversion(
   auto bridgeType = gen.emitter_.floatingType(ir::FloatKind::Single);
   auto extended = gen.emitter_.floatExtend(loc, value, bridgeType);
   return gen.emitter_.floatTruncate(loc, extended, targetIrType);
+}
+
+auto Codegen::ExpressionVisitor::saturateFloat8E4M3FN(SourceLocation loc,
+                                                      ir::ValueRef value,
+                                                      ir::TypeRef scalarType)
+    -> ir::ValueRef {
+  const auto valueType = gen.emitter_.typeOf(value);
+
+  auto maximum = gen.emitter_.constantLiteral(
+      loc, scalarType, ir::Initializer::floatingValue(scalarType, 448.0));
+  auto minimum = gen.emitter_.constantLiteral(
+      loc, scalarType, ir::Initializer::floatingValue(scalarType, -448.0));
+
+  if (valueType != scalarType) {
+    maximum = gen.emitter_.vectorSplat(loc, valueType, maximum);
+    minimum = gen.emitter_.vectorSplat(loc, valueType, minimum);
+  }
+
+  auto aboveMaximum = gen.emitter_.compareFloat(
+      loc, ir::FloatPredicate::OrderedGreater, value, maximum);
+  value = gen.emitter_.select(loc, aboveMaximum, maximum, value);
+
+  auto belowMinimum = gen.emitter_.compareFloat(
+      loc, ir::FloatPredicate::OrderedLess, value, minimum);
+  return gen.emitter_.select(loc, belowMinimum, minimum, value);
 }
 
 auto Codegen::ExpressionVisitor::emitArithmeticConversion(
@@ -5325,6 +5428,14 @@ auto Codegen::ExpressionVisitor::emitArithmeticConversion(
   }
 
   if (!sourceIsFloating && targetIsFloating) {
+    if (unqualified_cast<Float8E4M3FNType>(targetType)) {
+      const auto bridgeType = gen.emitter_.floatingType(ir::FloatKind::Single);
+      value = gen.traits.is_signed(sourceType)
+                  ? gen.emitter_.signedIntToFloat(loc, value, bridgeType)
+                  : gen.emitter_.unsignedIntToFloat(loc, value, bridgeType);
+      value = saturateFloat8E4M3FN(loc, value, bridgeType);
+      return gen.emitter_.floatTruncate(loc, value, resultType);
+    }
     if (gen.traits.is_signed(sourceType))
       return gen.emitter_.signedIntToFloat(loc, value, resultType);
     return gen.emitter_.unsignedIntToFloat(loc, value, resultType);

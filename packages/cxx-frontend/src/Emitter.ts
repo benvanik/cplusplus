@@ -99,7 +99,14 @@ export type FloatPredicate =
   | "Unordered";
 
 export type FloatKind =
-  "Half" | "BFloat" | "Single" | "Double" | "X87DoubleExtended" | "Quad";
+  | "Half"
+  | "BFloat"
+  | "Float8E4M3FN"
+  | "Float8E5M2"
+  | "Single"
+  | "Double"
+  | "X87DoubleExtended"
+  | "Quad";
 
 export type CastKind =
   | "Truncate"

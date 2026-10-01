@@ -128,6 +128,8 @@ class Token;
   V(__EXTENSION__, "__extension__")             \
   V(__FLOAT128, "__float128")                   \
   V(__FLOAT80, "__float80")                     \
+  V(__FLOAT8_E4M3FN, "__float8_e4m3fn")         \
+  V(__FLOAT8_E5M2, "__float8_e5m2")             \
   V(__IMAG__, "__imag__")                       \
   V(__INT128, "__int128")                       \
   V(__INT128_T, "__int128_t")                   \
