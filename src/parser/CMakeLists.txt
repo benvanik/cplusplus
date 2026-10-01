@@ -68,6 +68,7 @@ add_library(cxx-parser
     cxx/class_template_deduction.cc
     cxx/class_value_abi.cc
     cxx/cli.cc
+    cxx/constant_bits.cc
     cxx/const_value.cc
     cxx/control.cc
     cxx/cxx.cc

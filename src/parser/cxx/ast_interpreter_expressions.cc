@@ -23,6 +23,7 @@
 #include <cxx/ast_rewriter.h>
 #include <cxx/binder.h>
 #include <cxx/const_value.h>
+#include <cxx/constant_bits.h>
 #include <cxx/control.h>
 #include <cxx/decl.h>
 #include <cxx/dependent_types.h>
@@ -2093,10 +2094,9 @@ auto ASTInterpreter::ExpressionVisitor::operator()(CppCastExpressionAST* ast)
 
 auto ASTInterpreter::ExpressionVisitor::operator()(
     BuiltinBitCastExpressionAST* ast) -> ExpressionResult {
-  auto typeIdResult = interp.typeId(ast->typeId);
-  auto expressionResult = interp.expression(ast->expression);
-
-  return ExpressionResult{std::nullopt};
+  auto value = interp.expression(ast->expression);
+  if (!value || !ast->type || !ast->expression->type) return std::nullopt;
+  return bitCastConstant(interp, *value, ast->expression->type, ast->type);
 }
 
 auto ASTInterpreter::ExpressionVisitor::operator()(

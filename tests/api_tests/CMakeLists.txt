@@ -30,6 +30,7 @@ endif()
 add_executable(test_api
     test_arena.cc
     test_condition_declarations.cc
+    test_constant_bits.cc
     test_control.cc
     test_dependent_types.cc
     test_diagnostics.cc
