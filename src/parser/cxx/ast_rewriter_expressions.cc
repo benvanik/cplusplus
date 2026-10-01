@@ -75,16 +75,32 @@ struct ASTRewriter::ExpressionVisitor : VisitorBase {
     return rewrite.typeChecker();
   }
 
-  [[nodiscard]] auto spelledIntegerLiteral(VariableSymbol* var,
-                                           const Type* type) const
+  [[nodiscard]] auto scalarTemplateArgument(VariableSymbol* variable,
+                                            const Type* type) const
       -> ExpressionAST* {
-    if (!var->constValue()) return nullptr;
+    if (!variable->constValue()) return nullptr;
 
-    auto value = std::get_if<ConstInt>(&*var->constValue());
-    if (!value) return nullptr;
+    auto traits = translationUnit()->typeTraits();
+    if (!traits.is_arithmetic(type) && !traits.is_enum(type)) return nullptr;
 
-    return TemplateArguments{translationUnit()}.integerLiteralExpression(*value,
-                                                                         type);
+    ExpressionAST* expression = nullptr;
+    if (auto value = std::get_if<ConstInt>(&*variable->constValue())) {
+      expression =
+          TemplateArguments{translationUnit()}.integerLiteralExpression(*value,
+                                                                        type);
+    } else if (auto initializer = variable->initializer()) {
+      expression = initializer->clone(arena());
+    }
+    if (!expression) return nullptr;
+
+    // Retain the normalized value without leaving a reference to the synthetic
+    // template-argument carrier in the instantiated AST.
+    auto constant = ConstExpressionAST::create(arena());
+    constant->expression = expression;
+    constant->type = type;
+    constant->valueCategory = ValueCategory::kPrValue;
+    constant->constValue = arena()->make<ConstValue>(*variable->constValue());
+    return constant;
   }
 
   [[nodiscard]] auto operator()(CharLiteralExpressionAST* ast)
@@ -595,8 +611,8 @@ auto ASTRewriter::ExpressionVisitor::operator()(IdExpressionAST* ast)
       if (auto var = symbol_cast<VariableSymbol>(substituted)) {
         if (var->type()) copy->type = var->type();
 
-        if (auto literal = spelledIntegerLiteral(var, copy->type))
-          return literal;
+        if (auto constant = scalarTemplateArgument(var, copy->type))
+          return constant;
 
         if (auto initializer = var->initializer()) {
           return initializer->clone(arena());

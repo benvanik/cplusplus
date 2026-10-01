@@ -101,6 +101,7 @@ add_library(cxx-parser
     cxx/implicit_conversion_sequence.cc
     cxx/initialization.cc
     cxx/standard_conversion.cc
+    cxx/standard_conversion_constexpr.cc
     cxx/substitution.cc
     cxx/symbol_chain_view.cc
     cxx/semantic_archive.cc

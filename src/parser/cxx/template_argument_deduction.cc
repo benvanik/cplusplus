@@ -518,6 +518,7 @@ auto TemplateArgumentDeduction::valueSymbol(Symbol* value,
 
   auto argument = control_->newVariableSymbol(nullptr, {});
   argument->setType(valueType);
+  argument->setInitializer(variable->initializer());
   argument->setConstexpr(true);
   argument->setConstValue(*converted);
   return argument;

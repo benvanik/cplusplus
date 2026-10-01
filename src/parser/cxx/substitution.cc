@@ -791,7 +791,7 @@ auto Substitution::CollectRawTemplateArgument::operator()(
       return templateArgument;
     }
 
-    if (subst.valueDependsOnParameterType(expression)) {
+    if (expression->type) {
       auto templateArgument = control->newVariableSymbol(nullptr, {});
       templateArgument->setInitializer(expression);
       templateArgument->setType(expression->type);
@@ -994,6 +994,16 @@ void Substitution::doMake() {
     if (isPackParameter(parameter)) {
       if (auto deducedPack = deducedPackAt(argumentIndex)) {
         ++argumentIndex;
+        if (auto nonTypeParam =
+                ast_cast<NonTypeTemplateParameterAST>(parameter)) {
+          auto normalizedPack = control->newParameterPackSymbol(nullptr, {});
+          for (auto element : deducedPack->elements()) {
+            auto normalized = normalizeNonTypeArgument(nonTypeParam, element);
+            if (!normalized) return;
+            normalizedPack->addElement(normalized);
+          }
+          deducedPack = normalizedPack;
+        }
         templateArguments_.push_back(deducedPack);
         continue;
       }
@@ -1012,6 +1022,7 @@ void Substitution::doMake() {
         if (!checkArgumentKind(parameter, argumentIndex)) return;
         auto symbol = argumentFor(parameter, argumentIndex++);
         symbol = normalizeNonTypeArgument(nonTypeParam, symbol);
+        if (!symbol) return;
         pack->addElement(symbol);
       }
 
@@ -1027,14 +1038,27 @@ void Substitution::doMake() {
       auto nonTypeParam = ast_cast<NonTypeTemplateParameterAST>(parameter);
       if (nonTypeParam && !checkNonTypeParameterType(nonTypeParam)) return;
       symbol = normalizeNonTypeArgument(nonTypeParam, symbol);
+      if (!symbol) return;
       templateArguments_.push_back(symbol);
       continue;
     }
 
     if (!fillDefaults_ || !argumentCountIsKnown) break;
 
-    if (auto defaultArg = getDefaultTemplateArgument(parameter)) {
-      templateArguments_.push_back(defaultArg.value());
+    if (auto defaultArgument = getDefaultTemplateArgument(parameter)) {
+      auto argument = std::move(*defaultArgument);
+      if (auto nonTypeParam =
+              ast_cast<NonTypeTemplateParameterAST>(parameter)) {
+        auto symbol = std::get_if<Symbol*>(&argument);
+        if (!symbol) {
+          maybeReportMalformedTemplateArgument(
+              parameter->firstSourceLocation());
+          return;
+        }
+        *symbol = normalizeNonTypeArgument(nonTypeParam, *symbol);
+        if (!*symbol) return;
+      }
+      templateArguments_.push_back(std::move(argument));
       continue;
     }
 
@@ -1076,6 +1100,13 @@ auto Substitution::injectedClassNameAsType(ClassSymbol* classTemplate) const
 
 void Substitution::maybeReportInvalidConstantExpression(SourceLocation loc) {
   error(loc, "template argument is not a constant expression");
+}
+
+void Substitution::maybeReportInvalidConvertedConstantExpression(
+    SourceLocation loc, const Type* targetType) {
+  error(loc, std::format("template argument is not a converted constant "
+                         "expression of type '{}'",
+                         to_string(targetType)));
 }
 
 void Substitution::maybeReportDefaultArgumentSubstitutionFailure(
@@ -1196,7 +1227,14 @@ auto Substitution::normalizeNonTypeArgument(
 
   normalizedArgument->setType(targetType);
 
-  convertNonTypeArgument(normalizedArgument, targetType);
+  if (!convertNonTypeArgument(normalizedArgument, targetType)) {
+    auto initializer = normalizedArgument->initializer();
+    maybeReportInvalidConvertedConstantExpression(
+        initializer ? initializer->firstSourceLocation()
+                    : parameter->firstSourceLocation(),
+        targetType);
+    return nullptr;
+  }
 
   if (auto value = normalizedArgument->constValue();
       value && !isConstexprRepresentable(*value)) {
@@ -1284,37 +1322,55 @@ void Substitution::bindReferenceArgument(VariableSymbol* argument,
   argument->setConstValue(std::move(address));
 }
 
-void Substitution::convertNonTypeArgument(VariableSymbol* argument,
-                                          const Type* targetType) {
-  if (!targetType) return;
+auto Substitution::convertNonTypeArgument(VariableSymbol* argument,
+                                          const Type* targetType) -> bool {
+  auto expression = argument->initializer();
+  if (type_cast<AutoType>(targetType) && expression) {
+    targetType = unit_->typeTraits().remove_cv(expression->type);
+  }
+  argument->setType(targetType);
+
+  if (!targetType || !expression || !expression->type) return true;
 
   auto traits = unit_->typeTraits();
-  if (isDependent(unit_, targetType)) return;
-
-  auto expression = argument->initializer();
-  if (!expression || !expression->type) return;
-  if (isDependent(unit_, expression)) return;
+  if (isDependent(unit_, targetType) || isDependent(unit_, expression)) {
+    return true;
+  }
 
   if (traits.is_reference(targetType)) {
     bindReferenceArgument(argument, targetType);
-    return;
+    return true;
+  }
+
+  StandardConversion conversions{unit_};
+  if (traits.is_scalar(targetType)) {
+    auto constant =
+        conversions.convertConstantExpression(expression, targetType);
+    if (!constant) return false;
+    argument->setInitializer(constant);
+    argument->setConstexpr(true);
+    argument->setConstValue(*constant->constValue);
+    return true;
   }
 
   if (traits.is_same(traits.remove_cv(expression->type),
-                     traits.remove_cv(targetType)))
-    return;
+                     traits.remove_cv(targetType))) {
+    return true;
+  }
 
-  StandardConversion conversions{unit_};
+  if (!traits.is_class(targetType)) return true;
+
   auto converted = expression;
-  if (!conversions.convertImplicitly(converted, targetType)) return;
+  if (!conversions.convertImplicitly(converted, targetType)) return false;
 
   auto interp = ASTInterpreter{unit_};
   auto value = interp.evaluate(converted);
-  if (!value.has_value()) return;
+  if (!value.has_value()) return false;
 
   argument->setInitializer(converted);
   argument->setConstexpr(true);
-  argument->setConstValue(value);
+  argument->setConstValue(std::move(*value));
+  return true;
 }
 
 auto Substitution::getDefaultTemplateArgument(TemplateParameterAST* parameter)

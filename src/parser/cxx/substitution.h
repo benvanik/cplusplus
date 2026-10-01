@@ -165,7 +165,8 @@ class Substitution {
   [[nodiscard]] auto normalizeNonTypeArgument(
       NonTypeTemplateParameterAST* parameter, Symbol* argument) -> Symbol*;
 
-  void convertNonTypeArgument(VariableSymbol* argument, const Type* targetType);
+  [[nodiscard]] auto convertNonTypeArgument(VariableSymbol* argument,
+                                            const Type* targetType) -> bool;
 
   void bindReferenceArgument(VariableSymbol* argument, const Type* targetType);
 
@@ -185,6 +186,9 @@ class Substitution {
       -> std::optional<TemplateArgument>;
 
   void maybeReportInvalidConstantExpression(SourceLocation loc);
+
+  void maybeReportInvalidConvertedConstantExpression(SourceLocation loc,
+                                                     const Type* targetType);
   void maybeReportDefaultArgumentSubstitutionFailure(SourceLocation loc);
   [[nodiscard]] auto hasDependentArguments() const -> bool;
   void maybeReportMalformedTemplateArgument(SourceLocation loc);
