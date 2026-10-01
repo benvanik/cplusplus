@@ -1775,6 +1775,11 @@ void ListInitChecker::checkArrayElements(const Type* type,
 
   List<ExpressionAST*>* rebuilt = nullptr;
   ExpressionListBuilder list{ctx.unit->arena(), rebuilt};
+  const char* elementDescription = "array element";
+  if (plan->isVector)
+    elementDescription = "vector element";
+  else if (ctx.traits.is_complex(type))
+    elementDescription = "complex element";
   for (const auto& initialized : plan->initializedElements) {
     auto initializer = initialized.initializer;
     if (!initializer) continue;
@@ -1789,7 +1794,7 @@ void ListInitChecker::checkArrayElements(const Type* type,
       desigChecker.check(type, designated);
     } else {
       aggregateChecker.checkElementInit(initializer, elementType,
-                                        "array element");
+                                        elementDescription);
     }
 
     list.append(initializer);
