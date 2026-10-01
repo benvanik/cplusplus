@@ -871,11 +871,16 @@ struct TypeChecker::Visitor {
 
   void mark_virtual_dispatch(CallExpressionAST* ast);
 
-  enum class BuiltinOperands { kArithmetic, kComparison };
+  enum class BuiltinOperandContext {
+    kArithmetic,
+    kArithmeticOrPointer,
+    kComparison,
+  };
 
   [[nodiscard]] auto convert_class_operands_for_builtin(
       BinaryExpressionAST* ast,
-      BuiltinOperands operands = BuiltinOperands::kArithmetic) -> bool;
+      BuiltinOperandContext context = BuiltinOperandContext::kArithmetic)
+      -> bool;
 
   [[nodiscard]] auto resolve_binary_overload(BinaryExpressionAST* ast,
                                              bool setValueCategory = true)
@@ -1617,7 +1622,9 @@ void TypeChecker::Visitor::operator()(SubscriptExpressionAST* ast) {
   }
   for (auto operand : {&ast->baseExpression, &indexExpression}) {
     if (!traits.is_class_or_union((*operand)->type)) continue;
-    if (!stdconv_.convertClassOperandForBuiltinOperator(*operand)) return;
+    if (!stdconv_.convertClassOperandForBuiltinOperator(
+            *operand, BuiltinOperandKind::kArithmeticOrPointer))
+      return;
   }
 
   auto array_subscript = [this](ExpressionAST* ast, ExpressionAST*& base,
@@ -6935,7 +6942,8 @@ void TypeChecker::Visitor::check_relational(BinaryExpressionAST* ast) {
 
   if (resolve_binary_overload(ast)) return;
 
-  if (!convert_class_operands_for_builtin(ast, BuiltinOperands::kComparison))
+  if (!convert_class_operands_for_builtin(ast,
+                                          BuiltinOperandContext::kComparison))
     return;
   prepare_comparison_operands(ast);
 
@@ -7019,7 +7027,8 @@ void TypeChecker::Visitor::check_equality(BinaryExpressionAST* ast) {
 
   if (rewrite_not_equal_as_negated_equal(ast)) return;
 
-  if (!convert_class_operands_for_builtin(ast, BuiltinOperands::kComparison))
+  if (!convert_class_operands_for_builtin(ast,
+                                          BuiltinOperandContext::kComparison))
     return;
   prepare_comparison_operands(ast);
   if (unqualified_cast<BuiltinMetaInfoType>(ast->leftExpression->type) &&
@@ -7156,7 +7165,11 @@ void TypeChecker::Visitor::operator()(BinaryExpressionAST* ast) {
     case TokenKind::T_CARET:
     case TokenKind::T_BAR:
       if (resolve_binary_overload(ast)) break;
-      if (!convert_class_operands_for_builtin(ast)) break;
+      if (!convert_class_operands_for_builtin(
+              ast, ast->op == TokenKind::T_PLUS || ast->op == TokenKind::T_MINUS
+                       ? BuiltinOperandContext::kArithmeticOrPointer
+                       : BuiltinOperandContext::kArithmetic))
+        break;
       ast->type = check_builtin_operands(ast->op, ast->leftExpression,
                                          ast->rightExpression, ast->opLoc);
       break;
@@ -7651,7 +7664,8 @@ void TypeChecker::Visitor::CheckConditionalExpression::
     convertClassOperandsToBuiltinTypes() {
   for (auto operand : {&ast->iftrueExpression, &ast->iffalseExpression}) {
     if (!traits.is_class_or_union(traits.remove_cv((*operand)->type))) continue;
-    (void)stdconv.convertClassOperandForBuiltinOperator(*operand);
+    (void)stdconv.convertClassOperandForBuiltinOperator(
+        *operand, BuiltinOperandKind::kArithmeticOrPointer);
   }
 }
 
@@ -7892,7 +7906,8 @@ void TypeChecker::Visitor::operator()(CompoundAssignmentExpressionAST* ast) {
     return;
 
   if (traits.is_class_or_union(ast->rightExpression->type))
-    (void)stdconv_.convertClassOperandForBuiltinOperator(ast->rightExpression);
+    (void)stdconv_.convertClassOperandForBuiltinOperator(
+        ast->rightExpression, BuiltinOperandKind::kArithmetic);
 
   ast->leftExpression->type = ast->targetExpression->type;
   ast->leftExpression->valueCategory = ast->targetExpression->valueCategory;
@@ -9323,31 +9338,43 @@ void TypeChecker::Visitor::check_static_assert(
 }
 
 auto TypeChecker::Visitor::convert_class_operands_for_builtin(
-    BinaryExpressionAST* ast, BuiltinOperands operands) -> bool {
-  const Type* enumeration = nullptr;
-  if (operands == BuiltinOperands::kComparison) {
+    BinaryExpressionAST* ast, BuiltinOperandContext context) -> bool {
+  const auto operandKind = context == BuiltinOperandContext::kArithmetic
+                               ? BuiltinOperandKind::kArithmetic
+                               : BuiltinOperandKind::kArithmeticOrPointer;
+
+  const Type* preferredType = nullptr;
+  if (context == BuiltinOperandContext::kComparison) {
     OverloadResolution resolution{check.unit_};
-    enumeration = resolution.commonEnumerationType(
+    preferredType = resolution.commonEnumerationType(
         traits.remove_cvref(ast->leftExpression->type),
         traits.remove_cvref(ast->rightExpression->type));
   }
 
+  const auto leftIsClass = traits.is_class_or_union(ast->leftExpression->type);
+  const auto rightIsClass =
+      traits.is_class_or_union(ast->rightExpression->type);
+
   const auto convertsForBuiltin = [&](ExpressionAST*& operand) {
     if (!traits.is_class_or_union(operand->type)) return true;
-    return stdconv_.convertClassOperandForBuiltinOperator(operand, enumeration);
+    return stdconv_.convertClassOperandForBuiltinOperator(operand, operandKind,
+                                                          preferredType);
   };
 
-  if (convertsForBuiltin(ast->leftExpression) &&
-      convertsForBuiltin(ast->rightExpression))
-    return true;
+  if (!convertsForBuiltin(ast->leftExpression) ||
+      !convertsForBuiltin(ast->rightExpression)) {
+    error(ast->opLoc,
+          std::format("invalid operands to binary expression ('{}' and '{}')",
+                      to_diag_string(ast->leftExpression->type, "",
+                                     check.diagnosticPrintOptions()),
+                      to_diag_string(ast->rightExpression->type, "",
+                                     check.diagnosticPrintOptions())));
+    return false;
+  }
 
-  error(ast->opLoc,
-        std::format("invalid operands to binary expression ('{}' and '{}')",
-                    to_diag_string(ast->leftExpression->type, "",
-                                   check.diagnosticPrintOptions()),
-                    to_diag_string(ast->rightExpression->type, "",
-                                   check.diagnosticPrintOptions())));
-  return false;
+  if (leftIsClass) check.useConversionFunction(ast->leftExpression);
+  if (rightIsClass) check.useConversionFunction(ast->rightExpression);
+  return true;
 }
 
 auto TypeChecker::Visitor::is_modifiable_lvalue(ExpressionAST* expr) -> bool {
@@ -10467,8 +10494,10 @@ void TypeChecker::check_integral_condition(ExpressionAST*& expr) {
 
   auto conditionType = expr->type;
 
-  if (traits.is_class_or_union(traits.remove_cv(conditionType)))
-    (void)visitor.stdconv_.convertClassOperandToIntegralOrEnumeration(expr);
+  if (traits.is_class_or_union(traits.remove_cv(conditionType)) &&
+      visitor.stdconv_.convertClassOperandToIntegralOrEnumeration(expr)) {
+    useConversionFunction(expr);
+  }
 
   if (!traits.is_integral(expr->type) && !traits.is_enum(expr->type)) {
     error(expr->firstSourceLocation(),
