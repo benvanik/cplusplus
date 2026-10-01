@@ -48,6 +48,7 @@ export type Wire =
   | { k: "literal"; cpp: string }
   | { k: "abi-tags" }
   | { k: "attributes" }
+  | { k: "const-float" }
   | { k: "const-value"; alternatives: Wire[] }
   | { k: "const-value-ptr" }
   | { k: "template-argument" }
@@ -334,6 +335,9 @@ export class WireMapper {
     const cpp = this.cppTypeOf(target);
 
     switch (name) {
+      case "::cxx::ConstFloat":
+        return { k: "const-float" };
+
       case "::cxx::SourceLocation":
         return { k: "location" };
 

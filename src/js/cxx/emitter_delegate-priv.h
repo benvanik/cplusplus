@@ -60,6 +60,8 @@ inline auto toVal(cxx::ir::Initializer::Kind value) -> val {
       return val("Integer");
     case cxx::ir::Initializer::Kind::Floating:
       return val("Floating");
+    case cxx::ir::Initializer::Kind::FloatingBits:
+      return val("FloatingBits");
     case cxx::ir::Initializer::Kind::Bytes:
       return val("Bytes");
     case cxx::ir::Initializer::Kind::Aggregate:
@@ -85,6 +87,7 @@ inline auto toEnum<cxx::ir::Initializer::Kind>(const val& value)
   if (name == "None") return cxx::ir::Initializer::Kind::None;
   if (name == "Integer") return cxx::ir::Initializer::Kind::Integer;
   if (name == "Floating") return cxx::ir::Initializer::Kind::Floating;
+  if (name == "FloatingBits") return cxx::ir::Initializer::Kind::FloatingBits;
   if (name == "Bytes") return cxx::ir::Initializer::Kind::Bytes;
   if (name == "Aggregate") return cxx::ir::Initializer::Kind::Aggregate;
   if (name == "Null") return cxx::ir::Initializer::Kind::Null;
@@ -552,6 +555,7 @@ inline auto toVal(const cxx::ir::Initializer& value) -> val {
   result.set("type", toVal(value.type));
   result.set("integer", toVal(value.integer));
   result.set("floating", toVal(value.floating));
+  result.set("floatingBits", toVal(value.floatingBits));
   result.set("bytes", toVal(value.bytes));
   result.set("elements",
              arrayVal(value.elements, [](const cxx::ir::Initializer& item) {

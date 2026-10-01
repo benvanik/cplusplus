@@ -23,6 +23,7 @@
 #include <cxx/ast_fwd.h>
 #include <cxx/const_int.h>
 #include <cxx/cxx_fwd.h>
+#include <cxx/floating_point.h>
 #include <cxx/literals_fwd.h>
 #include <cxx/source_location.h>
 #include <cxx/symbols_fwd.h>
@@ -54,7 +55,7 @@ struct IndeterminateValue {
 };
 
 using ConstValue =
-    std::variant<ConstInt, const StringLiteral*, float, double, long double,
+    std::variant<ConstInt, const StringLiteral*, ConstFloat, long double,
                  std::shared_ptr<Meta>, std::shared_ptr<InitializerList>,
                  std::shared_ptr<ConstObject>, std::shared_ptr<ConstAddress>,
                  std::shared_ptr<ConstLabelAddress>,

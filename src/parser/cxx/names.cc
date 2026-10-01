@@ -36,16 +36,16 @@ namespace cxx {
 namespace {
 
 struct ConstValueHash {
+  auto operator()(ConstFloat value) const -> std::size_t {
+    auto seed = std::hash<std::uint64_t>{}(value.bits());
+    hash_combine(seed, static_cast<unsigned>(value.format()));
+    return seed;
+  }
+
   auto operator()(bool value) const -> std::size_t {
     return std::hash<bool>{}(value);
   }
   auto operator()(ConstInt value) const -> std::size_t { return value.hash(); }
-  auto operator()(float value) const -> std::size_t {
-    return std::hash<float>{}(value);
-  }
-  auto operator()(double value) const -> std::size_t {
-    return std::hash<double>{}(value);
-  }
   auto operator()(long double value) const -> std::size_t {
     return std::hash<long double>{}(value);
   }

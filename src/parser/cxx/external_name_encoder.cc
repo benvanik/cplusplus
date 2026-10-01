@@ -19,6 +19,7 @@
 // SOFTWARE.
 
 #include <cxx/ast.h>
+#include <cxx/ast_interpreter.h>
 #include <cxx/binder.h>
 #include <cxx/control.h>
 #include <cxx/decl.h>
@@ -2284,7 +2285,9 @@ struct ExternalNameEncoder::EncodeExpression {
   [[nodiscard]] auto operator()(FloatLiteralExpressionAST* ast) const -> bool {
     if (ast->literalOperatorCall) return encode(ast->literalOperatorCall);
     if (!ast->literal || !ast->type) return false;
-    encoder.encodeConstValue(ast->type, ConstValue{ast->literal->floatValue()});
+    auto value = ASTInterpreter{encoder.unit_}.evaluate(ast);
+    if (!value) return false;
+    encoder.encodeConstValue(ast->type, *value);
     return true;
   }
 
@@ -3015,10 +3018,7 @@ void ExternalNameEncoder::encodeArrayValue(const Type* type,
 
 auto ExternalNameEncoder::isZeroValue(const ConstValue& value) const -> bool {
   if (auto integer = std::get_if<ConstInt>(&value)) return integer->isZero();
-  if (auto real = std::get_if<double>(&value))
-    return std::bit_cast<std::uint64_t>(*real) == 0;
-  if (auto real = std::get_if<float>(&value))
-    return std::bit_cast<std::uint32_t>(*real) == 0;
+  if (auto real = std::get_if<ConstFloat>(&value)) return real->bits() == 0;
   if (auto address = std::get_if<std::shared_ptr<ConstAddress>>(&value))
     return *address && !(*address)->symbol() && !(*address)->stringLiteral();
   if (auto object = std::get_if<std::shared_ptr<ConstObject>>(&value)) {
@@ -3056,8 +3056,10 @@ void ExternalNameEncoder::encodeConstValue(const Type* type,
           out(normalized.toDecimalString());
         } else if constexpr (std::is_same_v<T, bool>) {
           out(v ? "1" : "0");
-        } else if constexpr (std::is_same_v<T, double>) {
-          encodeFloatingValue(type, v);
+        } else if constexpr (std::is_same_v<T, ConstFloat>) {
+          out(std::format("{:0{}x}", v.bits(), v.bitWidth() / 4));
+        } else if constexpr (std::is_same_v<T, long double>) {
+          reportUnencodable(SourceLocation{}, "long double template argument");
         }
       },
       value);

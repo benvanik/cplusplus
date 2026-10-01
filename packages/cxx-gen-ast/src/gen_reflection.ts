@@ -362,6 +362,38 @@ export function gen_reflection(index: ModelIndex, root: string) {
         decode: (value) => `BigInt(${value})`,
       };
 
+    if (type.name === "::cxx::ConstFloat") {
+      const formatName = "::cxx::ConstFloat::Format";
+      const formatType = short(formatName);
+      enumNames.add(formatName);
+      declareType(
+        "ConstFloat",
+        `export interface ConstFloat {
+  readonly format: ${formatType};
+  readonly bits: bigint;
+  readonly value: number;
+}`,
+      );
+      const decode = declareDecoder(
+        typeKey(type),
+        "decodeConstFloat",
+        "ConstFloat",
+        () => [
+          "  return {",
+          `    format: ${tableOf(formatName)}[value.format]!,`,
+          "    bits: BigInt(value.bits),",
+          "    value: value.value,",
+          "  };",
+        ],
+      );
+      return {
+        channel: "val",
+        cpp: `[&]() -> val { auto result = val::object(); result.set("format", static_cast<unsigned>(${expr}.format())); result.set("bits", std::to_string(${expr}.bits())); result.set("value", ${expr}.toDouble()); return result; }()`,
+        ts: "ConstFloat",
+        decode: (raw, owner) => `${decode}(${raw}, ${owner})`,
+      };
+    }
+
     if (type.name === "::cxx::SourceLocation")
       return {
         channel: "num",

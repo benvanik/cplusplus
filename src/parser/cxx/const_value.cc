@@ -24,7 +24,6 @@
 #include <cxx/types.h>
 
 #include <algorithm>
-#include <bit>
 #include <cstdint>
 
 namespace cxx {
@@ -134,16 +133,9 @@ struct EquivalentValues {
     return value && lhs == *value;
   }
 
-  [[nodiscard]] auto operator()(float lhs) const -> bool {
-    auto value = other<float>();
-    return value && std::bit_cast<std::uint32_t>(lhs) ==
-                        std::bit_cast<std::uint32_t>(*value);
-  }
-
-  [[nodiscard]] auto operator()(double lhs) const -> bool {
-    auto value = other<double>();
-    return value && std::bit_cast<std::uint64_t>(lhs) ==
-                        std::bit_cast<std::uint64_t>(*value);
+  [[nodiscard]] auto operator()(ConstFloat lhs) const -> bool {
+    auto value = other<ConstFloat>();
+    return value && lhs == *value;
   }
 
   [[nodiscard]] auto operator()(long double lhs) const -> bool {

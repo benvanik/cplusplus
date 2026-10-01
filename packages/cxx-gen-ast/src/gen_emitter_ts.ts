@@ -44,6 +44,22 @@ export function gen_emitter_ts({
   emit(`export type TokenIndex = number;`);
   emit();
 
+  emit(`export type FloatingFormat =`);
+  emit(`  | "Float16"`);
+  emit(`  | "BFloat16"`);
+  emit(`  | "Float8E4M3FN"`);
+  emit(`  | "Float8E5M2"`);
+  emit(`  | "Float"`);
+  emit(`  | "Double";`);
+  emit();
+
+  emit(`export interface FloatingBits {`);
+  emit(`  format: FloatingFormat;`);
+  emit(`  bits: bigint;`);
+  emit(`  value: number;`);
+  emit(`}`);
+  emit();
+
   for (const entry of protocol.enums) {
     emit(`export type ${entry.name} =`);
     entry.enumerators.forEach((enumerator, index) =>

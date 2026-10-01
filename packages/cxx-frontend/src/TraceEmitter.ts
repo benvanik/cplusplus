@@ -303,6 +303,8 @@ export class TraceEmitter implements EmitterDelegate {
         return String(value.integer);
       case "Floating":
         return String(value.floating);
+      case "FloatingBits":
+        return `${value.floatingBits.format}:0x${value.floatingBits.bits.toString(16)}`;
       case "Bytes":
         return JSON.stringify(String.fromCharCode(...value.bytes));
       case "Aggregate":
@@ -330,6 +332,8 @@ export class TraceEmitter implements EmitterDelegate {
         return value.integer === 0n;
       case "Floating":
         return value.floating === 0;
+      case "FloatingBits":
+        return value.floatingBits.bits === 0n;
       case "Null":
       case "Zero":
       case "ScalarZero":

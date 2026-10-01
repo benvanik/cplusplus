@@ -22,6 +22,7 @@
 
 #include <cxx/codegen/emitter_handles.h>
 #include <cxx/const_int.h>
+#include <cxx/floating_point.h>
 #include <cxx/source_location.h>
 #include <emscripten/val.h>
 
@@ -55,6 +56,32 @@ auto toVal(ir::Handle<Tag> handle) -> val {
 
 inline auto toVal(const ConstInt& value) -> val {
   return val::global("BigInt")(val(value.toString()));
+}
+
+inline auto toVal(ConstFloat::Format format) -> val {
+  switch (format) {
+    case ConstFloat::Format::kFloat16:
+      return val("Float16");
+    case ConstFloat::Format::kBFloat16:
+      return val("BFloat16");
+    case ConstFloat::Format::kFloat8E4M3FN:
+      return val("Float8E4M3FN");
+    case ConstFloat::Format::kFloat8E5M2:
+      return val("Float8E5M2");
+    case ConstFloat::Format::kFloat:
+      return val("Float");
+    case ConstFloat::Format::kDouble:
+      return val("Double");
+  }
+  std::unreachable();
+}
+
+inline auto toVal(ConstFloat value) -> val {
+  auto result = val::object();
+  result.set("format", toVal(value.format()));
+  result.set("bits", val::global("BigInt")(val(std::to_string(value.bits()))));
+  result.set("value", value.toDouble());
+  return result;
 }
 
 inline auto toVal(SourceLocation loc) -> val {

@@ -23,6 +23,7 @@
 #include <cxx/codegen/debug_emitter.h>
 #include <cxx/codegen/emitter_handles.h>
 #include <cxx/const_int.h>
+#include <cxx/floating_point.h>
 #include <cxx/source_location.h>
 
 #include <cstdint>
@@ -215,6 +216,7 @@ struct Initializer {
     None,
     Integer,
     Floating,
+    FloatingBits,
     Bytes,
     Aggregate,
     Null,
@@ -224,11 +226,25 @@ struct Initializer {
     SignalingNaN,
   };
 
+  // Initializer representation selected by the matching factory.
   Kind kind = Kind::None;
+
+  // Type of a scalar integer or floating initializer.
   TypeRef type;
+
+  // Integer value when kind is Integer.
   ConstInt integer;
+
+  // Numeric floating value when kind is Floating.
   double floating = 0;
+
+  // Exact floating representation when kind is FloatingBits.
+  ConstFloat floatingBits;
+
+  // Byte payload when kind is Bytes.
   std::string bytes;
+
+  // Child initializers when kind is Aggregate.
   std::vector<Initializer> elements;
 
   explicit operator bool() const { return kind != Kind::None; }
@@ -246,6 +262,14 @@ struct Initializer {
     i.kind = Kind::Floating;
     i.type = type;
     i.floating = value;
+    return i;
+  }
+
+  static auto floatingValue(TypeRef type, ConstFloat value) -> Initializer {
+    Initializer i;
+    i.kind = Kind::FloatingBits;
+    i.type = type;
+    i.floatingBits = value;
     return i;
   }
 
