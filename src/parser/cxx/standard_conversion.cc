@@ -2902,6 +2902,39 @@ namespace {
   }
 }
 
+[[nodiscard]] auto convertedConstantStepNarrows(ASTInterpreter& interpreter,
+                                                TypeTraits& traits,
+                                                ImplicitCastExpressionAST* cast)
+    -> bool {
+  switch (cast->castKind) {
+    case ImplicitCastKind::kIntegralConversion:
+    case ImplicitCastKind::kBooleanConversion: {
+      auto value = interpreter.evaluate(cast->expression);
+      if (!value) return false;
+      auto integer = std::get_if<ConstInt>(&*value);
+      if (!integer) return true;
+      if (type_cast<BoolType>(traits.remove_cv(cast->type))) {
+        return !integer->isZero() && *integer != ConstInt{1};
+      }
+      return !traits.converted_integral_constant(cast->type, *integer);
+    }
+
+    case ImplicitCastKind::kFloatingPointConversion: {
+      auto value = interpreter.evaluate(cast->expression);
+      if (!value) return false;
+      auto converted = interpreter.convertArithmetic(
+          *value, cast->expression->type, cast->type);
+      if (!converted) return true;
+      auto restored = interpreter.convertArithmetic(*converted, cast->type,
+                                                    cast->expression->type);
+      return !restored || *restored != *value;
+    }
+
+    default:
+      return false;
+  }
+}
+
 }  // namespace
 
 auto isConvertedConstantSequence(ExpressionAST* converted,
@@ -2916,13 +2949,38 @@ auto isConvertedConstantSequence(ExpressionAST* converted,
 auto StandardConversion::convertedConstantExpression(ExpressionAST* expression,
                                                      const Type* targetType)
     -> std::expected<ExpressionAST*, ConvertedConstantFailure> {
-  auto converted = expression;
-  if (!convertImplicitly(converted, targetType))
+  auto sequence = computeConversionSequence(expression, targetType);
+  if (!sequence || sequence.form == ConversionSequenceForm::kAmbiguous ||
+      !isAccessible(sequence)) {
     return std::unexpected(ConvertedConstantFailure::kNoConversion);
+  }
   if (traits.is_narrowing_list_element(expression, targetType))
     return std::unexpected(ConvertedConstantFailure::kNarrowing);
+
+  auto converted = expression;
+  applyConversionSequence(sequence, converted);
+  adjustCv(converted);
+
   if (!isConvertedConstantSequence(converted, traits))
     return std::unexpected(ConvertedConstantFailure::kDisallowedConversion);
+
+  for (auto current = converted;
+       auto cast = ast_cast<ImplicitCastExpressionAST>(current);
+       current = cast->expression) {
+    if (cast->castKind == ImplicitCastKind::kUserDefinedConversion &&
+        cast->conversionFunction && !cast->conversionFunction->isConstexpr()) {
+      return std::unexpected(ConvertedConstantFailure::kDisallowedConversion);
+    }
+  }
+
+  auto interpreter = ASTInterpreter{unit_};
+  for (auto current = converted;
+       auto cast = ast_cast<ImplicitCastExpressionAST>(current);
+       current = cast->expression) {
+    if (convertedConstantStepNarrows(interpreter, traits, cast))
+      return std::unexpected(ConvertedConstantFailure::kNarrowing);
+  }
+
   return converted;
 }
 

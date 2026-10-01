@@ -298,14 +298,27 @@ auto ASTRewriter::substitutedNonTypeValue(IdExpressionAST* ast)
   if (traits.is_reference(type) || traits.is_class_or_union(type))
     return nullptr;
 
+  ExpressionAST* expression = nullptr;
   if (auto value = var->constValue()) {
-    if (auto integer = std::get_if<ConstInt>(&*value))
-      return TemplateArguments{unit_}.integerLiteralExpression(*integer, type);
+    if (auto integer = std::get_if<ConstInt>(&*value)) {
+      expression =
+          TemplateArguments{unit_}.integerLiteralExpression(*integer, type);
+    }
   }
 
-  if (auto initializer = var->initializer()) return initializer->clone(arena());
+  if (!expression) {
+    auto initializer = var->initializer();
+    if (!initializer) return nullptr;
+    expression = initializer->clone(arena());
+  }
 
-  return nullptr;
+  if (!var->constValue()) return expression;
+
+  // Retain the normalized value without leaving a reference to the synthetic
+  // template-argument carrier in the instantiated AST.
+  return ConstExpressionAST::create(
+      arena(), expression, arena()->make<ConstValue>(*var->constValue()), false,
+      ConstantEvaluationKind::kNone, nullptr, ValueCategory::kPrValue, type);
 }
 
 auto ASTRewriter::expression(ExpressionAST* ast) -> ExpressionAST* {
