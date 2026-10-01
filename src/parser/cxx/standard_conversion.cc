@@ -1062,7 +1062,7 @@ auto StandardConversion::listInitializationSequence(
     return completedSequence(seq, ImplicitCastKind::kIdentity, targetType);
   }
 
-  if (traits.is_array(listTarget)) {
+  if (!traits.is_class(listTarget) && traits.is_aggregate(listTarget)) {
     if (traits.is_lvalue_reference(targetType) &&
         !traits.is_const(traits.remove_reference(targetType)))
       return seq;
