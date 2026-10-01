@@ -125,6 +125,47 @@ auto branchSelections(AST* ast) -> std::vector<std::optional<bool>> {
   return visitor.selections;
 }
 
+class ConvertVectorVisitor final : public ASTVisitor {
+ public:
+  void visit(BuiltinConvertVectorExpressionAST* ast) override {
+    expressions.push_back(ast);
+    ASTVisitor::visit(ast);
+  }
+
+  std::vector<BuiltinConvertVectorExpressionAST*> expressions;
+};
+
+auto convertVectorExpressions(AST* ast)
+    -> std::vector<BuiltinConvertVectorExpressionAST*> {
+  ConvertVectorVisitor visitor;
+  visitor.accept(ast);
+  return visitor.expressions;
+}
+
+void expectConvertVectorExpression(AST* ast) {
+  const auto expressions = convertVectorExpressions(ast);
+  ASSERT_EQ(expressions.size(), 1u);
+
+  auto expression = expressions.front();
+  ASSERT_TRUE(expression->expression);
+  ASSERT_TRUE(expression->typeId);
+  EXPECT_EQ(expression->valueCategory, ValueCategory::kPrValue);
+
+  auto sourceType = unqualified_cast<VectorType>(expression->expression->type);
+  ASSERT_TRUE(sourceType);
+  EXPECT_EQ(sourceType->elementCount(), 4u);
+  EXPECT_TRUE(type_cast<IntType>(sourceType->elementType()));
+
+  auto typeIdType = unqualified_cast<VectorType>(expression->typeId->type);
+  ASSERT_TRUE(typeIdType);
+  EXPECT_EQ(typeIdType->elementCount(), 4u);
+  EXPECT_TRUE(type_cast<FloatType>(typeIdType->elementType()));
+
+  auto resultType = unqualified_cast<VectorType>(expression->type);
+  ASSERT_TRUE(resultType);
+  EXPECT_TRUE(expression->typeId->type == expression->type);
+}
+
 }  // namespace
 
 TEST(PrecompiledHeader, RestoresTheGlobalScope) {
@@ -201,8 +242,8 @@ TEST(PrecompiledHeader, RestoresFloat8Types) {
   PrecompiledHeaderReader reader{&consumer, keys()};
   ASSERT_TRUE(reader(data)) << reader.error();
 
-  auto e4m3fn = symbol_cast<VariableSymbol>(
-      findMember(consumer.globalScope(), "e4m3fn"));
+  auto e4m3fn =
+      symbol_cast<VariableSymbol>(findMember(consumer.globalScope(), "e4m3fn"));
   ASSERT_TRUE(e4m3fn);
   ASSERT_TRUE(type_cast<Float8E4M3FNType>(e4m3fn->type()));
 
@@ -255,6 +296,31 @@ constexpr Int4 lanes{1, 2};
     ASSERT_TRUE(integer);
     EXPECT_EQ(*integer, expected[index]);
   }
+}
+
+TEST(PrecompiledHeader, RestoresBuiltinConvertVectorExpression) {
+  Prefix prefix{R"(
+using Int4 = int __attribute__((ext_vector_type(4)));
+using Float4 = float __attribute__((ext_vector_type(4)));
+constexpr Int4 source{1, 2, 3, 4};
+constexpr Float4 converted = __builtin_convertvector(source, Float4);
+)"};
+
+  expectConvertVectorExpression(prefix.unit()->ast());
+  expectConvertVectorExpression(
+      prefix.unit()->ast()->clone(prefix.unit()->arena()));
+
+  const auto data = prefix.emit();
+  ASSERT_TRUE(prefix.errors().empty());
+  ASSERT_FALSE(data.empty());
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+  expectConvertVectorExpression(consumer.ast());
 }
 
 TEST(PrecompiledHeader, RestoresRecordLayoutAttributes) {

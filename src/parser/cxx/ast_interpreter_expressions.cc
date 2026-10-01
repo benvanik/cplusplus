@@ -2149,8 +2149,26 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
 }
 
 auto ASTInterpreter::ExpressionVisitor::operator()(
-    BuiltinConvertVectorExpressionAST*) -> ExpressionResult {
-  return std::nullopt;
+    BuiltinConvertVectorExpressionAST* ast) -> ExpressionResult {
+  auto targetType = unqualified_cast<VectorType>(ast->type);
+  if (!targetType) return std::nullopt;
+
+  auto value = interp.expression(ast->expression);
+  if (!value) return std::nullopt;
+
+  auto source = std::get_if<std::shared_ptr<InitializerList>>(&*value);
+  if (!source || !*source) return std::nullopt;
+
+  auto result = std::make_shared<InitializerList>();
+  result->elements.reserve(targetType->elementCount());
+  for (const auto& [element, elementType] : (*source)->elements) {
+    auto converted = interp.convertArithmetic(element, elementType,
+                                              targetType->elementType());
+    if (!converted) return std::nullopt;
+    result->elements.emplace_back(*converted, targetType->elementType());
+  }
+
+  return ConstValue{std::move(result)};
 }
 
 auto ASTInterpreter::ExpressionVisitor::operator()(
@@ -2653,67 +2671,10 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
     return value;
   }
 
-  switch (ast->type->kind()) {
-    case TypeKind::kBool: {
-      auto result = interp.toBool(*value);
-      if (!result.has_value()) return std::nullopt;
-      return result.value();
-    }
-
-    case TypeKind::kFloat16:
-    case TypeKind::kBFloat16:
-    case TypeKind::kFloat8E4M3FN:
-    case TypeKind::kFloat8E5M2:
-      return interp.toArithmeticType(*value, ast->type);
-
-    case TypeKind::kFloat: {
-      if (ast->expression && ast->expression->type &&
-          unit()->typeTraits().is_unsigned(ast->expression->type)) {
-        auto result = interp.toUInt(*value);
-        if (!result.has_value()) return std::nullopt;
-        return static_cast<float>(result.value());
-      }
-      auto result = interp.toFloat(*value);
-      if (!result.has_value()) return std::nullopt;
-      return result.value();
-    }
-
-    case TypeKind::kDouble: {
-      if (ast->expression && ast->expression->type &&
-          unit()->typeTraits().is_unsigned(ast->expression->type)) {
-        auto result = interp.toUInt(*value);
-        if (!result.has_value()) return std::nullopt;
-        return static_cast<double>(result.value());
-      }
-      auto result = interp.toDouble(*value);
-      if (!result.has_value()) return std::nullopt;
-      return result.value();
-    }
-
-    case TypeKind::kLongDouble: {
-      if (ast->expression && ast->expression->type &&
-          unit()->typeTraits().is_unsigned(ast->expression->type)) {
-        auto result = interp.toUInt(*value);
-        if (!result.has_value()) return std::nullopt;
-        return static_cast<long double>(result.value());
-      }
-      auto result = interp.toLongDouble(*value);
-      if (!result.has_value()) return std::nullopt;
-      return result.value();
-    }
-
-    case TypeKind::kComplex:
-      return interp.toArithmeticType(*value, ast->type);
-
-    default:
-      if (unit()->typeTraits().is_integral_or_enum(ast->type)) {
-        return interp.toIntegralType(*value, ast->type);
-      }
-
-      return value;
-  }
-
-  return std::nullopt;
+  auto traits = unit()->typeTraits();
+  if (traits.is_arithmetic(ast->type) || traits.is_enum(ast->type))
+    return interp.convertArithmetic(*value, ast->expression->type, ast->type);
+  return value;
 }
 
 auto ASTInterpreter::ExpressionVisitor::applyBinaryOp(

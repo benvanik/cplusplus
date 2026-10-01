@@ -4497,24 +4497,27 @@
   {
     "name": "__builtin_reduce_and",
     "prototype": "constexpr int __builtin_reduce_and(...)",
-    "constexpr": false,
+    "constexpr": true,
     "noexcept": true,
+    "eval": "evaluateBuiltinVectorReduce",
     "typeCheck": "checkBuiltinVectorReduce",
     "codegen": "codegenBuiltinVectorReduce"
   },
   {
     "name": "__builtin_reduce_or",
     "prototype": "constexpr int __builtin_reduce_or(...)",
-    "constexpr": false,
+    "constexpr": true,
     "noexcept": true,
+    "eval": "evaluateBuiltinVectorReduce",
     "typeCheck": "checkBuiltinVectorReduce",
     "codegen": "codegenBuiltinVectorReduce"
   },
   {
     "name": "__builtin_reduce_xor",
     "prototype": "constexpr int __builtin_reduce_xor(...)",
-    "constexpr": false,
+    "constexpr": true,
     "noexcept": true,
+    "eval": "evaluateBuiltinVectorReduce",
     "typeCheck": "checkBuiltinVectorReduce",
     "codegen": "codegenBuiltinVectorReduce"
   }

@@ -34,7 +34,9 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <format>
+#include <limits>
 
 namespace cxx {
 namespace {
@@ -332,6 +334,97 @@ auto ASTInterpreter::toIntegralType(const ConstValue& value, const Type* type)
   if (!converted) return std::nullopt;
 
   return ConstValue{*converted};
+}
+
+auto ASTInterpreter::convertArithmetic(const ConstValue& value,
+                                       const Type* sourceType,
+                                       const Type* targetType)
+    -> std::optional<ConstValue> {
+  sourceType = traits.remove_cv(sourceType);
+  targetType = traits.remove_cv(targetType);
+
+  if (!sourceType || !targetType) return std::nullopt;
+
+  if (traits.is_same(targetType, control()->getBoolType())) {
+    auto converted = toBool(value);
+    if (!converted) return std::nullopt;
+    auto constant = traits.integral_constant(targetType, *converted);
+    if (!constant) return std::nullopt;
+    return ConstValue{*constant};
+  }
+
+  if (traits.is_integral_or_enum(sourceType) &&
+      traits.is_floating_point(targetType)) {
+    auto integer = std::get_if<ConstInt>(&value);
+    auto representation = traits.integral_representation(sourceType);
+    if (!integer || !representation) return std::nullopt;
+
+    const auto bits = integer->toUWide();
+    const auto signedValue = integer->toWide();
+    const bool isUnsigned = !representation->isSigned;
+
+    switch (targetType->kind()) {
+      case TypeKind::kFloat:
+        return ConstValue{isUnsigned ? static_cast<float>(bits)
+                                     : static_cast<float>(signedValue)};
+      case TypeKind::kDouble:
+        return ConstValue{isUnsigned ? static_cast<double>(bits)
+                                     : static_cast<double>(signedValue)};
+      case TypeKind::kLongDouble:
+        return ConstValue{isUnsigned ? static_cast<long double>(bits)
+                                     : static_cast<long double>(signedValue)};
+      default:
+        break;
+    }
+
+    const bool isNegative = !isUnsigned && integer->isNegative();
+    auto magnitude = isNegative ? integer->magnitude() : bits;
+
+    int bitWidth = 0;
+    for (auto remaining = magnitude; remaining; remaining >>= 1) ++bitWidth;
+
+    // Preserve discarded integer bits with round-to-odd before the final
+    // narrow rounding, including hosts where long double is only binary64.
+    constexpr int precision = std::numeric_limits<double>::digits;
+    const int shift = std::max(0, bitWidth - precision);
+    auto leading = magnitude >> shift;
+    if (shift) {
+      const auto discardedMask = (ConstInt::UWide{1} << shift) - 1;
+      if (magnitude & discardedMask) leading |= 1;
+    }
+
+    auto intermediate = std::ldexp(static_cast<long double>(leading), shift);
+    if (isNegative) intermediate = -intermediate;
+    return toArithmeticType(ConstValue{intermediate}, targetType);
+  }
+
+  if (traits.is_floating_point(sourceType) &&
+      traits.is_integral_or_enum(targetType)) {
+    auto number = toLongDouble(value);
+    auto representation = traits.integral_representation(targetType);
+    if (!number || !representation || !std::isfinite(*number))
+      return std::nullopt;
+
+    const auto truncated = std::trunc(*number);
+    const auto maximum =
+        std::ldexp(1.0L, representation->bits - representation->isSigned);
+    const auto minimum = representation->isSigned ? -maximum : 0.0L;
+    if (truncated < minimum || truncated >= maximum) return std::nullopt;
+
+    ConstInt::Wide converted = 0;
+    if (representation->isSigned) {
+      converted = static_cast<ConstInt::Wide>(truncated);
+    } else {
+      converted =
+          static_cast<ConstInt::Wide>(static_cast<ConstInt::UWide>(truncated));
+    }
+
+    auto constant = traits.integral_constant(targetType, converted);
+    if (!constant) return std::nullopt;
+    return ConstValue{*constant};
+  }
+
+  return toArithmeticType(value, targetType);
 }
 
 auto ASTInterpreter::toArithmeticType(const ConstValue& value, const Type* type)

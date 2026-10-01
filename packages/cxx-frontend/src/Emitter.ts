@@ -512,6 +512,7 @@ export interface EmitterDelegate {
   arrayType(elementType: TypeRef, size: number): TypeRef;
   vectorType(elementType: TypeRef, elementCount: number): TypeRef;
   vectorSplat(loc: TokenIndex, vectorType: TypeRef, scalar: ValueRef): ValueRef;
+  vectorReduction(loc: TokenIndex, op: BinaryOp, vector: ValueRef): ValueRef;
   functionType(
     parameters: readonly TypeRef[],
     results: readonly TypeRef[],

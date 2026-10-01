@@ -858,10 +858,16 @@ inline constexpr BuiltinSignature kBuiltinSignatures[] = {
     {1582, 1,
      BuiltinFlags::kConstexpr | BuiltinFlags::kNoexcept},  // __builtin_powl
     {1586, 1, BuiltinFlags::kNoexcept},  // __builtin_reduce_add
-    {1589, 1, BuiltinFlags::kNoexcept},  // __builtin_reduce_and
+    {1589, 1,
+     BuiltinFlags::kConstexpr |
+         BuiltinFlags::kNoexcept},       // __builtin_reduce_and
     {1592, 1, BuiltinFlags::kNoexcept},  // __builtin_reduce_mul
-    {1595, 1, BuiltinFlags::kNoexcept},  // __builtin_reduce_or
-    {1598, 1, BuiltinFlags::kNoexcept},  // __builtin_reduce_xor
+    {1595, 1,
+     BuiltinFlags::kConstexpr |
+         BuiltinFlags::kNoexcept},  // __builtin_reduce_or
+    {1598, 1,
+     BuiltinFlags::kConstexpr |
+         BuiltinFlags::kNoexcept},  // __builtin_reduce_xor
     {1601, 1,
      BuiltinFlags::kConstexpr |
          BuiltinFlags::kNoexcept},  // __builtin_remainder
