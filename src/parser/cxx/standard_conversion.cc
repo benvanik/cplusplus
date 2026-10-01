@@ -500,7 +500,7 @@ auto StandardConversion::convertImplicitly(
 }
 
 auto StandardConversion::convertClassOperandForBuiltinOperator(
-    ExpressionAST*& expr) -> bool {
+    ExpressionAST*& expr, BuiltinOperandKind kind) -> bool {
   if (!expr || !expr->type) return false;
 
   auto classType = type_cast<ClassType>(traits.remove_cvref(expr->type));
@@ -522,9 +522,23 @@ auto StandardConversion::convertClassOperandForBuiltinOperator(
     auto returnType = traits.remove_cvref(convFuncType->returnType());
     if (!returnType) continue;
 
-    if (!traits.is_arithmetic_or_unscoped_enum(returnType) &&
-        !traits.is_pointer(returnType))
-      continue;
+    const bool isIntegral = traits.is_integral_or_unscoped_enum(returnType);
+    const bool isArithmetic = traits.is_arithmetic_or_unscoped_enum(returnType);
+    const bool isPointer = traits.is_pointer(returnType);
+
+    bool isEligible = false;
+    switch (kind) {
+      case BuiltinOperandKind::kIntegral:
+        isEligible = isIntegral;
+        break;
+      case BuiltinOperandKind::kArithmetic:
+        isEligible = isArithmetic;
+        break;
+      case BuiltinOperandKind::kArithmeticOrPointer:
+        isEligible = isArithmetic || isPointer;
+        break;
+    }
+    if (!isEligible) continue;
 
     if (target && !traits.is_same(target, returnType)) return false;
 

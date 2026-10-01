@@ -693,7 +693,7 @@ struct TypeChecker::Visitor {
   void mark_virtual_dispatch(CallExpressionAST* ast);
 
   [[nodiscard]] auto convert_class_operands_for_builtin(
-      BinaryExpressionAST* ast) -> bool;
+      BinaryExpressionAST* ast, BuiltinOperandKind kind) -> bool;
 
   [[nodiscard]] auto resolve_binary_overload(BinaryExpressionAST* ast,
                                              bool setValueCategory = true)
@@ -5537,7 +5537,8 @@ void TypeChecker::Visitor::prepare_comparison_operands(
 
 void TypeChecker::Visitor::check_shift(BinaryExpressionAST* ast) {
   if (resolve_binary_overload(ast)) return;
-  if (!convert_class_operands_for_builtin(ast)) return;
+  if (!convert_class_operands_for_builtin(ast, BuiltinOperandKind::kArithmetic))
+    return;
 
   if (traits.is_vector(ast->leftExpression->type) ||
       traits.is_vector(ast->rightExpression->type)) {
@@ -5607,7 +5608,9 @@ void TypeChecker::Visitor::check_relational(BinaryExpressionAST* ast) {
 
   if (resolve_binary_overload(ast)) return;
 
-  if (!convert_class_operands_for_builtin(ast)) return;
+  if (!convert_class_operands_for_builtin(
+          ast, BuiltinOperandKind::kArithmeticOrPointer))
+    return;
   prepare_comparison_operands(ast);
 
   if (auto common = stdconv_.usualArithmeticConversion(ast->leftExpression,
@@ -5686,7 +5689,9 @@ void TypeChecker::Visitor::check_equality(BinaryExpressionAST* ast) {
 
   if (rewrite_not_equal_as_negated_equal(ast)) return;
 
-  if (!convert_class_operands_for_builtin(ast)) return;
+  if (!convert_class_operands_for_builtin(
+          ast, BuiltinOperandKind::kArithmeticOrPointer))
+    return;
   prepare_comparison_operands(ast);
 
   if (auto common = stdconv_.usualArithmeticConversion(ast->leftExpression,
@@ -5823,7 +5828,9 @@ void TypeChecker::Visitor::operator()(BinaryExpressionAST* ast) {
     case TokenKind::T_SLASH:
     case TokenKind::T_PERCENT:
       if (resolve_binary_overload(ast)) break;
-      if (!convert_class_operands_for_builtin(ast)) break;
+      if (!convert_class_operands_for_builtin(ast,
+                                              BuiltinOperandKind::kArithmetic))
+        break;
       ast->type = stdconv_.usualArithmeticConversion(ast->leftExpression,
                                                      ast->rightExpression);
       if (!ast->type) {
@@ -5874,7 +5881,9 @@ void TypeChecker::Visitor::operator()(BinaryExpressionAST* ast) {
     case TokenKind::T_CARET:
     case TokenKind::T_BAR:
       if (resolve_binary_overload(ast)) break;
-      if (!convert_class_operands_for_builtin(ast)) break;
+      if (!convert_class_operands_for_builtin(ast,
+                                              BuiltinOperandKind::kArithmetic))
+        break;
       ast->type = stdconv_.usualArithmeticConversion(ast->leftExpression,
                                                      ast->rightExpression);
       if (!ast->type) {
@@ -7699,25 +7708,34 @@ void TypeChecker::Visitor::check_static_assert(
 }
 
 auto TypeChecker::Visitor::convert_class_operands_for_builtin(
-    BinaryExpressionAST* ast) -> bool {
-  const auto convertsForBuiltin = [this](ExpressionAST*& operand) {
+    BinaryExpressionAST* ast, BuiltinOperandKind kind) -> bool {
+  const auto leftIsClass = traits.is_class_or_union(ast->leftExpression->type);
+  const auto rightIsClass =
+      traits.is_class_or_union(ast->rightExpression->type);
+
+  const auto convertsForBuiltin = [this, kind](ExpressionAST*& operand) {
     if (!traits.is_class_or_union(operand->type)) return true;
-    return stdconv_.convertClassOperandForBuiltinOperator(operand);
+    return stdconv_.convertClassOperandForBuiltinOperator(operand, kind);
   };
 
-  if (convertsForBuiltin(ast->leftExpression) &&
-      convertsForBuiltin(ast->rightExpression))
-    return true;
+  if (!convertsForBuiltin(ast->leftExpression) ||
+      !convertsForBuiltin(ast->rightExpression)) {
+    error(ast->opLoc,
+          std::format("invalid operands to binary expression ('{}' and '{}')",
+                      to_string(ast->leftExpression->type),
+                      to_string(ast->rightExpression->type)));
+    return false;
+  }
 
-  error(ast->opLoc,
-        std::format("invalid operands to binary expression ('{}' and '{}')",
-                    to_string(ast->leftExpression->type),
-                    to_string(ast->rightExpression->type)));
-  return false;
+  if (leftIsClass) check.useConversionFunction(ast->leftExpression);
+  if (rightIsClass) check.useConversionFunction(ast->rightExpression);
+  return true;
 }
 
 void TypeChecker::Visitor::check_addition(BinaryExpressionAST* ast) {
-  if (!convert_class_operands_for_builtin(ast)) return;
+  if (!convert_class_operands_for_builtin(
+          ast, BuiltinOperandKind::kArithmeticOrPointer))
+    return;
 
   if (auto ty = stdconv_.usualArithmeticConversion(ast->leftExpression,
                                                    ast->rightExpression)) {
@@ -7756,7 +7774,9 @@ void TypeChecker::Visitor::check_addition(BinaryExpressionAST* ast) {
 }
 
 void TypeChecker::Visitor::check_subtraction(BinaryExpressionAST* ast) {
-  if (!convert_class_operands_for_builtin(ast)) return;
+  if (!convert_class_operands_for_builtin(
+          ast, BuiltinOperandKind::kArithmeticOrPointer))
+    return;
 
   if (auto ty = stdconv_.usualArithmeticConversion(ast->leftExpression,
                                                    ast->rightExpression)) {
@@ -8792,8 +8812,11 @@ void TypeChecker::check_integral_condition(ExpressionAST*& expr) {
 
   auto conditionType = expr->type;
 
-  if (traits.is_class(traits.remove_cv(conditionType)))
-    (void)visitor.stdconv_.convertClassOperandForBuiltinOperator(expr);
+  if (traits.is_class(traits.remove_cv(conditionType)) &&
+      visitor.stdconv_.convertClassOperandForBuiltinOperator(
+          expr, BuiltinOperandKind::kIntegral)) {
+    useConversionFunction(expr);
+  }
 
   if (!traits.is_integral(expr->type) && !traits.is_enum(expr->type)) {
     error(expr->firstSourceLocation(),
