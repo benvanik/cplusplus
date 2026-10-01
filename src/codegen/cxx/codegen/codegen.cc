@@ -575,6 +575,23 @@ auto Codegen::emitConstInitValue(SourceLocation loc, const Type* type,
     return emitter_.nullPointer(loc, irPtrType);
   }
 
+  if (auto vectorType = unqualified_cast<VectorType>(type)) {
+    auto listPtr = std::get_if<std::shared_ptr<InitializerList>>(&value);
+    if (!listPtr || !*listPtr ||
+        (*listPtr)->elements.size() != vectorType->elementCount())
+      cxx_runtime_error("invalid vector constant value");
+
+    std::vector<ir::Initializer> elements;
+    elements.reserve((*listPtr)->elements.size());
+    for (const auto& [elementValue, elementType] : (*listPtr)->elements) {
+      auto element = constValueToInitializer(elementValue, elementType);
+      if (!element) cxx_runtime_error("cannot emit vector constant element");
+      elements.push_back(std::move(*element));
+    }
+    return emitter_.constantLiteral(loc, convertType(type),
+                                    ir::Initializer::aggregate(elements));
+  }
+
   if (traits.is_class_or_union(type)) {
     auto classType = unqualified_cast<ClassType>(type);
     auto irType = convertType(type);
@@ -2262,6 +2279,8 @@ auto Codegen::findOrCreateGlobal(Symbol* symbol)
           }
         }
       }
+    } else if (traits.is_vector(defVar->type())) {
+      needsRegionInit = true;
     } else if (traits.is_class(defVar->type())) {
       needsRegionInit = true;
     } else if (type_cast<MemberFunctionPointerType>(defVar->type())) {

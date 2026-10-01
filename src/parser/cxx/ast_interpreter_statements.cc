@@ -654,7 +654,8 @@ auto ASTInterpreter::initializeVariable(VariableSymbol* variable,
   if (!value && !initializer) value = defaultConstruct(variable->type());
   if (!value) return false;
 
-  if (traits.is_class(traits.remove_cv(variable->type())))
+  if (traits.is_class(traits.remove_cv(variable->type())) ||
+      traits.is_vector(traits.remove_cv(variable->type())))
     value = cloneValue(*value);
   setLocal(variable, std::move(*value));
   registerAutomaticObject(variable);

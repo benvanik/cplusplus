@@ -189,10 +189,20 @@ auto MlirEmitter::constant(SourceLocation loc, TypeRef resultType,
     case Initializer::Kind::Integer:
     case Initializer::Kind::Floating:
     case Initializer::Kind::Bytes:
-    case Initializer::Kind::Aggregate:
       return wrap(mlir::arith::ConstantOp::create(
           builder_, location, type(resultType),
           mlir::cast<mlir::TypedAttr>(initializerAttribute(init))));
+
+    case Initializer::Kind::Aggregate: {
+      auto vectorType = mlir::cast<mlir::VectorType>(type(resultType));
+      std::vector<mlir::Attribute> elements;
+      elements.reserve(init.elements.size());
+      for (const auto& element : init.elements)
+        elements.push_back(initializerAttribute(element));
+      auto value = mlir::DenseElementsAttr::get(vectorType, elements);
+      return wrap(mlir::arith::ConstantOp::create(builder_, location,
+                                                  vectorType, value));
+    }
   }
 }
 
