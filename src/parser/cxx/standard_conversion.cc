@@ -641,10 +641,10 @@ auto StandardConversion::commonArithmeticType(const Type* a, const Type* b)
     return control_->getComplexType(commonReal);
   }
   if (traits.is_floating_point(a) || traits.is_floating_point(b)) {
-    return traits.floating_point_conversion_rank(a) >=
-                   traits.floating_point_conversion_rank(b)
-               ? a
-               : b;
+    const auto aRank = traits.floating_point_conversion_rank(a);
+    const auto bRank = traits.floating_point_conversion_rank(b);
+    if (aRank == bRank && !traits.is_same(a, b)) return nullptr;
+    return aRank >= bRank ? a : b;
   }
   a = traits.promoted_integer_type(a);
   b = traits.promoted_integer_type(b);

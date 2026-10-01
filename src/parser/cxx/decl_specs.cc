@@ -381,6 +381,14 @@ void DeclSpecs::Visitor::operator()(FloatingPointTypeSpecifierAST* ast) {
       specs.type_ = control()->getBFloat16Type();
       break;
 
+    case TokenKind::T___FLOAT8_E4M3FN:
+      specs.type_ = control()->getFloat8E4M3FNType();
+      break;
+
+    case TokenKind::T___FLOAT8_E5M2:
+      specs.type_ = control()->getFloat8E5M2Type();
+      break;
+
     case TokenKind::T___FLOAT80:
       break;
 

@@ -186,6 +186,32 @@ TEST(PrecompiledHeader, RestoresBFloat16Type) {
   ASSERT_TRUE(type_cast<BFloat16Type>(value->type()));
 }
 
+TEST(PrecompiledHeader, RestoresFloat8Types) {
+  Prefix prefix{"__float8_e4m3fn e4m3fn; __float8_e5m2 e5m2;"};
+
+  const auto data = prefix.emit();
+
+  ASSERT_TRUE(prefix.errors().empty());
+  ASSERT_FALSE(data.empty());
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  auto e4m3fn = symbol_cast<VariableSymbol>(
+      findMember(consumer.globalScope(), "e4m3fn"));
+  ASSERT_TRUE(e4m3fn);
+  ASSERT_TRUE(type_cast<Float8E4M3FNType>(e4m3fn->type()));
+
+  auto e5m2 =
+      symbol_cast<VariableSymbol>(findMember(consumer.globalScope(), "e5m2"));
+  ASSERT_TRUE(e5m2);
+  ASSERT_TRUE(type_cast<Float8E5M2Type>(e5m2->type()));
+}
+
 TEST(PrecompiledHeader, RestoresRecordLayoutAttributes) {
   Prefix prefix{R"(
 struct __attribute__((packed, aligned(16))) Packet;

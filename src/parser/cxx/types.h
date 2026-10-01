@@ -217,6 +217,18 @@ class BFloat16Type final : public Type {
   BFloat16Type() : Type(Kind) {}
 };
 
+class Float8E4M3FNType final : public Type {
+ public:
+  static constexpr TypeKind Kind = TypeKind::kFloat8E4M3FN;
+  Float8E4M3FNType() : Type(Kind) {}
+};
+
+class Float8E5M2Type final : public Type {
+ public:
+  static constexpr TypeKind Kind = TypeKind::kFloat8E5M2;
+  Float8E5M2Type() : Type(Kind) {}
+};
+
 class QualType final : public Type,
                        public std::tuple<const Type*, CvQualifiers> {
  public:

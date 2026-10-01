@@ -1607,6 +1607,28 @@ static inline auto classify13(const char* s) -> cxx::TokenKind {
             }
           }
         }
+      } else if (s[2] == 'f') {
+        if (s[3] == 'l') {
+          if (s[4] == 'o') {
+            if (s[5] == 'a') {
+              if (s[6] == 't') {
+                if (s[7] == '8') {
+                  if (s[8] == '_') {
+                    if (s[9] == 'e') {
+                      if (s[10] == '5') {
+                        if (s[11] == 'm') {
+                          if (s[12] == '2') {
+                            return cxx::TokenKind::T___FLOAT8_E5M2;
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -1629,6 +1651,41 @@ static inline auto classify14(const char* s) -> cxx::TokenKind {
                           if (s[12] == 'r') {
                             if (s[13] == 't') {
                               return cxx::TokenKind::T__STATIC_ASSERT;
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return cxx::TokenKind::T_IDENTIFIER;
+}
+
+static inline auto classify15(const char* s) -> cxx::TokenKind {
+  if (s[0] == '_') {
+    if (s[1] == '_') {
+      if (s[2] == 'f') {
+        if (s[3] == 'l') {
+          if (s[4] == 'o') {
+            if (s[5] == 'a') {
+              if (s[6] == 't') {
+                if (s[7] == '8') {
+                  if (s[8] == '_') {
+                    if (s[9] == 'e') {
+                      if (s[10] == '4') {
+                        if (s[11] == 'm') {
+                          if (s[12] == '3') {
+                            if (s[13] == 'f') {
+                              if (s[14] == 'n') {
+                                return cxx::TokenKind::T___FLOAT8_E4M3FN;
+                              }
                             }
                           }
                         }
@@ -1967,6 +2024,8 @@ static auto classify(const char* s, int n) -> cxx::TokenKind {
       return classify13(s);
     case 14:
       return classify14(s);
+    case 15:
+      return classify15(s);
     case 16:
       return classify16(s);
     case 17:

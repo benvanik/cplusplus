@@ -74,6 +74,8 @@ const INLINE_KIND_TEXT: Record<InlineKind, string> = {
 const FLOAT_FORMAT: Record<FloatKind, { text: string; width: number }> = {
   Half: { text: "f16", width: 16 },
   BFloat: { text: "bf16", width: 16 },
+  Float8E4M3FN: { text: "f8E4M3FN", width: 8 },
+  Float8E5M2: { text: "f8E5M2", width: 8 },
   Single: { text: "f32", width: 32 },
   Double: { text: "f64", width: 64 },
   X87DoubleExtended: { text: "f80", width: 80 },

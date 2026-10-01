@@ -31,4 +31,12 @@ namespace cxx {
 // bfloat16 value is represented exactly in the returned float.
 [[nodiscard]] auto roundBFloat16(long double value) -> float;
 
+// Rounds to E4M3FN using round-to-nearest, ties-to-even, with signed finite
+// saturation. NaNs, gradual underflow, and signed zero are preserved.
+[[nodiscard]] auto roundFloat8E4M3FN(long double value) -> float;
+
+// Rounds to IEEE E5M2 using round-to-nearest, ties-to-even. Infinity, NaN,
+// gradual underflow, and signed zero are preserved.
+[[nodiscard]] auto roundFloat8E5M2(long double value) -> float;
+
 }  // namespace cxx

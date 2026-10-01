@@ -175,6 +175,8 @@ struct IsIntegral {
 struct IsFloatingPoint {
   auto operator()(const Float16Type*) const -> bool { return true; }
   auto operator()(const BFloat16Type*) const -> bool { return true; }
+  auto operator()(const Float8E4M3FNType*) const -> bool { return true; }
+  auto operator()(const Float8E5M2Type*) const -> bool { return true; }
   auto operator()(const FloatType*) const -> bool { return true; }
   auto operator()(const DoubleType*) const -> bool { return true; }
   auto operator()(const LongDoubleType*) const -> bool { return true; }
@@ -209,6 +211,8 @@ struct IsSigned {
   auto operator()(const LongDoubleType*) const -> bool { return true; }
   auto operator()(const Float16Type*) const -> bool { return true; }
   auto operator()(const BFloat16Type*) const -> bool { return true; }
+  auto operator()(const Float8E4M3FNType*) const -> bool { return true; }
+  auto operator()(const Float8E5M2Type*) const -> bool { return true; }
   auto operator()(const BitIntType*) const -> bool { return true; }
 
   auto operator()(const QualType* type) const -> bool {
@@ -811,6 +815,15 @@ struct IsSameVisitor {
   }
 
   auto operator()(const BFloat16Type*, const BFloat16Type*) const -> bool {
+    return true;
+  }
+
+  auto operator()(const Float8E4M3FNType*, const Float8E4M3FNType*) const
+      -> bool {
+    return true;
+  }
+
+  auto operator()(const Float8E5M2Type*, const Float8E5M2Type*) const -> bool {
     return true;
   }
 
@@ -1993,7 +2006,11 @@ auto TypeTraits::is_narrowing_conversion(const Type* from, const Type* to) const
     if ((from->kind() == TypeKind::kFloat16 &&
          to->kind() == TypeKind::kBFloat16) ||
         (from->kind() == TypeKind::kBFloat16 &&
-         to->kind() == TypeKind::kFloat16))
+         to->kind() == TypeKind::kFloat16) ||
+        (from->kind() == TypeKind::kFloat8E4M3FN &&
+         to->kind() == TypeKind::kFloat8E5M2) ||
+        (from->kind() == TypeKind::kFloat8E5M2 &&
+         to->kind() == TypeKind::kFloat8E4M3FN))
       return true;
     auto fromSize = control()->memoryLayout()->sizeOf(from);
     auto toSize = control()->memoryLayout()->sizeOf(to);
@@ -2584,14 +2601,20 @@ auto TypeTraits::integer_conversion_rank(const Type* type) const
 
 auto TypeTraits::floating_point_conversion_rank(const Type* type) const -> int {
   struct Rank {
-    [[nodiscard]] auto operator()(const BFloat16Type*) const -> int {
+    [[nodiscard]] auto operator()(const Float8E4M3FNType*) const -> int {
       return 0;
     }
-    [[nodiscard]] auto operator()(const Float16Type*) const -> int { return 1; }
-    [[nodiscard]] auto operator()(const FloatType*) const -> int { return 2; }
-    [[nodiscard]] auto operator()(const DoubleType*) const -> int { return 3; }
+    [[nodiscard]] auto operator()(const Float8E5M2Type*) const -> int {
+      return 0;
+    }
+    [[nodiscard]] auto operator()(const BFloat16Type*) const -> int {
+      return 1;
+    }
+    [[nodiscard]] auto operator()(const Float16Type*) const -> int { return 2; }
+    [[nodiscard]] auto operator()(const FloatType*) const -> int { return 3; }
+    [[nodiscard]] auto operator()(const DoubleType*) const -> int { return 4; }
     [[nodiscard]] auto operator()(const LongDoubleType*) const -> int {
-      return 4;
+      return 5;
     }
     [[nodiscard]] auto operator()(const Type*) const -> int { return -1; }
   };

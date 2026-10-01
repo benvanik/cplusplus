@@ -49,6 +49,8 @@ TEST(TypePrinter, BasicTypes) {
   ASSERT_EQ(to_string(control.getLongDoubleType()), "long double");
   ASSERT_EQ(to_string(control.getFloat16Type()), "_Float16");
   ASSERT_EQ(to_string(control.getBFloat16Type()), "__bf16");
+  ASSERT_EQ(to_string(control.getFloat8E4M3FNType()), "__float8_e4m3fn");
+  ASSERT_EQ(to_string(control.getFloat8E5M2Type()), "__float8_e5m2");
 }
 
 TEST(TypePrinter, QualTypes) {
