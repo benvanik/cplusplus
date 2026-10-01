@@ -8607,6 +8607,7 @@ auto Parser::parse_using_directive(DeclarationAST*& yyast) -> bool {
   auto ast = UsingDirectiveAST::create(pool_);
   yyast = ast;
 
+  ast->attributeList = attributes;
   ast->usingLoc = usingLoc;
   ast->namespaceLoc = namespaceLoc;
 
