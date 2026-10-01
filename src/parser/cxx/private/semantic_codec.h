@@ -788,7 +788,6 @@ class SemanticEncoder final : public SemanticEncoderBase {
   void writecxxConstLabelAddress(ByteWriter& out,
                                  const cxx::ConstLabelAddress* self);
   void writecxxConstComplex(ByteWriter& out, const cxx::ConstComplex* self);
-  void writecxxConstFloat16(ByteWriter& out, const cxx::ConstFloat16* self);
   void writecxxMetaParameter(ByteWriter& out, const cxx::Meta::Parameter* self);
   void writecxxTemplateSpecialization(ByteWriter& out,
                                       const cxx::TemplateSpecialization* self);
@@ -1505,7 +1504,6 @@ class SemanticDecoder final : public SemanticDecoderBase {
   void readcxxConstStorage(ByteReader& in, cxx::ConstStorage* self);
   void readcxxConstLabelAddress(ByteReader& in, cxx::ConstLabelAddress* self);
   void readcxxConstComplex(ByteReader& in, cxx::ConstComplex* self);
-  void readcxxConstFloat16(ByteReader& in, cxx::ConstFloat16* self);
   void readcxxMetaParameter(ByteReader& in, cxx::Meta::Parameter* self);
   void readcxxTemplateSpecialization(ByteReader& in,
                                      cxx::TemplateSpecialization* self);

@@ -59,24 +59,16 @@ auto floatingToInteger(long double value,
 }
 
 struct ToInt {
+  auto operator()(ConstFloat value) const -> std::optional<std::intmax_t> {
+    return floatingToInteger<std::intmax_t>(value.toLongDouble());
+  }
+
   auto operator()(bool v) const -> std::optional<std::intmax_t> {
     return v ? 1 : 0;
   }
 
   auto operator()(ConstInt v) const -> std::optional<std::intmax_t> {
     return v.toIntMax();
-  }
-
-  auto operator()(ConstFloat16 v) const -> std::optional<std::intmax_t> {
-    return floatingToInteger<std::intmax_t>(v.value());
-  }
-
-  auto operator()(float v) const -> std::optional<std::intmax_t> {
-    return floatingToInteger<std::intmax_t>(v);
-  }
-
-  auto operator()(double v) const -> std::optional<std::intmax_t> {
-    return floatingToInteger<std::intmax_t>(v);
   }
 
   auto operator()(long double v) const -> std::optional<std::intmax_t> {
@@ -95,24 +87,16 @@ struct ToInt {
 };
 
 struct ToUInt {
+  auto operator()(ConstFloat value) const -> std::optional<std::uintmax_t> {
+    return floatingToInteger<std::uintmax_t>(value.toLongDouble());
+  }
+
   auto operator()(bool v) const -> std::optional<std::uintmax_t> {
     return v ? 1 : 0;
   }
 
   auto operator()(ConstInt v) const -> std::optional<std::uintmax_t> {
     return static_cast<std::uintmax_t>(v.toWideValue());
-  }
-
-  auto operator()(ConstFloat16 v) const -> std::optional<std::uintmax_t> {
-    return floatingToInteger<std::uintmax_t>(v.value());
-  }
-
-  auto operator()(float v) const -> std::optional<std::uintmax_t> {
-    return floatingToInteger<std::uintmax_t>(v);
-  }
-
-  auto operator()(double v) const -> std::optional<std::uintmax_t> {
-    return floatingToInteger<std::uintmax_t>(v);
   }
 
   auto operator()(long double v) const -> std::optional<std::uintmax_t> {
@@ -138,8 +122,8 @@ struct ArithmeticCast {
     return std::visit(*this, value->real());
   }
 
-  [[nodiscard]] auto operator()(ConstFloat16 value) const -> std::optional<T> {
-    return static_cast<T>(value.value());
+  [[nodiscard]] auto operator()(ConstFloat value) const -> std::optional<T> {
+    return static_cast<T>(value.toLongDouble());
   }
 
   [[nodiscard]] auto operator()(ConstInt value) const -> std::optional<T> {
@@ -195,8 +179,8 @@ struct ASTInterpreter::ToBool {
     return *real || *imag;
   }
 
-  auto operator()(ConstFloat16 value) const -> std::optional<bool> {
-    return (value.bits & 0x7fff) != 0;
+  auto operator()(ConstFloat value) const -> std::optional<bool> {
+    return value.toLongDouble() != 0;
   }
 
   auto operator()(ConstInt value) const -> std::optional<bool> {
@@ -504,8 +488,8 @@ auto ASTInterpreter::toIntegralType(const ConstValue& value, const Type* type)
   auto floating = std::visit(
       [](const auto& stored) -> std::optional<long double> {
         using T = std::decay_t<decltype(stored)>;
-        if constexpr (std::is_same_v<T, ConstFloat16>)
-          return stored.value();
+        if constexpr (std::is_same_v<T, ConstFloat>)
+          return stored.toLongDouble();
         else if constexpr (std::is_floating_point_v<T>)
           return stored;
         else
@@ -573,11 +557,15 @@ auto ASTInterpreter::convertArithmetic(const ConstValue& value,
 
     switch (targetType->kind()) {
       case TypeKind::kFloat:
-        return ConstValue{isUnsigned ? static_cast<float>(bits)
-                                     : static_cast<float>(signedValue)};
+        return ConstValue{ConstFloat::fromValue(
+            ConstFloat::Format::kFloat, isUnsigned
+                                            ? static_cast<float>(bits)
+                                            : static_cast<float>(signedValue))};
       case TypeKind::kDouble:
-        return ConstValue{isUnsigned ? static_cast<double>(bits)
-                                     : static_cast<double>(signedValue)};
+        return ConstValue{ConstFloat::fromValue(
+            ConstFloat::Format::kDouble,
+            isUnsigned ? static_cast<double>(bits)
+                       : static_cast<double>(signedValue))};
       case TypeKind::kLongDouble:
         return ConstValue{isUnsigned ? static_cast<long double>(bits)
                                      : static_cast<long double>(signedValue)};
@@ -619,9 +607,7 @@ auto ASTInterpreter::toArithmeticType(const ConstValue& value, const Type* type)
 
   const auto holdsArithmetic =
       std::holds_alternative<ConstInt>(value) ||
-      std::holds_alternative<ConstFloat16>(value) ||
-      std::holds_alternative<float>(value) ||
-      std::holds_alternative<double>(value) ||
+      std::holds_alternative<ConstFloat>(value) ||
       std::holds_alternative<long double>(value) ||
       std::holds_alternative<std::shared_ptr<ConstComplex>>(value);
 
@@ -646,45 +632,21 @@ auto ASTInterpreter::toArithmeticType(const ConstValue& value, const Type* type)
     return ConstValue{std::make_shared<ConstComplex>(*real, *zero)};
   }
 
+  if (auto format = ConstFloat::formatFor(type->kind())) {
+    if (auto stored = std::get_if<ConstFloat>(&value);
+        stored && stored->format() == *format)
+      return value;
+    auto result = toLongDouble(value);
+    if (!result) return std::nullopt;
+    return ConstValue{ConstFloat::fromValue(*format, *result)};
+  }
+
   switch (type->kind()) {
-    case TypeKind::kBFloat16:
-    case TypeKind::kFloat8E4M3FN:
-    case TypeKind::kFloat8E5M2: {
-      auto result = toLongDouble(value);
-      auto format = control()->memoryLayout()->floatingPointFormat(type);
-      if (!result || !format) return std::nullopt;
-      return ConstValue{
-          static_cast<float>(format->value(format->representation(*result)))};
-    }
-
-    case TypeKind::kFloat: {
-      auto result = toFloat(value);
-      if (!result) return std::nullopt;
-      return ConstValue{*result};
-    }
-
-    case TypeKind::kDouble: {
-      auto result = toDouble(value);
-      if (!result) return std::nullopt;
-      return ConstValue{*result};
-    }
-
     case TypeKind::kLongDouble: {
       auto result = toLongDouble(value);
       if (!result) return std::nullopt;
       return ConstValue{*result};
     }
-
-    case TypeKind::kHalf:
-    case TypeKind::kFloat16: {
-      if (std::holds_alternative<ConstFloat16>(value)) return value;
-      auto result = toLongDouble(value);
-      auto format = control()->memoryLayout()->floatingPointFormat(type);
-      if (!result || !format) return std::nullopt;
-      return ConstValue{ConstFloat16{
-          static_cast<std::uint16_t>(format->representation(*result))}};
-    }
-
     default:
       break;
   }

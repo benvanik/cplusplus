@@ -143,6 +143,11 @@ export function emitWrite(
       push(`writeAttributes(out, ${value});`);
       return;
 
+    case "const-float":
+      push(`out.u8(static_cast<std::uint8_t>(${value}.format()));`);
+      push(`out.u64(${value}.bits());`);
+      return;
+
     case "const-value":
       push(`writeConstValue(out, ${value});`);
       return;
@@ -398,6 +403,30 @@ export function emitRead(
     case "attributes":
       push(`${cppType} ${target} = readAttributes(in);`);
       return;
+
+    case "const-float": {
+      const format = names.fresh("format");
+      const bits = names.fresh("bits");
+      const value = names.fresh("floating");
+      push(`${cppType} ${target};`);
+      push(`const auto ${format} = in.u8();`);
+      push(`const auto ${bits} = in.u64();`);
+      push(
+        `if (${format} > static_cast<std::uint8_t>(cxx::ConstFloat::Format::kDouble)) {`,
+      );
+      push(`  fail("invalid floating constant format");`);
+      push(`} else {`);
+      push(
+        `  auto ${value} = cxx::ConstFloat::fromBits(static_cast<cxx::ConstFloat::Format>(${format}), ${bits});`,
+      );
+      push(`  if (!${value}) {`);
+      push(`    fail("floating constant has excess representation bits");`);
+      push(`  } else {`);
+      push(`    ${target} = *${value};`);
+      push(`  }`);
+      push(`}`);
+      return;
+    }
 
     case "const-value":
       push(`${cppType} ${target} = readConstValue(in);`);

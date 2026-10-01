@@ -625,9 +625,12 @@ auto Codegen::getFloatAttr(const std::optional<ConstValue>& value,
   auto ty = traits.remove_cvref(type);
   if (!traits.is_floating_point(ty)) return {};
 
-  if (auto half = std::get_if<ConstFloat16>(&*value))
-    return ir::Initializer::floatingBits(
-        convertType(ty), *ConstInt::make(half->bits, 16, false));
+  if (auto stored = std::get_if<ConstFloat>(&*value)) {
+    auto bits = ConstInt::make(static_cast<ConstInt::Wide>(stored->bits()),
+                               stored->bitWidth(), false);
+    if (!bits) return {};
+    return ir::Initializer::floatingBits(convertType(ty), *bits);
+  }
 
   auto format = control()->memoryLayout()->floatingPointFormat(ty);
   if (!format) return {};
@@ -1389,10 +1392,8 @@ auto Codegen::emitConstInitValue(SourceLocation loc, const Type* type,
         bool isZero = false;
         if (auto intVal = std::get_if<ConstInt>(&elemValue)) {
           isZero = intVal->isZero();
-        } else if (auto floatVal = std::get_if<float>(&elemValue)) {
-          isZero = (*floatVal == 0.0f);
-        } else if (auto doubleVal = std::get_if<double>(&elemValue)) {
-          isZero = (*doubleVal == 0.0);
+        } else if (auto floatVal = std::get_if<ConstFloat>(&elemValue)) {
+          isZero = floatVal->bits() == 0;
         }
 
         if (isZero) {

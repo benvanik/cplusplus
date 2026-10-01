@@ -19,7 +19,6 @@
 // SOFTWARE.
 
 #include <cxx/const_value.h>
-#include <cxx/memory_layout.h>
 #include <cxx/names.h>
 #include <cxx/preprocessor.h>
 #include <cxx/reflection.h>
@@ -41,18 +40,6 @@
 #include <unordered_set>
 
 namespace cxx {
-
-auto ConstFloat16::value() const -> float {
-  if ((bits & 0x7c00) == 0x7c00 && (bits & 0x03ff) != 0) {
-    auto sign = std::uint32_t(bits & 0x8000) << 16;
-    auto payload = std::uint32_t(bits & 0x03ff) << 13;
-    return std::bit_cast<float>(sign | 0x7fc00000u | payload);
-  }
-
-  constexpr auto format =
-      FloatingPointFormat{.exponentBits = 5, .significandDigits = 11};
-  return static_cast<float>(format.value(bits));
-}
 
 namespace {
 [[nodiscard]] auto isTransparentSubobject(const Symbol* symbol) -> bool {
@@ -788,18 +775,6 @@ struct EquivalentValues {
     return lhs.isZero() && address && *address && (*address)->isNull();
   }
 
-  [[nodiscard]] auto operator()(float lhs) const -> bool {
-    auto value = other<float>();
-    return value && std::bit_cast<std::uint32_t>(lhs) ==
-                        std::bit_cast<std::uint32_t>(*value);
-  }
-
-  [[nodiscard]] auto operator()(double lhs) const -> bool {
-    auto value = other<double>();
-    return value && std::bit_cast<std::uint64_t>(lhs) ==
-                        std::bit_cast<std::uint64_t>(*value);
-  }
-
   [[nodiscard]] auto operator()(long double lhs) const -> bool {
     auto value = other<long double>();
     return value && floatingIdentity(lhs) == floatingIdentity(*value);
@@ -870,12 +845,12 @@ class ValueHasher {
     return value.hash();
   }
 
-  [[nodiscard]] auto operator()(float value) -> std::optional<std::size_t> {
-    return std::hash<std::uint32_t>{}(std::bit_cast<std::uint32_t>(value));
-  }
-
-  [[nodiscard]] auto operator()(double value) -> std::optional<std::size_t> {
-    return std::hash<std::uint64_t>{}(std::bit_cast<std::uint64_t>(value));
+  [[nodiscard]] auto operator()(ConstFloat value)
+      -> std::optional<std::size_t> {
+    std::size_t seed = 0;
+    hash_combine(seed, static_cast<unsigned>(value.format()));
+    hash_combine(seed, value.bits());
+    return seed;
   }
 
   [[nodiscard]] auto operator()(long double value)
@@ -883,11 +858,6 @@ class ValueHasher {
     std::size_t seed = 0;
     for (auto byte : floatingIdentity(value)) hash_combine(seed, byte);
     return seed;
-  }
-
-  [[nodiscard]] auto operator()(const ConstFloat16& value)
-      -> std::optional<std::size_t> {
-    return value.bits;
   }
 
   [[nodiscard]] auto operator()(const std::shared_ptr<Meta>& value)

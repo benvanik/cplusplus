@@ -1708,7 +1708,8 @@ auto Codegen::ExpressionVisitor::incrementedValue(SourceLocation loc,
   if (gen.traits.is_floating_point(type)) {
     auto amount = gen.emitter_.constantLiteral(
         loc, valueType,
-        gen.getFloatAttr(ConstValue{static_cast<double>(step)}, type).value());
+        gen.getFloatAttr(ConstValue{static_cast<long double>(step)}, type)
+            .value());
     return emitBinaryArithmeticOp(loc, TokenKind::T_PLUS, valueType, type,
                                   value, amount)
         .value;

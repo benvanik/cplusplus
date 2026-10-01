@@ -138,8 +138,6 @@ class ExternalNameEncoder {
   void encodeFunctionSignature(FunctionSymbol* function);
   void encodeLambdaSig(FunctionSymbol* callOperator);
   void encodeConstValue(const Type* type, const ConstValue& value);
-  template <typename Float>
-  void encodeFloatingValue(const Type* type, Float value);
   void encodeTemplateArgumentValue(const Type* type, const ConstValue& value);
   enum class ValueContext { kTemplateArgument, kSubobject };
   void encodeValueExpression(const Type* type, const ConstValue& value,

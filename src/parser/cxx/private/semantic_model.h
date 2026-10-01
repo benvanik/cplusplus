@@ -2466,7 +2466,6 @@ inline constexpr FieldDescriptor kSemanticFieldModelStorage[] = {
     {"::cxx::ConstLabelAddress", "name_", FieldPersistence::kPersisted, ""},
     {"::cxx::ConstComplex", "real_", FieldPersistence::kPersisted, ""},
     {"::cxx::ConstComplex", "imag_", FieldPersistence::kPersisted, ""},
-    {"::cxx::ConstFloat16", "bits", FieldPersistence::kPersisted, ""},
     {"::cxx::Meta::Parameter", "function", FieldPersistence::kPersisted, ""},
     {"::cxx::Meta::Parameter", "index", FieldPersistence::kPersisted, ""},
     {"::cxx::TemplateSpecialization", "arguments", FieldPersistence::kPersisted,

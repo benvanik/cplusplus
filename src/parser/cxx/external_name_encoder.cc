@@ -19,6 +19,7 @@
 // SOFTWARE.
 
 #include <cxx/ast.h>
+#include <cxx/ast_interpreter.h>
 #include <cxx/attributes.h>
 #include <cxx/binder.h>
 #include <cxx/class_template_deduction.h>
@@ -28,7 +29,6 @@
 #include <cxx/dependent_types.h>
 #include <cxx/external_name_encoder.h>
 #include <cxx/literals.h>
-#include <cxx/memory_layout.h>
 #include <cxx/names.h>
 #include <cxx/substitution.h>
 #include <cxx/symbols.h>
@@ -39,7 +39,6 @@
 #include <cxx/views/symbols.h>
 
 #include <algorithm>
-#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <format>
@@ -378,19 +377,6 @@ struct IsExpressionPrimary {
 
 [[nodiscard]] auto is_increment_or_decrement(TokenKind op) -> bool {
   return op == TokenKind::T_PLUS_PLUS || op == TokenKind::T_MINUS_MINUS;
-}
-
-template <typename Float>
-[[nodiscard]] auto floating_digits(Float value,
-                                   const FloatingPointFormat& format)
-    -> std::string {
-  const int bitCount = 1 + format.exponentBits + format.fractionBits();
-  const auto bits = format.representation(value);
-  std::string digits;
-  for (int shift = bitCount - 4; shift >= 0; shift -= 4) {
-    digits += "0123456789abcdef"[static_cast<int>((bits >> shift) & 0xf)];
-  }
-  return digits;
 }
 
 [[nodiscard]] auto cpp_cast_operator_name(TokenKind castOp)
@@ -2481,12 +2467,9 @@ struct ExternalNameEncoder::EncodeExpression {
   [[nodiscard]] auto operator()(FloatLiteralExpressionAST* ast) const -> bool {
     if (ast->literalOperatorCall) return encode(ast->literalOperatorCall);
     if (!ast->literal || !ast->type) return false;
-    if (ast->literal->components().isLongDouble)
-      encoder.encodeConstValue(ast->type,
-                               ConstValue{ast->literal->longDoubleValue()});
-    else
-      encoder.encodeConstValue(ast->type,
-                               ConstValue{ast->literal->floatValue()});
+    auto value = ASTInterpreter{encoder.unit_}.evaluate(ast);
+    if (!value) return false;
+    encoder.encodeConstValue(ast->type, *value);
     return true;
   }
 
@@ -3274,10 +3257,7 @@ void ExternalNameEncoder::encodeArrayValue(const Type* type,
 
 auto ExternalNameEncoder::isZeroValue(const ConstValue& value) const -> bool {
   if (auto integer = std::get_if<ConstInt>(&value)) return integer->isZero();
-  if (auto real = std::get_if<double>(&value))
-    return std::bit_cast<std::uint64_t>(*real) == 0;
-  if (auto real = std::get_if<float>(&value))
-    return std::bit_cast<std::uint32_t>(*real) == 0;
+  if (auto real = std::get_if<ConstFloat>(&value)) return real->bits() == 0;
   if (auto real = std::get_if<long double>(&value))
     return *real == 0 && !std::signbit(*real);
   if (auto address = std::get_if<std::shared_ptr<ConstAddress>>(&value))
@@ -3299,15 +3279,6 @@ auto ExternalNameEncoder::isZeroValue(const ConstValue& value) const -> bool {
   return false;
 }
 
-template <typename Float>
-void ExternalNameEncoder::encodeFloatingValue(const Type* type, Float value) {
-  auto format = unit_->control()->memoryLayout()->floatingPointFormat(type);
-  if (!format) {
-    reportUnencodable(SourceLocation{}, "floating-point value");
-  }
-  out(floating_digits(value, *format));
-}
-
 void ExternalNameEncoder::encodeConstValue(const Type* type,
                                            const ConstValue& value) {
   out("L");
@@ -3321,10 +3292,10 @@ void ExternalNameEncoder::encodeConstValue(const Type* type,
           out(normalized.toDecimalString());
         } else if constexpr (std::is_same_v<T, bool>) {
           out(v ? "1" : "0");
-        } else if constexpr (std::is_floating_point_v<T>) {
-          encodeFloatingValue(type, v);
-        } else if constexpr (std::is_same_v<T, ConstFloat16>) {
-          out(std::format("{:04x}", v.bits));
+        } else if constexpr (std::is_same_v<T, ConstFloat>) {
+          out(std::format("{:0{}x}", v.bits(), v.bitWidth() / 4));
+        } else if constexpr (std::is_same_v<T, long double>) {
+          reportUnencodable(SourceLocation{}, "long double template argument");
         }
       },
       value);

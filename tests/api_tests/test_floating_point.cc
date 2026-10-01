@@ -18,6 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <cxx/floating_point.h>
 #include <cxx/memory_layout.h>
 #include <gtest/gtest.h>
 
@@ -38,6 +39,10 @@ const FloatingPointFormat kFloat8E4M3FN{
         FloatingPointFormat::SpecialValueEncoding::kFiniteOnly};
 const FloatingPointFormat kFloat8E5M2{.exponentBits = 5,
                                       .significandDigits = 3};
+const FloatingPointFormat kBinary32{.exponentBits = 8,
+                                    .significandDigits = 24};
+const FloatingPointFormat kBinary64{.exponentBits = 11,
+                                    .significandDigits = 53};
 
 auto binary16Bits(long double value) -> std::uint16_t {
   return static_cast<std::uint16_t>(kBinary16.representation(value));
@@ -329,5 +334,86 @@ TEST(FloatingPointFormat, Float8E5M2FiniteBoundaries) {
     EXPECT_EQ(upper, roundE5M2(std::nextafter(
                          midpoint, static_cast<long double>(upper))));
     EXPECT_EQ(-expectedMidpoint, roundE5M2(-midpoint));
+  }
+}
+
+TEST(ConstFloat, UsesTheSharedFormatRepresentations) {
+  const struct {
+    TypeKind typeKind;
+    ConstFloat::Format format;
+    const FloatingPointFormat* description;
+  } cases[] = {
+      {TypeKind::kFloat16, ConstFloat::Format::kFloat16, &kBinary16},
+      {TypeKind::kBFloat16, ConstFloat::Format::kBFloat16, &kBFloat16},
+      {TypeKind::kFloat8E4M3FN, ConstFloat::Format::kFloat8E4M3FN,
+       &kFloat8E4M3FN},
+      {TypeKind::kFloat8E5M2, ConstFloat::Format::kFloat8E5M2, &kFloat8E5M2},
+      {TypeKind::kFloat, ConstFloat::Format::kFloat, &kBinary32},
+      {TypeKind::kDouble, ConstFloat::Format::kDouble, &kBinary64},
+  };
+
+  for (const auto& [typeKind, format, description] : cases) {
+    EXPECT_EQ(ConstFloat::formatFor(typeKind), format);
+    for (const auto value : {0.0L, -0.0L, 1.1875L, -13.5L}) {
+      SCOPED_TRACE(static_cast<unsigned>(format));
+      EXPECT_EQ(ConstFloat::fromValue(format, value).bits(),
+                description->representation(value));
+    }
+  }
+
+  EXPECT_EQ(ConstFloat::formatFor(TypeKind::kHalf),
+            ConstFloat::Format::kFloat16);
+  EXPECT_FALSE(ConstFloat::formatFor(TypeKind::kLongDouble));
+  EXPECT_FALSE(ConstFloat::formatFor(TypeKind::kFloat128));
+}
+
+TEST(ConstFloat, RejectsExcessRepresentationBits) {
+  using Format = ConstFloat::Format;
+
+  EXPECT_FALSE(ConstFloat::fromBits(Format::kFloat8E4M3FN, 0x100));
+  EXPECT_FALSE(ConstFloat::fromBits(Format::kFloat8E5M2, 0x100));
+  EXPECT_FALSE(ConstFloat::fromBits(Format::kFloat16, 0x10000));
+  EXPECT_FALSE(ConstFloat::fromBits(Format::kBFloat16, 0x10000));
+  EXPECT_FALSE(ConstFloat::fromBits(Format::kFloat, std::uint64_t{1} << 32));
+  EXPECT_TRUE(ConstFloat::fromBits(Format::kDouble, ~std::uint64_t{0}));
+}
+
+TEST(ConstFloat, PreservesWideRepresentations) {
+  using Format = ConstFloat::Format;
+
+  const auto single = ConstFloat::fromBits(Format::kFloat, 0x7f812345);
+  ASSERT_TRUE(single);
+  EXPECT_EQ(single->format(), Format::kFloat);
+  EXPECT_EQ(single->bitWidth(), 32u);
+  EXPECT_TRUE(single->isNaN());
+  EXPECT_TRUE(std::isnan(single->toLongDouble()));
+  EXPECT_EQ(single->negated().bits(), 0xff812345);
+
+  const auto wide =
+      ConstFloat::fromBits(Format::kDouble, 0x7ff0000012345678ULL);
+  ASSERT_TRUE(wide);
+  EXPECT_EQ(wide->format(), Format::kDouble);
+  EXPECT_EQ(wide->bitWidth(), 64u);
+  EXPECT_TRUE(wide->isNaN());
+  EXPECT_TRUE(std::isnan(wide->toLongDouble()));
+  EXPECT_EQ(wide->negated().bits(), 0xfff0000012345678ULL);
+}
+
+TEST(ConstFloat, EveryFiniteNarrowRepresentationRoundTrips) {
+  using Format = ConstFloat::Format;
+  for (const auto format : {Format::kFloat16, Format::kBFloat16,
+                            Format::kFloat8E4M3FN, Format::kFloat8E5M2}) {
+    const auto zero = ConstFloat::fromBits(format, 0);
+    ASSERT_TRUE(zero);
+    const auto width = zero->bitWidth();
+    for (std::uint32_t bits = 0; bits < (std::uint32_t{1} << width); ++bits) {
+      SCOPED_TRACE(static_cast<unsigned>(format));
+      SCOPED_TRACE(bits);
+      const auto value = ConstFloat::fromBits(format, bits);
+      ASSERT_TRUE(value);
+      if (value->isNaN()) continue;
+      EXPECT_EQ(ConstFloat::fromValue(format, value->toLongDouble()).bits(),
+                bits);
+    }
   }
 }

@@ -23,6 +23,7 @@
 #include <cxx/ast_fwd.h>
 #include <cxx/const_int.h>
 #include <cxx/cxx_fwd.h>
+#include <cxx/floating_point.h>
 #include <cxx/literals_fwd.h>
 #include <cxx/source_location.h>
 #include <cxx/symbols_fwd.h>
@@ -70,20 +71,13 @@ struct OutOfLifetimeValue {
       -> bool = default;
 };
 
-struct ConstFloat16 {
-  std::uint16_t bits = 0;
-
-  [[nodiscard]] auto value() const -> float;
-  auto operator==(const ConstFloat16&) const -> bool = default;
-};
-
 using ConstValue =
-    std::variant<ConstInt, const StringLiteral*, float, double, long double,
+    std::variant<ConstInt, const StringLiteral*, ConstFloat, long double,
                  std::shared_ptr<Meta>, std::shared_ptr<InitializerList>,
                  std::shared_ptr<ConstObject>, std::shared_ptr<ConstAddress>,
                  std::shared_ptr<ConstLabelAddress>,
-                 std::shared_ptr<ConstComplex>, ConstFloat16,
-                 IndeterminateValue, OutOfLifetimeValue>;
+                 std::shared_ptr<ConstComplex>, IndeterminateValue,
+                 OutOfLifetimeValue>;
 
 class InitializerList {
  public:

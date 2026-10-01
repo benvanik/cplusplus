@@ -207,16 +207,17 @@ auto ObjectRepresentation::valueRange(const Type* type, std::uint64_t offset)
 auto ObjectRepresentation::valueBits(const Type* type, const ConstValue& value)
     -> std::optional<ConstInt::UWide> {
   if (auto format = memoryLayout()->floatingPointFormat(type)) {
-    if (auto stored = std::get_if<ConstFloat16>(&value)) return stored->bits;
-    if (auto stored = std::get_if<float>(&value);
-        stored && unqualified_cast<FloatType>(type))
-      return std::bit_cast<std::uint32_t>(*stored);
-    if (auto stored = std::get_if<double>(&value);
-        stored && unqualified_cast<DoubleType>(type))
-      return std::bit_cast<std::uint64_t>(*stored);
+    if (auto stored = std::get_if<ConstFloat>(&value)) {
+      auto expected = ConstFloat::formatFor(unqualified_type(type)->kind());
+      if (expected && stored->format() == *expected) return stored->bits();
+    }
     if (auto real = std::get_if<long double>(&value))
       return format->representation(*real);
-    auto real = interp_.toDouble(value);
+    auto converted = interp_.toArithmeticType(value, type);
+    if (!converted) return std::nullopt;
+    if (auto stored = std::get_if<ConstFloat>(&*converted))
+      return stored->bits();
+    auto real = std::get_if<long double>(&*converted);
     if (!real) return std::nullopt;
     return format->representation(*real);
   }
@@ -229,12 +230,12 @@ auto ObjectRepresentation::valueBits(const Type* type, const ConstValue& value)
 
 auto ObjectRepresentation::scalarValue(const Type* type, ConstInt::UWide bits)
     -> std::optional<ConstValue> {
-  if (unqualified_cast<HalfType>(type) || unqualified_cast<Float16Type>(type))
-    return ConstValue{ConstFloat16{static_cast<std::uint16_t>(bits)}};
-  if (unqualified_cast<FloatType>(type))
-    return ConstValue{std::bit_cast<float>(static_cast<std::uint32_t>(bits))};
-  if (unqualified_cast<DoubleType>(type))
-    return ConstValue{std::bit_cast<double>(static_cast<std::uint64_t>(bits))};
+  if (auto format = ConstFloat::formatFor(unqualified_type(type)->kind())) {
+    auto value =
+        ConstFloat::fromBits(*format, static_cast<std::uint64_t>(bits));
+    if (!value) return std::nullopt;
+    return ConstValue{*value};
+  }
   if (auto format = memoryLayout()->floatingPointFormat(type))
     return interp_.toArithmeticType(ConstValue{format->value(bits)}, type);
   auto integer =
@@ -910,12 +911,14 @@ auto ASTInterpreter::evaluateBuiltinComplex(CallExpressionAST* ast)
 
 auto ASTInterpreter::evaluateBuiltinHugeVal(CallExpressionAST* /*ast*/)
     -> std::optional<ConstValue> {
-  return ConstValue{std::numeric_limits<double>::infinity()};
+  return ConstValue{ConstFloat::fromValue(
+      ConstFloat::Format::kDouble, std::numeric_limits<double>::infinity())};
 }
 
 auto ASTInterpreter::evaluateBuiltinHugeValf(CallExpressionAST* /*ast*/)
     -> std::optional<ConstValue> {
-  return ConstValue{std::numeric_limits<float>::infinity()};
+  return ConstValue{ConstFloat::fromValue(
+      ConstFloat::Format::kFloat, std::numeric_limits<float>::infinity())};
 }
 
 auto ASTInterpreter::evaluateBuiltinHugeVall(CallExpressionAST* /*ast*/)
@@ -1014,21 +1017,23 @@ auto ASTInterpreter::evaluateBuiltinNan(CallExpressionAST* ast)
     -> std::optional<ConstValue> {
   auto payload = evaluateBuiltinNanPayload(ast);
   if (!payload) return std::nullopt;
-  return ConstValue{std::nan(payload->c_str())};
+  return ConstValue{ConstFloat::fromValue(ConstFloat::Format::kDouble,
+                                          std::nan(payload->c_str()))};
 }
 
 auto ASTInterpreter::evaluateBuiltinNanf(CallExpressionAST* ast)
     -> std::optional<ConstValue> {
   auto payload = evaluateBuiltinNanPayload(ast);
   if (!payload) return std::nullopt;
-  return ConstValue{static_cast<double>(std::nanf(payload->c_str()))};
+  return ConstValue{ConstFloat::fromValue(ConstFloat::Format::kFloat,
+                                          std::nanf(payload->c_str()))};
 }
 
 auto ASTInterpreter::evaluateBuiltinNanl(CallExpressionAST* ast)
     -> std::optional<ConstValue> {
   auto payload = evaluateBuiltinNanPayload(ast);
   if (!payload) return std::nullopt;
-  return ConstValue{static_cast<double>(std::nanl(payload->c_str()))};
+  return ConstValue{std::nanl(payload->c_str())};
 }
 
 auto ASTInterpreter::evaluateBuiltinLockFree(CallExpressionAST* ast,

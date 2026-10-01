@@ -80,6 +80,7 @@ add_library(cxx-parser
     cxx/diagnostics_client.cc
     cxx/expression_side_effects.cc
     cxx/external_name_encoder.cc
+    cxx/floating_point.cc
     cxx/function_body_warnings.cc
     cxx/gcc_linux_toolchain.cc
     cxx/lexer.cc

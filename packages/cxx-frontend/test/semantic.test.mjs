@@ -829,13 +829,18 @@ test("constexpr folding and reference conversions preserve written initializers"
   assert.equal(converted.expression.handle, written.handle);
 });
 
-test("half types and exact binary16 constants retain their identity", async () => {
+test("floating types and exact constants retain their identity", async () => {
   const parser = await Parser.parse({
-    path: "/half.cc",
+    path: "/floating-constants.cc",
     source: `
       __fp16 half_value;
       _Float16 float16_value;
-      constexpr __fp16 payload = __builtin_bit_cast(__fp16, (unsigned short)0x7e55);
+      constexpr __fp16 f16 = __builtin_bit_cast(__fp16, (unsigned short)0x7e55);
+      constexpr __bf16 bf16 = __builtin_bit_cast(__bf16, (unsigned short)0x7fc1);
+      constexpr __float8_e4m3fn e4m3fn = __builtin_bit_cast(__float8_e4m3fn, (unsigned char)0xff);
+      constexpr __float8_e5m2 e5m2 = __builtin_bit_cast(__float8_e5m2, (unsigned char)0x7d);
+      constexpr float f32 = __builtin_bit_cast(float, 0x7f812345u);
+      constexpr double f64 = __builtin_bit_cast(double, 0x7ff0000012345678ull);
     `,
   });
   try {
@@ -843,12 +848,23 @@ test("half types and exact binary16 constants retain their identity", async () =
     const members = [...parser.ast.symbol.members];
     const half = members.find((symbol) => symbol.text === "half_value");
     const float16 = members.find((symbol) => symbol.text === "float16_value");
-    const payload = members.find((symbol) => symbol.text === "payload");
     assert.ok(half.type instanceof S.HalfType);
     assert.ok(float16.type instanceof S.Float16Type);
     assert.equal(half.type.kind, "Half");
     assert.notEqual(half.type.handle, float16.type.handle);
-    assert.deepEqual(payload.constValue, { bits: 0x7e55 });
+
+    const expected = [
+      ["f16", "Float16", 0x7e55n],
+      ["bf16", "BFloat16", 0x7fc1n],
+      ["e4m3fn", "Float8E4M3FN", 0xffn],
+      ["e5m2", "Float8E5M2", 0x7dn],
+      ["f32", "Float", 0x7f812345n],
+      ["f64", "Double", 0x7ff0000012345678n],
+    ];
+    for (const [name, format, bits] of expected) {
+      const symbol = members.find((candidate) => candidate.text === name);
+      assert.deepEqual(symbol.constValue, { format, bits, value: NaN });
+    }
   } finally {
     parser.dispose();
   }

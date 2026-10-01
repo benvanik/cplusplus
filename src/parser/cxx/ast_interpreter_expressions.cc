@@ -180,7 +180,7 @@ auto ASTInterpreter::zeroInitialize(const Type* type)
     return std::make_shared<Meta>();
   if (traits.is_integral_or_enum(type)) return std::intmax_t{0};
   if (traits.is_floating_point(type))
-    return toArithmeticType(ConstValue{0.0}, type);
+    return toArithmeticType(ConstValue{0.0L}, type);
   if (traits.is_pointer(type) || traits.is_null_pointer(type))
     return std::intmax_t{0};
   if (traits.is_member_pointer(type))
@@ -319,15 +319,17 @@ struct ASTInterpreter::ExpressionVisitor {
         return interp.toArithmeticType(
             ConstValue{op(toLongDouble(*left), toLongDouble(*right))}, type);
       case TypeKind::kFloat:
-        return ConstValue{op(toFloat(*left), toFloat(*right))};
+      case TypeKind::kHalf:
+      case TypeKind::kFloat16:
+        return interp.toArithmeticType(ConstValue{static_cast<long double>(op(
+                                           toFloat(*left), toFloat(*right)))},
+                                       type);
       case TypeKind::kLongDouble:
         return ConstValue{op(toLongDouble(*left), toLongDouble(*right))};
       case TypeKind::kDouble:
-        return ConstValue{op(toDouble(*left), toDouble(*right))};
-      case TypeKind::kHalf:
-      case TypeKind::kFloat16:
-        return interp.toArithmeticType(
-            ConstValue{op(toFloat(*left), toFloat(*right))}, type);
+        return interp.toArithmeticType(ConstValue{static_cast<long double>(op(
+                                           toDouble(*left), toDouble(*right)))},
+                                       type);
       default:
         return std::nullopt;
     }
@@ -341,23 +343,7 @@ struct ASTInterpreter::ExpressionVisitor {
 
     if (unit()->typeTraits().is_integral_or_unscoped_enum(type)) return operand;
 
-    switch (type->kind()) {
-      case TypeKind::kHalf:
-      case TypeKind::kFloat16:
-        return interp.toArithmeticType(*operand, type);
-      case TypeKind::kBFloat16:
-      case TypeKind::kFloat8E4M3FN:
-      case TypeKind::kFloat8E5M2:
-        return interp.toArithmeticType(*operand, type);
-      case TypeKind::kFloat:
-        return ConstValue{toFloat(*operand)};
-      case TypeKind::kDouble:
-        return ConstValue{toDouble(*operand)};
-      case TypeKind::kLongDouble:
-        return ConstValue{toLongDouble(*operand)};
-      default:
-        return std::nullopt;
-    }
+    return interp.toArithmeticType(*operand, type);
   }
 
   auto unary_minus_op(const Type* type, const ExpressionResult& operand)
@@ -381,28 +367,13 @@ struct ASTInterpreter::ExpressionVisitor {
       return ConstValue{*negated};
     }
 
-    switch (type->kind()) {
-      case TypeKind::kHalf:
-      case TypeKind::kFloat16: {
-        auto value = std::get_if<ConstFloat16>(&*operand);
-        if (!value) return std::nullopt;
-        return ConstValue{
-            ConstFloat16{static_cast<std::uint16_t>(value->bits ^ 0x8000)}};
-      }
-      case TypeKind::kBFloat16:
-      case TypeKind::kFloat8E4M3FN:
-      case TypeKind::kFloat8E5M2:
-        return interp.toArithmeticType(ConstValue{-toLongDouble(*operand)},
-                                       type);
-      case TypeKind::kFloat:
-        return ConstValue{-toFloat(*operand)};
-      case TypeKind::kDouble:
-        return ConstValue{-toDouble(*operand)};
-      case TypeKind::kLongDouble:
-        return ConstValue{-toLongDouble(*operand)};
-      default:
-        return std::nullopt;
-    }
+    auto converted = interp.toArithmeticType(*operand, type);
+    if (!converted) return std::nullopt;
+    if (auto stored = std::get_if<ConstFloat>(&*converted))
+      return ConstValue{stored->negated()};
+    if (type->kind() == TypeKind::kLongDouble)
+      return ConstValue{-toLongDouble(*converted)};
+    return std::nullopt;
   }
 
   auto star_op(const Type* type, const ExpressionResult& left,
@@ -2978,8 +2949,9 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
       suffix == FloatLiteral::Components::FloatingPointSuffix::kBF16)
     return interp.toArithmeticType(ConstValue{ast->literal->longDoubleValue()},
                                    ast->type);
-  return interp.toArithmeticType(ConstValue{ast->literal->floatValue()},
-                                 ast->type);
+  return interp.toArithmeticType(
+      ConstValue{static_cast<long double>(ast->literal->floatValue())},
+      ast->type);
 }
 
 auto ASTInterpreter::ExpressionVisitor::operator()(
