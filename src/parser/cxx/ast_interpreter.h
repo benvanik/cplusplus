@@ -607,9 +607,21 @@ class ASTInterpreter {
   TypeTraits traits;
 
   struct Frame {
+    // Reference bindings retain pointers into frame-owned values. Moving a
+    // frame preserves those pointers, while copying would invalidate them.
+    Frame() = default;
+    Frame(Frame&&) = default;
+    auto operator=(Frame&&) -> Frame& = default;
+    Frame(const Frame&) = delete;
+    auto operator=(const Frame&) -> Frame& = delete;
+
+    // Values owned by this invocation.
     std::unordered_map<const Symbol*, ConstValue> locals;
+    // Slots borrowed from storage owned outside this frame.
     std::unordered_map<const Symbol*, ConstValue*> refs;
+    // Reference identities retained for address evaluation.
     std::unordered_map<const Symbol*, ConstValue> referenceAddresses;
+    // Local objects whose lifetimes end with this invocation.
     std::vector<VariableSymbol*> automaticObjects;
   };
   std::deque<Frame> frames_;
