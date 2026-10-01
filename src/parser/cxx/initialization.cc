@@ -2006,6 +2006,11 @@ void ListInitChecker::checkArrayElements(const Type* type,
   ctx.checker.checkPotentiallyInvokedDestructor(elementType, ast->lbraceLoc);
 
   std::vector<std::pair<std::size_t, ExpressionAST*>> placements;
+  const char* aggregateKind = "array";
+  if (plan->isVector)
+    aggregateKind = "vector";
+  else if (ctx.traits.is_complex(type))
+    aggregateKind = "complex";
 
   for (const auto& initialized : plan->initializedElements) {
     auto initializer = initialized.initializer;
@@ -2025,9 +2030,10 @@ void ListInitChecker::checkArrayElements(const Type* type,
     } else {
       elemChecker.check(
           initializer, elementType,
-          std::format("cannot initialize array element of type '{}' with "
+          std::format("cannot initialize {} element of type '{}' with "
                       "expression of type '{}'",
-                      to_string(elementType), to_string(initializer->type)));
+                      aggregateKind, to_string(elementType),
+                      to_string(initializer->type)));
     }
 
     placements.emplace_back(initialized.index, initializer);

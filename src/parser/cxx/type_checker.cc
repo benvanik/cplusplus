@@ -28,6 +28,7 @@
 #include <cxx/control.h>
 #include <cxx/decl_specs.h>
 #include <cxx/dependent_types.h>
+#include <cxx/diagnostics_client.h>
 #include <cxx/implicit_conversion_sequence.h>
 #include <cxx/initialization.h>
 #include <cxx/literals.h>
@@ -6292,9 +6293,14 @@ void TypeChecker::Visitor::operator()(AssignmentExpressionAST* ast) {
   if (resolve_assignment_overload(ast)) return;
 
   if (braced) {
+    auto diagnosticsClient = check.unit_->diagnosticsClient();
+    const auto errorsBefore = diagnosticsClient->errorCount();
     check.check_list_initialization(
         traits.remove_cv(ast->leftExpression->type), ast->rightExpression,
         InitializationKind::kCopyListInitialization);
+    // List initialization retains its target type for recovery. Its errors
+    // already explain why the list cannot become an assignment operand.
+    if (diagnosticsClient->errorCount() != errorsBefore) return;
     if (!braced->type) return;
   }
 
