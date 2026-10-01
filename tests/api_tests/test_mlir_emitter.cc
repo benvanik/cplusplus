@@ -369,4 +369,19 @@ TEST_F(EmitterFixture, DebugMetadataDoesNotRequireAParserTranslationUnit) {
   backend.endModule();
 }
 
+TEST_F(EmitterFixture, ExactFloatingInitializerPreservesRepresentation) {
+  ir::Emitter& backend = emitter_;
+  auto type = backend.floatingType(ir::FloatKind::Single);
+  auto value = ConstFloat::fromBits(ConstFloat::Format::kFloat, 0x7f812345);
+  ASSERT_TRUE(value);
+
+  auto result =
+      backend.constant({}, type, ir::Initializer::floatingValue(type, *value));
+  auto constant =
+      emitter_.value(result).getDefiningOp<mlir::arith::ConstantOp>();
+  ASSERT_TRUE(constant);
+  auto attribute = mlir::cast<mlir::FloatAttr>(constant.getValue());
+  EXPECT_EQ(attribute.getValue().bitcastToAPInt().getZExtValue(), 0x7f812345u);
+}
+
 }  // namespace

@@ -240,8 +240,7 @@ TEST(FloatingPoint, RoundFloat8E5M2Values) {
   EXPECT_EQ(0x1p-14f, roundFloat8E5M2(0x1.cp-15L));
 
   EXPECT_EQ(57344.0f, roundFloat8E5M2(61439.0L));
-  EXPECT_EQ(std::numeric_limits<float>::infinity(),
-            roundFloat8E5M2(61440.0L));
+  EXPECT_EQ(std::numeric_limits<float>::infinity(), roundFloat8E5M2(61440.0L));
   EXPECT_EQ(-std::numeric_limits<float>::infinity(),
             roundFloat8E5M2(-61440.0L));
 }
@@ -261,5 +260,56 @@ TEST(FloatingPoint, RoundFloat8E5M2FiniteBoundaries) {
     EXPECT_EQ(upper, roundFloat8E5M2(std::nextafter(
                          midpoint, static_cast<long double>(upper))));
     EXPECT_EQ(-expectedMidpoint, roundFloat8E5M2(-midpoint));
+  }
+}
+
+TEST(FloatingPoint, ConstFloatRejectsExcessRepresentationBits) {
+  using Format = ConstFloat::Format;
+
+  EXPECT_FALSE(ConstFloat::fromBits(Format::kFloat8E4M3FN, 0x100));
+  EXPECT_FALSE(ConstFloat::fromBits(Format::kFloat8E5M2, 0x100));
+  EXPECT_FALSE(ConstFloat::fromBits(Format::kFloat16, 0x10000));
+  EXPECT_FALSE(ConstFloat::fromBits(Format::kBFloat16, 0x10000));
+  EXPECT_FALSE(ConstFloat::fromBits(Format::kFloat, std::uint64_t{1} << 32));
+  EXPECT_TRUE(ConstFloat::fromBits(Format::kDouble, ~std::uint64_t{0}));
+}
+
+TEST(FloatingPoint, ConstFloatPreservesWideRepresentations) {
+  using Format = ConstFloat::Format;
+
+  const auto single = ConstFloat::fromBits(Format::kFloat, 0x7f812345);
+  ASSERT_TRUE(single);
+  EXPECT_EQ(single->format(), Format::kFloat);
+  EXPECT_EQ(single->bitWidth(), 32u);
+  EXPECT_TRUE(single->isNaN());
+  EXPECT_TRUE(std::isnan(single->toLongDouble()));
+  EXPECT_EQ(single->negated().bits(), 0xff812345);
+
+  const auto wide =
+      ConstFloat::fromBits(Format::kDouble, 0x7ff0000012345678ULL);
+  ASSERT_TRUE(wide);
+  EXPECT_EQ(wide->format(), Format::kDouble);
+  EXPECT_EQ(wide->bitWidth(), 64u);
+  EXPECT_TRUE(wide->isNaN());
+  EXPECT_TRUE(std::isnan(wide->toLongDouble()));
+  EXPECT_EQ(wide->negated().bits(), 0xfff0000012345678ULL);
+}
+
+TEST(FloatingPoint, EveryFiniteNarrowRepresentationRoundTrips) {
+  using Format = ConstFloat::Format;
+  for (const auto format : {Format::kFloat16, Format::kBFloat16,
+                            Format::kFloat8E4M3FN, Format::kFloat8E5M2}) {
+    const auto zero = ConstFloat::fromBits(format, 0);
+    ASSERT_TRUE(zero);
+    const auto width = zero->bitWidth();
+    for (std::uint32_t bits = 0; bits < (std::uint32_t{1} << width); ++bits) {
+      SCOPED_TRACE(static_cast<unsigned>(format));
+      SCOPED_TRACE(bits);
+      const auto value = ConstFloat::fromBits(format, bits);
+      ASSERT_TRUE(value);
+      if (value->isNaN()) continue;
+      EXPECT_EQ(ConstFloat::fromValue(format, value->toLongDouble()).bits(),
+                bits);
+    }
   }
 }

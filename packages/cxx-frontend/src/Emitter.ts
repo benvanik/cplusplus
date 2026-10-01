@@ -44,6 +44,17 @@ export type ValueRef = number;
 export type TokenIndex = number;
 
 /** @category Backend Enumerations */
+export type FloatingFormat =
+  "Float16" | "BFloat16" | "Float8E4M3FN" | "Float8E5M2" | "Float" | "Double";
+
+/** @category Backend Descriptors */
+export interface FloatingBits {
+  format: FloatingFormat;
+  bits: bigint;
+  value: number;
+}
+
+/** @category Backend Enumerations */
 export type InsertionPointKind =
   "BlockStart" | "BlockEnd" | "ModuleStart" | "ModuleEnd";
 
@@ -52,6 +63,7 @@ export type InitializerKind =
   | "None"
   | "Integer"
   | "Floating"
+  | "FloatingBits"
   | "Bytes"
   | "Aggregate"
   | "Null"
@@ -214,6 +226,7 @@ export interface Initializer {
   type: TypeRef;
   integer: bigint;
   floating: number;
+  floatingBits: FloatingBits;
   bytes: Uint8Array;
   elements: readonly Initializer[];
 }

@@ -1546,15 +1546,16 @@ void SemanticEncoder::writeConstValue(ByteWriter& out,
       break;
     }
     case 2: {
-      out.f32(std::get<2>(value));
+      out.u8(static_cast<std::uint8_t>(std::get<2>(value).format()));
+      out.u64(std::get<2>(value).bits());
       break;
     }
     case 3: {
-      out.f64(std::get<3>(value));
+      out.f80(std::get<3>(value));
       break;
     }
     case 4: {
-      out.f80(std::get<4>(value));
+      out.varU32(static_cast<std::uint32_t>(constRef(std::get<4>(value))));
       break;
     }
     case 5: {
@@ -1578,10 +1579,6 @@ void SemanticEncoder::writeConstValue(ByteWriter& out,
       break;
     }
     case 10: {
-      out.varU32(static_cast<std::uint32_t>(constRef(std::get<10>(value))));
-      break;
-    }
-    case 11: {
       break;
     }
   }
@@ -8882,65 +8879,74 @@ auto SemanticDecoder::readConstValue(ByteReader& in) -> cxx::ConstValue {
         break;
       }
       case 2: {
-        std::variant_alternative_t<2, decltype(value)> alternative4 = in.f32();
+        std::variant_alternative_t<2, decltype(value)> alternative4;
+        const auto format5 = in.u8();
+        const auto bits6 = in.u64();
+        if (format5 >
+            static_cast<std::uint8_t>(cxx::ConstFloat::Format::kDouble)) {
+          fail("invalid floating constant format");
+        } else {
+          auto floating7 = cxx::ConstFloat::fromBits(
+              static_cast<cxx::ConstFloat::Format>(format5), bits6);
+          if (!floating7) {
+            fail("floating constant has excess representation bits");
+          } else {
+            alternative4 = *floating7;
+          }
+        }
         value = std::move(alternative4);
         break;
       }
       case 3: {
-        std::variant_alternative_t<3, decltype(value)> alternative5 = in.f64();
-        value = std::move(alternative5);
-        break;
-      }
-      case 4: {
-        std::variant_alternative_t<4, decltype(value)> alternative6 = in.f80();
-        value = std::move(alternative6);
-        break;
-      }
-      case 5: {
-        std::variant_alternative_t<5, decltype(value)> alternative7 =
-            std::static_pointer_cast<cxx::Meta>(
-                constantAt(ConstRef{in.varU32()}));
-        value = std::move(alternative7);
-        break;
-      }
-      case 6: {
-        std::variant_alternative_t<6, decltype(value)> alternative8 =
-            std::static_pointer_cast<cxx::InitializerList>(
-                constantAt(ConstRef{in.varU32()}));
+        std::variant_alternative_t<3, decltype(value)> alternative8 = in.f80();
         value = std::move(alternative8);
         break;
       }
-      case 7: {
-        std::variant_alternative_t<7, decltype(value)> alternative9 =
-            std::static_pointer_cast<cxx::ConstObject>(
+      case 4: {
+        std::variant_alternative_t<4, decltype(value)> alternative9 =
+            std::static_pointer_cast<cxx::Meta>(
                 constantAt(ConstRef{in.varU32()}));
         value = std::move(alternative9);
         break;
       }
-      case 8: {
-        std::variant_alternative_t<8, decltype(value)> alternative10 =
-            std::static_pointer_cast<cxx::ConstAddress>(
+      case 5: {
+        std::variant_alternative_t<5, decltype(value)> alternative10 =
+            std::static_pointer_cast<cxx::InitializerList>(
                 constantAt(ConstRef{in.varU32()}));
         value = std::move(alternative10);
         break;
       }
-      case 9: {
-        std::variant_alternative_t<9, decltype(value)> alternative11 =
-            std::static_pointer_cast<cxx::ConstLabelAddress>(
+      case 6: {
+        std::variant_alternative_t<6, decltype(value)> alternative11 =
+            std::static_pointer_cast<cxx::ConstObject>(
                 constantAt(ConstRef{in.varU32()}));
         value = std::move(alternative11);
         break;
       }
-      case 10: {
-        std::variant_alternative_t<10, decltype(value)> alternative12 =
-            std::static_pointer_cast<cxx::ConstComplex>(
+      case 7: {
+        std::variant_alternative_t<7, decltype(value)> alternative12 =
+            std::static_pointer_cast<cxx::ConstAddress>(
                 constantAt(ConstRef{in.varU32()}));
         value = std::move(alternative12);
         break;
       }
-      case 11: {
-        std::variant_alternative_t<11, decltype(value)> alternative13{};
+      case 8: {
+        std::variant_alternative_t<8, decltype(value)> alternative13 =
+            std::static_pointer_cast<cxx::ConstLabelAddress>(
+                constantAt(ConstRef{in.varU32()}));
         value = std::move(alternative13);
+        break;
+      }
+      case 9: {
+        std::variant_alternative_t<9, decltype(value)> alternative14 =
+            std::static_pointer_cast<cxx::ConstComplex>(
+                constantAt(ConstRef{in.varU32()}));
+        value = std::move(alternative14);
+        break;
+      }
+      case 10: {
+        std::variant_alternative_t<10, decltype(value)> alternative15{};
+        value = std::move(alternative15);
         break;
       }
       default:

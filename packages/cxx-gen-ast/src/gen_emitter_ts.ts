@@ -92,6 +92,24 @@ export function gen_emitter_ts({
   emit(`export type TokenIndex = number;`);
   emit();
 
+  emit(categoryComment("Backend Enumerations"));
+  emit(`export type FloatingFormat =`);
+  emit(`  | "Float16"`);
+  emit(`  | "BFloat16"`);
+  emit(`  | "Float8E4M3FN"`);
+  emit(`  | "Float8E5M2"`);
+  emit(`  | "Float"`);
+  emit(`  | "Double";`);
+  emit();
+
+  emit(categoryComment("Backend Descriptors"));
+  emit(`export interface FloatingBits {`);
+  emit(`  format: FloatingFormat;`);
+  emit(`  bits: bigint;`);
+  emit(`  value: number;`);
+  emit(`}`);
+  emit();
+
   for (const entry of protocol.enums) {
     emit(categoryComment(categoryOf(entry.name, "Backend Enumerations")));
     emit(`export type ${entry.name} =`);
@@ -118,9 +136,12 @@ export function gen_emitter_ts({
     protocol.debugMethods,
   ))
     emit(line);
-  for (const line of delegateInterface("EmitterDelegate", "Backend", protocol.methods, [
-    "  readonly debug?: DebugEmitterDelegate;",
-  ]))
+  for (const line of delegateInterface(
+    "EmitterDelegate",
+    "Backend",
+    protocol.methods,
+    ["  readonly debug?: DebugEmitterDelegate;"],
+  ))
     emit(line);
 
   fs.writeFileSync(output, lines.join("\n"));

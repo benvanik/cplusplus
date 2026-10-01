@@ -253,6 +253,62 @@ TEST(PrecompiledHeader, RestoresFloat8Types) {
   ASSERT_TRUE(type_cast<Float8E5M2Type>(e5m2->type()));
 }
 
+TEST(PrecompiledHeader, RestoresExactFloatingRepresentations) {
+  using Format = ConstFloat::Format;
+  Prefix prefix{R"(
+_Float16 f16;
+__bf16 bf16;
+__float8_e4m3fn e4m3fn;
+__float8_e5m2 e5m2;
+float f32;
+double f64;
+)"};
+
+  struct Expected {
+    const char* name;
+    Format format;
+    std::uint64_t bits;
+  };
+  const Expected expected[] = {
+      {"f16", Format::kFloat16, 0x7c01},
+      {"bf16", Format::kBFloat16, 0x8000},
+      {"e4m3fn", Format::kFloat8E4M3FN, 0xff},
+      {"e5m2", Format::kFloat8E5M2, 0x7d},
+      {"f32", Format::kFloat, 0x80000000},
+      {"f64", Format::kDouble, 0x7ff0000012345678ULL},
+  };
+  for (const auto& [name, format, bits] : expected) {
+    auto variable = symbol_cast<VariableSymbol>(
+        findMember(prefix.unit()->globalScope(), name));
+    ASSERT_TRUE(variable);
+    auto value = ConstFloat::fromBits(format, bits);
+    ASSERT_TRUE(value);
+    variable->setConstValue(*value);
+  }
+
+  const auto data = prefix.emit();
+  ASSERT_TRUE(prefix.errors().empty());
+  ASSERT_FALSE(data.empty());
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  for (const auto& [name, format, bits] : expected) {
+    auto variable =
+        symbol_cast<VariableSymbol>(findMember(consumer.globalScope(), name));
+    ASSERT_TRUE(variable);
+    ASSERT_TRUE(variable->constValue());
+    auto value = std::get_if<ConstFloat>(&*variable->constValue());
+    ASSERT_TRUE(value);
+    EXPECT_EQ(value->format(), format);
+    EXPECT_EQ(value->bits(), bits);
+  }
+}
+
 TEST(PrecompiledHeader, RestoresVectorConstant) {
   Prefix prefix{R"(
 using Int4 = int __attribute__((ext_vector_type(4)));

@@ -127,6 +127,14 @@ auto MlirEmitter::initializerAttribute(const Initializer& init)
                 &losesInfo);
       return builder_.getFloatAttr(t, f);
     }
+    case Initializer::Kind::FloatingBits: {
+      auto t = mlir::cast<mlir::FloatType>(type(init.type));
+      if (t.getWidth() != init.floatingBits.bitWidth())
+        cxx_runtime_error("floating initializer width does not match its type");
+      auto bits = llvm::APInt{t.getWidth(), init.floatingBits.bits()};
+      auto value = llvm::APFloat{t.getFloatSemantics(), bits};
+      return builder_.getFloatAttr(t, value);
+    }
     case Initializer::Kind::Bytes:
       return builder_.getStringAttr(init.bytes);
     case Initializer::Kind::Null:
@@ -188,6 +196,7 @@ auto MlirEmitter::constant(SourceLocation loc, TypeRef resultType,
 
     case Initializer::Kind::Integer:
     case Initializer::Kind::Floating:
+    case Initializer::Kind::FloatingBits:
     case Initializer::Kind::Bytes:
       return wrap(mlir::arith::ConstantOp::create(
           builder_, location, type(resultType),

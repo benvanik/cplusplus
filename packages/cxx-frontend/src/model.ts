@@ -203,9 +203,16 @@ function* typeValItems(
 }
 import { type TokenKind, tokenKindNames } from "./TokenKind.js";
 /** @category Data Structures */
+export interface ConstFloat {
+  readonly format: ConstFloat_Format;
+  readonly bits: bigint;
+  readonly value: number;
+}
+/** @category Data Structures */
 export type ConstValue =
   | bigint
   | StringLiteral
+  | ConstFloat
   | number
   | Meta
   | InitializerList
@@ -357,25 +364,34 @@ export type SourceLocationRange = readonly [
   Token | undefined,
   Token | undefined,
 ];
+function decodeConstFloat(value: any, owner: ModelOwner): ConstFloat {
+  return {
+    format: constFloat_FormatNames[value.format]!,
+    bits: BigInt(value.bits),
+    value: value.value,
+  };
+}
 function decodeConstValue(value: any, owner: ModelOwner): ConstValue {
   switch (value.index) {
     case 0:
       return BigInt(value.value);
     case 1:
       return objOf(value.value, owner, StringLiteral);
-    case 5:
+    case 2:
+      return decodeConstFloat(value.value, owner);
+    case 4:
       return objOf(value.value, owner, Meta);
-    case 6:
+    case 5:
       return objOf(value.value, owner, InitializerList);
-    case 7:
+    case 6:
       return objOf(value.value, owner, ConstObject);
-    case 8:
+    case 7:
       return objOf(value.value, owner, ConstAddress);
-    case 9:
+    case 8:
       return objOf(value.value, owner, ConstLabelAddress);
-    case 10:
+    case 9:
       return objOf(value.value, owner, ConstComplex);
-    case 11:
+    case 10:
       return undefined;
     default:
       return value.value;
@@ -11616,6 +11632,17 @@ const nameKindNames: Record<number, NameKind> = {
   3: "LiteralOperatorId",
   4: "ConversionFunctionId",
   5: "TemplateId",
+};
+/** @category Enumerations */
+export type ConstFloat_Format =
+  "Float16" | "BFloat16" | "Float8E4M3FN" | "Float8E5M2" | "Float" | "Double";
+const constFloat_FormatNames: Record<number, ConstFloat_Format> = {
+  0: "Float16",
+  1: "BFloat16",
+  2: "Float8E4M3FN",
+  3: "Float8E5M2",
+  4: "Float",
+  5: "Double",
 };
 /** @category Enumerations */
 export type ValueCategory = "None" | "LValue" | "XValue" | "PrValue";

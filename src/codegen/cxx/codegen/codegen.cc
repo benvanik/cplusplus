@@ -284,6 +284,9 @@ auto Codegen::getFloatAttr(const std::optional<ConstValue>& value,
   auto ty = traits.remove_cvref(type);
   if (!traits.is_floating_point(ty)) return {};
 
+  if (auto floating = std::get_if<ConstFloat>(&*value))
+    return ir::Initializer::floatingValue(convertType(ty), *floating);
+
   auto interp = ASTInterpreter{unit_};
   return interp.toDouble(*value).transform(
       [&](double converted) { return makeFloatInitializer(ty, converted); });
@@ -615,10 +618,8 @@ auto Codegen::emitConstInitValue(SourceLocation loc, const Type* type,
         bool isZero = false;
         if (auto intVal = std::get_if<ConstInt>(&elemValue)) {
           isZero = intVal->isZero();
-        } else if (auto floatVal = std::get_if<float>(&elemValue)) {
-          isZero = (*floatVal == 0.0f);
-        } else if (auto doubleVal = std::get_if<double>(&elemValue)) {
-          isZero = (*doubleVal == 0.0);
+        } else if (auto floatVal = std::get_if<ConstFloat>(&elemValue)) {
+          isZero = floatVal->bits() == 0;
         }
 
         if (isZero) {

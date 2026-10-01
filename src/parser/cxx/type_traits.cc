@@ -2113,10 +2113,8 @@ auto TypeTraits::is_narrowing_list_element(ExpressionAST* expr,
 
   if (auto intValue = std::get_if<ConstInt>(&*value))
     return !fitsInteger(intValue->toIntMax());
-  if (auto floatValue = std::get_if<float>(&*value))
-    return !fitsFloating(*floatValue);
-  if (auto doubleValue = std::get_if<double>(&*value))
-    return !fitsFloating(*doubleValue);
+  if (auto floatValue = std::get_if<ConstFloat>(&*value))
+    return !fitsFloating(floatValue->toDouble());
   if (auto longDoubleValue = std::get_if<long double>(&*value))
     return !fitsFloating(static_cast<double>(*longDoubleValue));
 

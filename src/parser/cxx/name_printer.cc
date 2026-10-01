@@ -34,8 +34,8 @@ struct TemplateArgumentPrinter {
 
   auto const_value_to_string(const ConstValue& value) const -> std::string {
     if (auto v = std::get_if<ConstInt>(&value)) return v->toString();
-    if (auto v = std::get_if<float>(&value)) return std::format("{}", *v);
-    if (auto v = std::get_if<double>(&value)) return std::format("{}", *v);
+    if (auto v = std::get_if<ConstFloat>(&value))
+      return std::format("{}", v->toDouble());
     if (auto v = std::get_if<long double>(&value)) {
       return std::format("{}", *v);
     }
