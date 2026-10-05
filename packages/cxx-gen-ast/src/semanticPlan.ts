@@ -449,6 +449,7 @@ export class PlanBuilder {
       read,
       write: derivedWrite,
       writeElement,
+      why: binding?.why,
     };
   }
 
