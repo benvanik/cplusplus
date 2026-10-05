@@ -40,7 +40,7 @@ constexpr int ConstObjectSlotBase = ConstComplexSlotBase + 2;
 
 constexpr int ConstAddressSlotBase = ConstObjectSlotBase + 4;
 
-constexpr int ConstLabelAddressSlotBase = ConstAddressSlotBase + 6;
+constexpr int ConstLabelAddressSlotBase = ConstAddressSlotBase + 8;
 
 constexpr int ASTSlotBase = 0;
 
@@ -12947,6 +12947,16 @@ auto readMisc(std::intptr_t handle, int slot) -> double {
           static_cast<const ::cxx::Literal*>(self->stringLiteral())));
     }
     case ConstAddressSlotBase + 5: {
+      auto self = reinterpret_cast<const ::cxx::ConstAddress*>(handle);
+      return static_cast<double>(
+          reinterpret_cast<std::intptr_t>(self->parent().get()));
+    }
+    case ConstAddressSlotBase + 6: {
+      auto self = reinterpret_cast<const ::cxx::ConstAddress*>(handle);
+      return static_cast<double>(reinterpret_cast<std::intptr_t>(
+          static_cast<const ::cxx::Symbol*>(self->rootSymbol())));
+    }
+    case ConstAddressSlotBase + 7: {
       auto self = reinterpret_cast<const ::cxx::ConstAddress*>(handle);
       return static_cast<double>(self->denotesWholeOwner());
     }

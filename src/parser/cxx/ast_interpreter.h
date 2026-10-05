@@ -351,12 +351,19 @@ class ASTInterpreter {
     ConstValue* lvalue = nullptr;
   };
 
+  struct Receiver {
+    // Readable evaluator value, absent for address-only external storage.
+    std::shared_ptr<ConstObject> object;
+    // Storage identity, independent of whether the object can be read.
+    std::shared_ptr<ConstAddress> address;
+  };
+
   [[nodiscard]] auto evaluateCallExpression(CallExpressionAST* ast,
                                             CallResultKind kind) -> CallResult;
 
   [[nodiscard]] auto executeFunction(FunctionSymbol* function, Frame frame,
                                      CallResultKind kind,
-                                     std::shared_ptr<ConstObject> object = {},
+                                     Receiver receiver = {},
                                      bool constructor = false) -> CallResult;
 
   [[nodiscard]] auto definingDeclarationOf(FunctionSymbol* function)
@@ -439,9 +446,6 @@ class ASTInterpreter {
   [[nodiscard]] auto memberSlot(const std::shared_ptr<ConstObject>& object,
                                 const Symbol* member) -> ConstValue*;
 
-  [[nodiscard]] auto memberAddress(const std::shared_ptr<ConstObject>& object,
-                                   Symbol* member) -> std::optional<ConstValue>;
-
   [[nodiscard]] auto staticFieldSlot(FieldSymbol* field) -> ConstValue*;
 
   [[nodiscard]] auto staticFieldAddress(FieldSymbol* field)
@@ -475,6 +479,15 @@ class ASTInterpreter {
   [[nodiscard]] auto memberObject(MemberExpressionAST* ast)
       -> std::shared_ptr<ConstObject>;
 
+  [[nodiscard]] auto receiverFor(ExpressionAST* base, TokenKind accessOp)
+      -> Receiver;
+
+  [[nodiscard]] auto memberReceiver(MemberExpressionAST* ast) -> Receiver;
+
+  [[nodiscard]] auto addressOfField(const Receiver& receiver,
+                                    FieldSymbol* field)
+      -> std::optional<ConstValue>;
+
   [[nodiscard]] auto dispatchVirtualCall(
       FunctionSymbol* function, const std::shared_ptr<ConstObject>& object)
       -> FunctionSymbol*;
@@ -500,9 +513,6 @@ class ASTInterpreter {
 
   [[nodiscard]] auto discardedValue(ExpressionAST* ast)
       -> std::optional<ConstValue>;
-
-  [[nodiscard]] auto fieldOwner(ExpressionAST* ast)
-      -> std::shared_ptr<ConstObject>;
 
   [[nodiscard]] auto typeInfoAddress(const Type* type)
       -> std::optional<ConstValue>;
@@ -530,10 +540,10 @@ class ASTInterpreter {
   void setReturnValue(ConstValue value) { returnValue_ = std::move(value); }
 
   [[nodiscard]] auto thisObject() const -> const std::shared_ptr<ConstObject>& {
-    return thisObject_;
+    return receiver_.object;
   }
   void setThisObject(std::shared_ptr<ConstObject> obj) {
-    thisObject_ = std::move(obj);
+    receiver_ = {std::move(obj), {}};
   }
 
   [[nodiscard]] auto evaluateBuiltinArithmeticOverflow(CallExpressionAST* ast)
@@ -659,7 +669,7 @@ class ASTInterpreter {
   bool captureReturnAddress_ = false;
   std::optional<ConstValue> returnAddress_;
 
-  std::shared_ptr<ConstObject> thisObject_;
+  Receiver receiver_;
 
   ClassSymbol* currentConstructorClass_ = nullptr;
 

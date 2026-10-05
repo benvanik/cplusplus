@@ -25,6 +25,16 @@ test("persisted field plans retain their binding rationale", () => {
   }
 });
 
+test("constant address parents are persisted with their rationale", () => {
+  const fields = reportsFor("::cxx::ConstAddress", "parent_");
+  assert.equal(fields.length, 1);
+  assert.equal(fields[0].cls, "P");
+  assert.equal(
+    fields[0].why,
+    "subobject identity includes the immutable containing address",
+  );
+});
+
 test("semantic plan substitution diagnostics identify their owner", () => {
   const model = JSON.parse(source);
   const missingParameter = {

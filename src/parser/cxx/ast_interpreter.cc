@@ -37,6 +37,7 @@
 #include <cmath>
 #include <format>
 #include <limits>
+#include <utility>
 
 namespace cxx {
 namespace {
@@ -642,7 +643,7 @@ void ASTInterpreter::applyNsdmis(const std::shared_ptr<ConstObject>& obj) {
   auto classType = unqualified_cast<ClassType>(obj->type());
   auto classSymbol = classType ? classType->symbol() : nullptr;
   if (!classSymbol) return;
-  auto savedThis = std::exchange(thisObject_, obj);
+  auto savedThis = std::exchange(receiver_, Receiver{obj, {}});
   for (auto member : classSymbol->members()) {
     auto field = symbol_cast<FieldSymbol>(member);
     if (!field || field->isStatic() || !field->initializer()) continue;
@@ -651,14 +652,14 @@ void ASTInterpreter::applyNsdmis(const std::shared_ptr<ConstObject>& obj) {
     obj->setMember(field, std::move(*value));
     if (classSymbol->isUnion()) break;
   }
-  thisObject_ = std::move(savedThis);
+  receiver_ = std::move(savedThis);
 }
 
 auto ASTInterpreter::initializeDefaultedObject(
     const std::shared_ptr<ConstObject>& obj, ClassSymbol* classSymbol) -> bool {
   if (!obj || !classSymbol) return false;
   classSymbol = classSymbol->resolvedDefinition();
-  auto savedThis = std::exchange(thisObject_, obj);
+  auto savedThis = std::exchange(receiver_, Receiver{obj, {}});
 
   for (auto base : classSymbol->baseClasses()) {
     if (base->isVirtual()) continue;
@@ -666,7 +667,7 @@ auto ASTInterpreter::initializeDefaultedObject(
     if (!baseClass) continue;
     auto value = defaultConstruct(baseClass->type());
     if (!value) {
-      thisObject_ = std::move(savedThis);
+      receiver_ = std::move(savedThis);
       return false;
     }
     obj->addMember(base, std::move(*value));
@@ -679,7 +680,7 @@ auto ASTInterpreter::initializeDefaultedObject(
     if (field->initializer()) {
       auto value = initialValue(field->type(), field->initializer());
       if (!value) {
-        thisObject_ = std::move(savedThis);
+        receiver_ = std::move(savedThis);
         return false;
       }
       obj->setMember(field, std::move(*value));
@@ -690,7 +691,7 @@ auto ASTInterpreter::initializeDefaultedObject(
     if (!obj->subobject(field)) {
       auto value = defaultConstruct(field->type());
       if (!value) {
-        thisObject_ = std::move(savedThis);
+        receiver_ = std::move(savedThis);
         return false;
       }
       obj->setMember(field, std::move(*value));
@@ -698,7 +699,7 @@ auto ASTInterpreter::initializeDefaultedObject(
     if (classSymbol->isUnion()) break;
   }
 
-  thisObject_ = std::move(savedThis);
+  receiver_ = std::move(savedThis);
   return true;
 }
 
@@ -829,16 +830,16 @@ auto ASTInterpreter::constructSubobject(
 
 void ASTInterpreter::applyMemInitializer(
     MemInitializerAST* ast, const std::vector<ExpressionAST*>& arguments) {
-  if (!ast->symbol || !thisObject_) return;
+  if (!ast->symbol || !receiver_.object) return;
 
   if (auto cls = symbol_cast<ClassSymbol>(ast->symbol)) {
     if (cls != currentConstructorClass_) return;
     if (!ast->constructor) return;
-    auto result = evaluateConstructorFromExprs(ast->constructor,
-                                               thisObject_->type(), arguments);
+    auto result = evaluateConstructorFromExprs(
+        ast->constructor, receiver_.object->type(), arguments);
     if (result) {
       if (auto obj = std::get_if<std::shared_ptr<ConstObject>>(&*result)) {
-        if (*obj) *thisObject_ = **obj;
+        if (*obj) *receiver_.object = **obj;
       }
     }
     return;
@@ -869,7 +870,7 @@ void ASTInterpreter::initializeSubobject(
     aborted_ = true;
     return;
   }
-  thisObject_->setMember(subobject, std::move(*value));
+  receiver_.object->setMember(subobject, std::move(*value));
 }
 
 auto ASTInterpreter::defaultConstruct(const Type* type)
@@ -997,8 +998,7 @@ auto ASTInterpreter::destroyValue(const Type* type, ConstValue& value) -> bool {
 }
 
 auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
-                                     CallResultKind kind,
-                                     std::shared_ptr<ConstObject> object,
+                                     CallResultKind kind, Receiver receiver,
                                      bool constructor) -> CallResult {
   if (!function || !function->isConstexpr() || depth_ >= kMaxDepth) return {};
   auto definition = definingDeclarationOf(function);
@@ -1016,8 +1016,15 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
   auto savedCaptureAddress =
       std::exchange(captureReturnAddress_, kind == CallResultKind::kAddress);
   auto savedFunction = std::exchange(currentFunction_, function);
-  auto savedThis = thisObject_;
-  if (object) thisObject_ = std::move(object);
+  if (receiver.address && !receiver.object) {
+    auto value = loadAddress(*receiver.address, 0);
+    if (value) {
+      if (auto object = std::get_if<std::shared_ptr<ConstObject>>(&*value)) {
+        receiver.object = *object;
+      }
+    }
+  }
+  auto savedThis = std::exchange(receiver_, std::move(receiver));
   auto savedConstructor = std::exchange(
       currentConstructorClass_,
       constructor ? symbol_cast<ClassSymbol>(function->parent()) : nullptr);
@@ -1035,13 +1042,13 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
       for (auto field :
            views::members(currentConstructorClass_->resolvedDefinition()) |
                views::non_static_fields) {
-        if (thisObject_->subobject(field)) continue;
+        if (receiver_.object->subobject(field)) continue;
         auto value = defaultConstruct(field->type());
         if (!value) {
           aborted_ = true;
           break;
         }
-        thisObject_->setMember(field, std::move(*value));
+        receiver_.object->setMember(field, std::move(*value));
       }
     }
   }
@@ -1051,7 +1058,7 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
     returnValue_ = ConstValue{ConstInt{std::intmax_t{0}}};
   CallResult result;
   if (constructor)
-    result.value = thisObject_;
+    result.value = receiver_.object;
   else if (kind == CallResultKind::kAddress)
     result.value = returnAddress_;
   else if (kind == CallResultKind::kLValue)
@@ -1069,7 +1076,7 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
   captureReturnLValue_ = savedCaptureLValue;
   captureReturnAddress_ = savedCaptureAddress;
   currentFunction_ = savedFunction;
-  thisObject_ = std::move(savedThis);
+  receiver_ = std::move(savedThis);
   currentConstructorClass_ = savedConstructor;
   defaultInitializerContext_ = savedContext;
   if (aborted_) return {};
@@ -1085,7 +1092,9 @@ auto ASTInterpreter::evaluateCall(FunctionSymbol* func,
   if (!func || !func->isConstexpr() || !bindParameters(frame, func, args))
     return std::nullopt;
   return executeFunction(func, std::move(frame), CallResultKind::kValue,
-                         std::move(thisObject))
+                         thisObject ? Receiver{std::move(thisObject), {}}
+                         : func->isImplicitObjectMemberFunction() ? receiver_
+                                                                  : Receiver{})
       .value;
 }
 
@@ -1095,7 +1104,8 @@ auto ASTInterpreter::evaluateCallLValue(FunctionSymbol* func,
   Frame frame;
   if (!func || !func->isConstexpr() || !bindParameters(frame, func, args))
     return nullptr;
-  return executeFunction(func, std::move(frame), CallResultKind::kLValue)
+  return executeFunction(func, std::move(frame), CallResultKind::kLValue,
+                         receiver_)
       .lvalue;
 }
 
@@ -1117,7 +1127,8 @@ auto ASTInterpreter::evaluateConstructorFromExprs(
   if (!bindParametersFromExprs(frame, constructor, arguments))
     return std::nullopt;
   return executeFunction(constructor, std::move(frame), CallResultKind::kValue,
-                         std::make_shared<ConstObject>(type), true)
+                         Receiver{std::make_shared<ConstObject>(type), {}},
+                         true)
       .value;
 }
 
@@ -1178,7 +1189,7 @@ auto ASTInterpreter::evaluateConstructor(FunctionSymbol* ctor,
   if (!bindParameters(frame, ctor, args)) return std::nullopt;
   auto obj = object ? object : std::make_shared<ConstObject>(classType);
   return executeFunction(ctor, std::move(frame), CallResultKind::kValue,
-                         std::move(obj), true)
+                         Receiver{std::move(obj), {}}, true)
       .value;
 }
 }  // namespace cxx

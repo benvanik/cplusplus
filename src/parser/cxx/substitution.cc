@@ -1214,16 +1214,20 @@ namespace {
       (*address)->owner())
     return false;
 
-  auto symbol = (*address)->symbol();
-  if (!symbol) return !isReference && (*address)->offset() == 0;
+  auto symbol = (*address)->rootSymbol();
+  if (!symbol) {
+    return !isReference && !(*address)->symbol() && !(*address)->parent() &&
+           (*address)->offset() == 0;
+  }
   if (symbol_cast<FunctionSymbol>(symbol)) return (*address)->offset() == 0;
   if (!has_static_storage_duration(symbol)) return false;
 
   const auto offset = (*address)->offset();
   if (offset < 0) return false;
-  if (unqualified_cast<UnboundedArrayType>(symbol->type())) return offset == 0;
+  auto target = (*address)->symbol();
+  if (unqualified_cast<UnboundedArrayType>(target->type())) return offset == 0;
 
-  auto array = unqualified_cast<BoundedArrayType>(symbol->type());
+  auto array = unqualified_cast<BoundedArrayType>(target->type());
   const auto extent = array ? array->size() : std::uint64_t{1};
   return isReference ? static_cast<std::uintmax_t>(offset) < extent
                      : static_cast<std::uintmax_t>(offset) <= extent;
@@ -1335,8 +1339,9 @@ auto Substitution::isConstexprRepresentable(const ConstValue& value) const
   if (auto address = std::get_if<std::shared_ptr<ConstAddress>>(&value)) {
     if (!*address) return false;
     if ((*address)->stringLiteral() || (*address)->typeInfoFor()) return false;
-    auto referent = (*address)->symbol();
-    if ((*address)->owner()) return false;
+    auto referent = (*address)->rootSymbol();
+    if ((*address)->owner() || ((*address)->parent() && !referent))
+      return false;
     if (!referent) return true;
     if (!designatesObject(referent)) return true;
     return has_static_storage_duration(referent);

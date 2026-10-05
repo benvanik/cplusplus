@@ -2359,6 +2359,8 @@ inline constexpr FieldDescriptor kSemanticFieldModelStorage[] = {
     {"::cxx::ConstObject::Member", "symbol", FieldPersistence::kPersisted, ""},
     {"::cxx::ConstObject::Member", "value", FieldPersistence::kPersisted, ""},
     {"::cxx::ConstAddress", "symbol_", FieldPersistence::kPersisted, ""},
+    {"::cxx::ConstAddress", "parent_", FieldPersistence::kPersisted,
+     "subobject identity includes the immutable containing address"},
     {"::cxx::ConstAddress", "owner_", FieldPersistence::kPersisted, ""},
     {"::cxx::ConstAddress", "string_", FieldPersistence::kPersisted, ""},
     {"::cxx::ConstAddress", "typeInfoFor_", FieldPersistence::kPersisted, ""},

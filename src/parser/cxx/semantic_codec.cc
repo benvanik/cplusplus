@@ -6478,6 +6478,8 @@ void SemanticEncoder::writecxxConstAddress(
     ByteWriter& out, [[maybe_unused]] const cxx::ConstAddress* self) {
   // ::cxx::ConstAddress::symbol_
   out.varU32(static_cast<std::uint32_t>(symbolRef(self->symbol())));
+  // ::cxx::ConstAddress::parent_
+  out.varU32(static_cast<std::uint32_t>(constRef(self->parent())));
   // ::cxx::ConstAddress::owner_
   out.varU32(static_cast<std::uint32_t>(constRef(self->owner())));
   // ::cxx::ConstAddress::string_
@@ -16264,20 +16266,25 @@ void SemanticDecoder::readcxxConstAddress(
   // ::cxx::ConstAddress::symbol_
   cxx::Symbol* value1 = symbolAt(SymbolRef{in.varU32()});
   self->setSymbol(std::move(value1));
+  // ::cxx::ConstAddress::parent_
+  std::shared_ptr<cxx::ConstAddress> value2 =
+      std::static_pointer_cast<cxx::ConstAddress>(
+          constantAt(ConstRef{in.varU32()}));
+  self->setParent(std::move(value2));
   // ::cxx::ConstAddress::owner_
-  std::shared_ptr<cxx::ConstObject> value2 =
+  std::shared_ptr<cxx::ConstObject> value3 =
       std::static_pointer_cast<cxx::ConstObject>(
           constantAt(ConstRef{in.varU32()}));
-  self->setOwner(std::move(value2));
+  self->setOwner(std::move(value3));
   // ::cxx::ConstAddress::string_
-  const cxx::StringLiteral* value3 = readStringLiteral(in);
-  self->setStringLiteral(std::move(value3));
+  const cxx::StringLiteral* value4 = readStringLiteral(in);
+  self->setStringLiteral(std::move(value4));
   // ::cxx::ConstAddress::typeInfoFor_
-  const cxx::Type* value4 = typeAt(TypeRef{in.varU32()});
-  self->setTypeInfoFor(std::move(value4));
+  const cxx::Type* value5 = typeAt(TypeRef{in.varU32()});
+  self->setTypeInfoFor(std::move(value5));
   // ::cxx::ConstAddress::offset_
-  long long value5 = static_cast<long long>(in.varI64());
-  self->setOffset(std::move(value5));
+  long long value6 = static_cast<long long>(in.varI64());
+  self->setOffset(std::move(value6));
 }
 
 void SemanticDecoder::readcxxConstLabelAddress(

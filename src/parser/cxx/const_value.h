@@ -163,6 +163,9 @@ class ConstAddress {
                std::intmax_t offset = 0)
       : symbol_(symbol), owner_(std::move(owner)), offset_(offset) {}
 
+  // Subobject addresses retain the containing address that selected them.
+  ConstAddress(std::shared_ptr<ConstAddress> parent, Symbol* symbol);
+
   explicit ConstAddress(const Type* typeInfoFor) : typeInfoFor_(typeInfoFor) {}
 
   [[nodiscard]] auto symbol() const -> Symbol* { return symbol_; }
@@ -175,6 +178,14 @@ class ConstAddress {
   }
   [[nodiscard]] auto offset() const -> std::intmax_t { return offset_; }
 
+  // Returns the containing storage address for a subobject address.
+  [[nodiscard]] auto parent() const -> const std::shared_ptr<ConstAddress>& {
+    return parent_;
+  }
+
+  // Returns the canonical declaration owning this address path.
+  [[nodiscard]] auto rootSymbol() const -> Symbol*;
+
   [[nodiscard]] auto sameTarget(const ConstAddress& other) const -> bool;
 
   [[nodiscard]] auto denotesWholeOwner() const -> bool {
@@ -182,6 +193,9 @@ class ConstAddress {
   }
 
   void setSymbol(Symbol* symbol) { symbol_ = symbol; }
+  void setParent(std::shared_ptr<ConstAddress> parent) {
+    parent_ = std::move(parent);
+  }
   void setOwner(std::shared_ptr<ConstObject> owner) {
     owner_ = std::move(owner);
   }
@@ -191,6 +205,8 @@ class ConstAddress {
 
  private:
   Symbol* symbol_ = nullptr;
+  // Immutable containing address; pointer arithmetic clones the leaf node.
+  std::shared_ptr<ConstAddress> parent_;
   std::shared_ptr<ConstObject> owner_;
   const StringLiteral* string_ = nullptr;
   const Type* typeInfoFor_ = nullptr;

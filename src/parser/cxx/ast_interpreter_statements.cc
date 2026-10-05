@@ -31,6 +31,7 @@
 #include <cxx/types.h>
 
 #include <format>
+#include <utility>
 
 namespace cxx {
 struct ASTInterpreter::StatementVisitor {
@@ -401,10 +402,9 @@ auto ASTInterpreter::StatementVisitor::forRangeOverPointerIterator(
     if (ast->usesMemberBeginEnd) {
       auto objPtr = std::get_if<std::shared_ptr<ConstObject>>(&rangeVal);
       if (!objPtr) return std::nullopt;
-      auto savedThis = interp.thisObject();
-      interp.setThisObject(*objPtr);
+      auto savedThis = std::exchange(interp.receiver_, Receiver{*objPtr, {}});
       auto result = interp.evaluateCall(f, {});
-      interp.setThisObject(savedThis);
+      interp.receiver_ = std::move(savedThis);
       return result;
     }
     return interp.evaluateCall(f, {rangeVal});
@@ -451,10 +451,9 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
     if (ast->usesMemberBeginEnd) {
       auto objPtr = std::get_if<std::shared_ptr<ConstObject>>(&rangeVal);
       if (!objPtr) return std::nullopt;
-      auto savedThis = interp.thisObject();
-      interp.setThisObject(*objPtr);
+      auto savedThis = std::exchange(interp.receiver_, Receiver{*objPtr, {}});
       auto result = interp.evaluateCall(f, {});
-      interp.setThisObject(savedThis);
+      interp.receiver_ = std::move(savedThis);
       return result;
     }
     return interp.evaluateCall(f, {rangeVal});
@@ -473,10 +472,9 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
           const std::shared_ptr<ConstObject>& it) -> std::optional<ConstValue> {
     if (!f) return std::nullopt;
     if (f->isImplicitObjectMemberFunction()) {
-      auto savedThis = interp.thisObject();
-      interp.setThisObject(it);
+      auto savedThis = std::exchange(interp.receiver_, Receiver{it, {}});
       auto result = interp.evaluateCall(f, {});
-      interp.setThisObject(savedThis);
+      interp.receiver_ = std::move(savedThis);
       return result;
     }
     return interp.evaluateCall(f, {ConstValue{it}});
@@ -486,10 +484,9 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
           const std::shared_ptr<ConstObject>& b) -> std::optional<ConstValue> {
     if (!f) return std::nullopt;
     if (f->isImplicitObjectMemberFunction()) {
-      auto savedThis = interp.thisObject();
-      interp.setThisObject(a);
+      auto savedThis = std::exchange(interp.receiver_, Receiver{a, {}});
       auto result = interp.evaluateCall(f, {ConstValue{b}});
-      interp.setThisObject(savedThis);
+      interp.receiver_ = std::move(savedThis);
       return result;
     }
     return interp.evaluateCall(f, {ConstValue{a}, ConstValue{b}});
@@ -512,10 +509,10 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
     if (bindByRef) {
       ConstValue* slot = nullptr;
       if (ast->derefFunction->isImplicitObjectMemberFunction()) {
-        auto savedThis = interp.thisObject();
-        interp.setThisObject(*beginObj);
+        auto savedThis =
+            std::exchange(interp.receiver_, Receiver{*beginObj, {}});
         slot = interp.evaluateCallLValue(ast->derefFunction, {});
-        interp.setThisObject(savedThis);
+        interp.receiver_ = std::move(savedThis);
       } else {
         slot = interp.evaluateCallLValue(ast->derefFunction,
                                          {ConstValue{*beginObj}});

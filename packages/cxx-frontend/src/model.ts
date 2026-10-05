@@ -631,7 +631,7 @@ function decodeSourceLocationRange(
 const ConstComplexSlotBase = 0;
 const ConstObjectSlotBase = ConstComplexSlotBase + 2;
 const ConstAddressSlotBase = ConstObjectSlotBase + 4;
-const ConstLabelAddressSlotBase = ConstAddressSlotBase + 6;
+const ConstLabelAddressSlotBase = ConstAddressSlotBase + 8;
 const ASTSlotBase = 0;
 const AttributeSpecifierASTSlotBase = ASTSlotBase + 3;
 const ExpressionASTSlotBase = AttributeSpecifierASTSlotBase + 1;
@@ -1071,8 +1071,21 @@ export class ConstAddress extends ModelObject {
   get offset(): bigint {
     return cxx.readMiscBigInt(this.handle, ConstAddressSlotBase + 4) as bigint;
   }
+  get parent(): ConstAddress | undefined {
+    return objOf(
+      cxx.readMisc(this.handle, ConstAddressSlotBase + 5),
+      this.modelOwner,
+      ConstAddress,
+    );
+  }
+  get rootSymbol(): Symbol | undefined {
+    return symbolOf(
+      cxx.readMisc(this.handle, ConstAddressSlotBase + 6),
+      this.modelOwner,
+    );
+  }
   get denotesWholeOwner(): boolean {
-    return cxx.readMisc(this.handle, ConstAddressSlotBase + 5) !== 0;
+    return cxx.readMisc(this.handle, ConstAddressSlotBase + 7) !== 0;
   }
 }
 /** @category Constant Values */

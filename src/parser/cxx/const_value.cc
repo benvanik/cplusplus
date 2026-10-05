@@ -105,9 +105,29 @@ auto ConstObject::mutableSubobject(const Symbol* symbol) -> ConstValue* {
 ConstAddress::ConstAddress(Symbol* symbol, std::intmax_t offset)
     : symbol_(symbol ? symbol->canonical() : nullptr), offset_(offset) {}
 
+ConstAddress::ConstAddress(std::shared_ptr<ConstAddress> parent, Symbol* symbol)
+    : symbol_(symbol->canonical()), parent_(std::move(parent)) {}
+
+auto ConstAddress::rootSymbol() const -> Symbol* {
+  auto address = this;
+  while (address->parent_) address = address->parent_.get();
+  return address->owner_ ? nullptr : address->symbol_;
+}
+
 auto ConstAddress::sameTarget(const ConstAddress& other) const -> bool {
-  return symbol_ == other.symbol_ && owner_ == other.owner_ &&
-         string_ == other.string_ && typeInfoFor_ == other.typeInfoFor_;
+  auto left = this;
+  auto right = &other;
+  for (;;) {
+    if (left->symbol_ != right->symbol_ || left->owner_ != right->owner_ ||
+        left->string_ != right->string_ ||
+        left->typeInfoFor_ != right->typeInfoFor_)
+      return false;
+    if (left->parent_ == right->parent_) return true;
+    if (!left->parent_ || !right->parent_) return false;
+    left = left->parent_.get();
+    right = right->parent_.get();
+    if (left->offset_ != right->offset_) return false;
+  }
 }
 
 auto ConstObject::operator==(const ConstObject& other) const -> bool {

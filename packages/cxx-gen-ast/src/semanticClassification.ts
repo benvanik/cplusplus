@@ -98,6 +98,10 @@ export const bindings: Record<string, ClassBindings> = {
   },
 
   "::cxx::ConstAddress": {
+    parent_: {
+      cls: "P",
+      why: "subobject identity includes the immutable containing address",
+    },
     string_: {
       cls: "P",
       read: "$->stringLiteral()",

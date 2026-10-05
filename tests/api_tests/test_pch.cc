@@ -109,6 +109,15 @@ class Prefix {
   return nullptr;
 }
 
+[[nodiscard]] auto constantAddress(ScopeSymbol* scope, std::string_view name)
+    -> std::shared_ptr<ConstAddress> {
+  auto variable = symbol_cast<VariableSymbol>(findMember(scope, name));
+  if (!variable || !variable->constValue()) return {};
+  auto address =
+      std::get_if<std::shared_ptr<ConstAddress>>(&*variable->constValue());
+  return address ? *address : nullptr;
+}
+
 class BranchSelectionVisitor final : public ASTVisitor {
  public:
   void visit(IfStatementAST* ast) override {
@@ -488,6 +497,91 @@ constexpr auto saved_offset =
   auto integer = std::get_if<ConstInt>(&*value);
   ASSERT_TRUE(integer);
   EXPECT_EQ(integer->toUIntMax(), 16u);
+}
+
+TEST(PrecompiledHeader, RestoresRootedSubobjectAddresses) {
+  std::vector<std::uint8_t> data;
+  {
+    Prefix prefix{R"(
+struct Parameters {
+  unsigned scale;
+  unsigned bias;
+  constexpr const unsigned& get() const { return scale; }
+};
+struct Pair {
+  Parameters left;
+  Parameters right;
+};
+constexpr Parameters first{3, 5};
+constexpr Parameters second{7, 11};
+constexpr Pair pair{{3, 5}, {7, 11}};
+constexpr Parameters table[2] = {{3, 5}, {7, 11}};
+extern Parameters external;
+template <const unsigned& value>
+struct Ref {};
+static_assert(__is_same(Ref<first.get()>, Ref<first.scale>));
+static_assert(__is_same(Ref<external.get()>, Ref<external.scale>));
+constexpr const unsigned* first_get_address = &first.get();
+constexpr const unsigned* first_scale_address = &first.scale;
+constexpr const unsigned* second_scale_address = &second.scale;
+constexpr const unsigned* pair_left_scale_address = &pair.left.scale;
+constexpr const unsigned* table_one_scale_address = &table[1].scale;
+constexpr const unsigned* external_scale_address = &external.scale;
+)"};
+    data = prefix.emit();
+    ASSERT_TRUE(prefix.errors().empty());
+    ASSERT_FALSE(data.empty());
+  }
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  auto globalScope = consumer.globalScope();
+  auto first = findMember(globalScope, "first");
+  auto second = findMember(globalScope, "second");
+  auto pair = findMember(globalScope, "pair");
+  auto table = findMember(globalScope, "table");
+  auto external = findMember(globalScope, "external");
+  ASSERT_TRUE(first);
+  ASSERT_TRUE(second);
+  ASSERT_TRUE(pair);
+  ASSERT_TRUE(table);
+  ASSERT_TRUE(external);
+
+  auto firstGet = constantAddress(globalScope, "first_get_address");
+  auto firstScale = constantAddress(globalScope, "first_scale_address");
+  auto secondScale = constantAddress(globalScope, "second_scale_address");
+  auto pairLeftScale = constantAddress(globalScope, "pair_left_scale_address");
+  auto tableOneScale = constantAddress(globalScope, "table_one_scale_address");
+  auto externalScale = constantAddress(globalScope, "external_scale_address");
+  ASSERT_TRUE(firstGet);
+  ASSERT_TRUE(firstScale);
+  ASSERT_TRUE(secondScale);
+  ASSERT_TRUE(pairLeftScale);
+  ASSERT_TRUE(tableOneScale);
+  ASSERT_TRUE(externalScale);
+
+  EXPECT_TRUE(firstGet->sameTarget(*firstScale));
+  EXPECT_FALSE(firstScale->sameTarget(*secondScale));
+  EXPECT_EQ(firstGet->rootSymbol(), first);
+  EXPECT_EQ(firstScale->rootSymbol(), first);
+  EXPECT_EQ(secondScale->rootSymbol(), second);
+  EXPECT_EQ(pairLeftScale->rootSymbol(), pair);
+  EXPECT_EQ(tableOneScale->rootSymbol(), table);
+  EXPECT_EQ(externalScale->rootSymbol(), external);
+
+  ASSERT_TRUE(firstScale->parent());
+  EXPECT_EQ(firstScale->parent()->symbol(), first);
+  ASSERT_TRUE(pairLeftScale->parent());
+  ASSERT_TRUE(pairLeftScale->parent()->parent());
+  EXPECT_EQ(pairLeftScale->parent()->parent()->symbol(), pair);
+  ASSERT_TRUE(tableOneScale->parent());
+  EXPECT_EQ(tableOneScale->parent()->symbol(), table);
+  EXPECT_EQ(tableOneScale->parent()->offset(), 1);
 }
 
 TEST(PrecompiledHeader, RestoresConstexprBranchSelections) {

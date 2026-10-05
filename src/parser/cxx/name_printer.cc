@@ -40,7 +40,13 @@ struct TemplateArgumentPrinter {
     if (!symbol) return "nullptr";
 
     auto name = to_string(symbol->name(), options);
-    for (auto scope = symbol->parent(); scope; scope = scope->parent()) {
+    if (address.parent()) {
+      auto parent = address_to_string(*address.parent(), nullptr);
+      if (parent.starts_with("&")) parent.erase(0, 1);
+      name = parent + "." + name;
+    }
+    for (auto scope = symbol->parent(); scope && !address.parent();
+         scope = scope->parent()) {
       if (auto enclosingClass = symbol_cast<ClassSymbol>(scope)) {
         auto qualifier = to_string(enclosingClass->type(), "", options);
         if (qualifier.starts_with("::")) qualifier.erase(0, 2);
