@@ -659,7 +659,7 @@ namespace {
 auto checkMemberAccess(TranslationUnit* unit, ScopeSymbol* accessingScope,
                        Symbol* member, ClassSymbol* designatingClass,
                        ClassSymbol* objectClass, SourceLocation loc) -> bool {
-  if (!unit->config().checkTypes) return true;
+  if (!unit->config().checkTypes()) return true;
 
   AccessContext accessContext{unit, accessingScope};
   if (accessContext.isAccessible(member, designatingClass, objectClass))

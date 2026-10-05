@@ -1162,13 +1162,13 @@ void Substitution::maybeReportMissingTemplateArgument(SourceLocation loc) {
 void Substitution::error(SourceLocation loc, std::string message) {
   hadError_ = true;
   auto unit = unit_;
-  if (!unit->config().checkTypes) return;
+  if (!unit->config().checkTypes()) return;
   unit->error(loc, std::move(message));
 }
 
 void Substitution::warning(SourceLocation loc, std::string message) {
   auto unit = unit_;
-  if (!unit->config().checkTypes) return;
+  if (!unit->config().checkTypes()) return;
   unit->warning(loc, std::move(message));
 }
 

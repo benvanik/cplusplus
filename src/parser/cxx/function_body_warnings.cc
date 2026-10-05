@@ -425,7 +425,7 @@ void checkFallingOffTheEnd(TranslationUnit* unit, const Type* returnType,
 }
 
 [[nodiscard]] auto reportsBodyWarnings(TranslationUnit* unit) -> bool {
-  return unit && unit->config().checkTypes;
+  return unit && unit->config().checkTypes();
 }
 
 }  // namespace

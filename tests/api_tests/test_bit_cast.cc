@@ -51,7 +51,7 @@ class BitCastContext {
     unit_.control()->setMemoryLayout(&memoryLayout_);
     if (!source.empty()) {
       unit_.setSource(std::string(source), "<test>");
-      unit_.parse({.checkTypes = true});
+      unit_.parse({.analysisMode = ParserAnalysisMode::kFull});
     }
   }
 

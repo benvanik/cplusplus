@@ -31,8 +31,14 @@ export async function main(): Promise<void> {
   void stripped;
 
   await using parser: Parser = await parse({ path: "/x.cc", source: "int x;" });
+  await using declarations: Parser = await parse({
+    path: "/declarations.cc",
+    source: "int answer() { return missing_name; }",
+    analysisMode: "declarations",
+  });
   const diagnostics: ReadonlyArray<Diagnostic> = parser.diagnostics;
   void diagnostics;
+  void declarations;
 
   const unit: model.UnitAST = parser.ast;
   const scope: model.ScopeSymbol | undefined = unit.symbol;

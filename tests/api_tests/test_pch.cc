@@ -76,7 +76,7 @@ class Prefix {
       unit_->preprocessor()->defineMacro(name, body);
     }
     unit_->setSource(std::move(source), "prefix.h");
-    unit_->parse({.checkTypes = true});
+    unit_->parse({.analysisMode = ParserAnalysisMode::kFull});
   }
 
   [[nodiscard]] auto unit() -> TranslationUnit* { return unit_.get(); }

@@ -287,7 +287,7 @@ auto ASTRewriter::baseSpecifier(BaseSpecifierAST* ast) -> BaseSpecifierAST* {
       return copy;
   }
 
-  const auto checkTemplates = binder_.translationUnit()->config().checkTypes;
+  const auto checkTemplates = binder_.translationUnit()->config().checkTypes();
 
   const bool hasResolvedNNS =
       copy->nestedNameSpecifier && copy->nestedNameSpecifier->symbol;

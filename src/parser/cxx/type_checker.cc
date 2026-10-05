@@ -7024,7 +7024,7 @@ struct TypeChecker::CheckMemInitializers {
 
 void TypeChecker::check_mem_initializers(FunctionBodyAST* ast,
                                          ArrayCopyPolicy arrayCopyPolicy) {
-  if (!unit_->config().checkTypes) return;
+  if (!unit_->config().checkTypes()) return;
 
   auto functionSymbol = symbol_cast<FunctionSymbol>(scope_);
   if (!functionSymbol) return;
@@ -8869,7 +8869,7 @@ auto TypeChecker::useFunction(FunctionSymbol* function, SourceLocation loc)
 
 void TypeChecker::error(SourceLocation loc, std::string message) {
   if (!reportErrors_) return;
-  if (!unit_->config().checkTypes) return;
+  if (!unit_->config().checkTypes()) return;
   unit_->error(loc, std::move(message));
 }
 

@@ -179,7 +179,7 @@ void ASTRewriter::MemInitializerVisitor::resolveBase(
 
   if (!baseClass && ast_cast<SimpleTemplateIdAST>(unqualifiedId)) {
     auto resolved = binder()->resolve(nestedNameSpecifier, unqualifiedId,
-                                      translationUnit()->config().checkTypes);
+                                      translationUnit()->config().checkTypes());
     if (resolved && resolved->isClass()) baseClass = resolved;
   }
 

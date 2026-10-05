@@ -461,7 +461,8 @@ void Frontend::Private::parse() {
   if (unit_->language() == LanguageKind::kC) checkTypes = true;
 
   ParserConfiguration config{
-      .checkTypes = checkTypes,
+      .analysisMode = checkTypes ? ParserAnalysisMode::kFull
+                                 : ParserAnalysisMode::kNoTypeChecking,
       .validateAst = cli.opt_fvalidate_ast,
       .allowUnprototypedFunctions = cli.opt_fno_strict_prototypes,
       .exceptionsEnabled = toolchain_->exceptionsEnabled(),

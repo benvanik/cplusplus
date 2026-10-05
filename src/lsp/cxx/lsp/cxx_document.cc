@@ -1340,7 +1340,7 @@ auto CxxDocument::translationUnit() const -> TranslationUnit* {
 
 auto CxxDocument::parserConfiguration() const -> ParserConfiguration {
   return ParserConfiguration{
-      .checkTypes = true,
+      .analysisMode = ParserAnalysisMode::kFull,
       .stopParsingPredicate = [this] { return isCancelled(); },
       .complete = d->complete,
   };

@@ -57,6 +57,50 @@ const resolvers = {
   readFile: async (path) => files.get(path),
 };
 
+test("declaration analysis skips function bodies", async () => {
+  const input = {
+    source: "int answer() { return missing_name; }",
+    path: "/source/declarations.cc",
+  };
+
+  await using declarations = await Parser.parse({
+    ...input,
+    analysisMode: "declarations",
+  });
+  assert.deepEqual(declarations.diagnostics, []);
+  const declarationFunction = [...walk(declarations.ast)].find((path) =>
+    path.isFunctionDefinition(),
+  );
+  assert.ok(declarationFunction);
+  assert.deepEqual(
+    [...declarationFunction.node.functionBody.statement.statementList],
+    [],
+  );
+
+  await using full = await Parser.parse(input);
+  assert.equal(full.diagnostics.length, 1);
+  assert.equal(full.diagnostics[0].severity, "error");
+  const fullFunction = [...walk(full.ast)].find((path) =>
+    path.isFunctionDefinition(),
+  );
+  assert.ok(fullFunction);
+  assert.equal(
+    [...fullFunction.node.functionBody.statement.statementList].length,
+    1,
+  );
+});
+
+test("Parser.parse rejects unknown analysis modes", async () => {
+  await assert.rejects(
+    Parser.parse({
+      source: "int answer();",
+      path: "/source/invalid-mode.cc",
+      analysisMode: "invalid",
+    }),
+    /expected analysisMode to be 'full' or 'declarations'/,
+  );
+});
+
 test("Parser.parse configures preprocessing and debug information", async () => {
   const parser = await Parser.parse({
     source,

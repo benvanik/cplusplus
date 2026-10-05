@@ -392,6 +392,14 @@ auto TranslationUnit::config() const -> const ParserConfiguration& {
   return config_;
 }
 
+auto TranslationUnit::shouldResolveTemplateId(SourceLocation loc) const
+    -> bool {
+  if (config_.checkTypes()) return true;
+  if (config_.analysisMode != ParserAnalysisMode::kDeclarations) return false;
+  if (!loc || !ownsLocation(loc)) return false;
+  return !preprocessor_->isSystemHeader(tokenAt(loc).fileId());
+}
+
 auto TranslationUnit::globalScope() const -> ScopeSymbol* {
   if (!globalNamespace_) return nullptr;
   return globalNamespace_;

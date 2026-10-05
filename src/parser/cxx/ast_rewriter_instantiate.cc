@@ -728,7 +728,7 @@ auto ASTRewriter::instantiate(
     -> Symbol* {
   if (!symbol) return nullptr;
 
-  if (!unit->config().checkTypes) return nullptr;
+  if (!unit->config().checkTypes()) return nullptr;
 
   if (auto trace = unit->timeTrace())
     trace->count(TimeTrace::kInstantiationRequests);
@@ -966,7 +966,7 @@ void ASTRewriter::markExplicitInstantiationDeclared(
     TranslationUnit* unit, List<TemplateArgumentAST*>* templateArgumentList,
     Symbol* symbol) {
   if (!symbol) return;
-  if (!unit->config().checkTypes) return;
+  if (!unit->config().checkTypes()) return;
 
   auto templateDecl = template_declaration_of(symbol);
   if (!templateDecl) return;
@@ -1332,7 +1332,7 @@ void ASTRewriter::notePendingBodyInstantiation(TranslationUnit* unit,
 }
 
 void ASTRewriter::completePendingMemberInstantiations(TranslationUnit* unit) {
-  if (!unit || !unit->config().checkTypes) return;
+  if (!unit || !unit->config().checkTypes()) return;
 
   auto stopRequested = [unit] {
     const auto& stopParsing = unit->config().stopParsingPredicate;

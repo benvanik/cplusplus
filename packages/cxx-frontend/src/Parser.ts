@@ -75,6 +75,15 @@ export interface ParseOptions extends Omit<UnitOptions, "shouldContinue"> {
   std?: CxxStandard;
 
   /**
+   * Controls semantic analysis.
+   *
+   * `"full"` parses and type-checks function bodies. `"declarations"` binds
+   * declarations and non-system template-ids while skipping function bodies.
+   * Defaults to `"full"`.
+   */
+  analysisMode?: "full" | "declarations";
+
+  /**
    * Aborts preprocessing and parsing.
    *
    * When the signal is aborted {@link Parser.parse} rejects with
@@ -121,6 +130,16 @@ export class Parser implements Disposable, AsyncDisposable {
 
     if (typeof source !== "string") {
       throw new TypeError("expected parameter 'source' of type 'string'");
+    }
+
+    if (
+      unitOptions.analysisMode !== undefined &&
+      unitOptions.analysisMode !== "full" &&
+      unitOptions.analysisMode !== "declarations"
+    ) {
+      throw new TypeError(
+        "expected analysisMode to be 'full' or 'declarations'",
+      );
     }
 
     if (!isCxxLoaded()) {

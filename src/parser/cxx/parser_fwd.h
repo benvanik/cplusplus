@@ -74,13 +74,47 @@ struct ParsingComplete {};
 
 using ParsingState = std::variant<CanContinueParsing, ParsingComplete>;
 
+// Selects how much semantic work the parser performs.
+enum class ParserAnalysisMode {
+  // Parses function bodies without running the type checker.
+  kNoTypeChecking,
+
+  // Binds declarations and non-system template-ids without parsing function
+  // bodies or running the type checker.
+  kDeclarations,
+
+  // Parses function bodies and performs complete semantic analysis.
+  kFull,
+};
+
 struct ParserConfiguration {
-  bool checkTypes = false;
+  // Controls function-body parsing and semantic analysis.
+  ParserAnalysisMode analysisMode = ParserAnalysisMode::kNoTypeChecking;
+
+  // Validates the completed AST after parsing.
   bool validateAst = false;
+
+  // Accepts function declarations without parameter prototypes.
   bool allowUnprototypedFunctions = false;
+
+  // Enables language constructs that require exception support.
   bool exceptionsEnabled = true;
+
+  // Requests a cooperative stop when the callback returns true.
   std::function<bool()> stopParsingPredicate;
+
+  // Receives code-completion contexts discovered while parsing.
   std::function<void(const CodeCompletionContext&)> complete;
+
+  // Returns whether the parser performs complete type checking.
+  [[nodiscard]] auto checkTypes() const -> bool {
+    return analysisMode == ParserAnalysisMode::kFull;
+  }
+
+  // Returns whether the parser parses function bodies.
+  [[nodiscard]] auto parseFunctionBodies() const -> bool {
+    return analysisMode != ParserAnalysisMode::kDeclarations;
+  }
 };
 
 }  // namespace cxx

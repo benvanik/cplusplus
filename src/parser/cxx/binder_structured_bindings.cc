@@ -115,7 +115,7 @@ auto Binder::declareStructuredBindingEntity(
   if (initializer) {
     TypeChecker check{unit_};
     check.setScope(scope());
-    check.setReportErrors(unit_->config().checkTypes);
+    check.setReportErrors(unit_->config().checkTypes());
     check.check_init_declarator(initDeclarator, nullptr,
                                 ArrayCopyPolicy::kElementwiseCopyAllowed);
   }
