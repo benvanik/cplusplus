@@ -10,5 +10,5 @@ The cxx-gen-ast requires cxx-frontend, it is a bit of a circular dependency, bui
 
 ```bash
 npm ci
-npm run build:cxx-frontend
+npm run build:semantic-model-frontend
 ```

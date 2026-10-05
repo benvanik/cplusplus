@@ -71,7 +71,9 @@ async function rewriterSources(): Promise<string[]> {
 async function main(): Promise<number> {
   const missing = missingFrontend(root);
   if (missing) {
-    console.error(`${missing} is missing; build it with npm run build:cxx-frontend`);
+    console.error(
+      `${missing} is missing; build it with npm run build:semantic-model-frontend`,
+    );
     return 2;
   }
 

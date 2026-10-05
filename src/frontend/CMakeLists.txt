@@ -89,8 +89,15 @@ if (CXX_INSTALL_TOOLS)
 
 endif()
 
+# Toolchains load their headers and sysroot from the shared build-tree runtime
+# layout. Staging those files must not make the full cxx executable a build
+# dependency of parser-only consumers.
+set(cxx_runtime_library_dir "${CMAKE_BINARY_DIR}/src/lib")
+
 add_custom_target(link_cxx_include ALL
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/../lib/cxx/include $<TARGET_FILE_DIR:cxx>/../lib/cxx/include
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/../lib/cxx/include
+        ${cxx_runtime_library_dir}/cxx/include
 )
 
 add_custom_command(
@@ -98,11 +105,14 @@ add_custom_command(
     DEPENDS
         ${wasi_sysroot_SOURCE_DIR}/VERSION
         ${wasi_builtins_SOURCE_DIR}/wasm32-unknown-wasip1/libclang_rt.builtins.a
-    COMMAND ${CMAKE_COMMAND} -E rm -rf $<TARGET_FILE_DIR:cxx>/../lib/wasi-sysroot
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${wasi_sysroot_SOURCE_DIR} $<TARGET_FILE_DIR:cxx>/../lib/wasi-sysroot
+    COMMAND ${CMAKE_COMMAND} -E rm -rf
+        ${cxx_runtime_library_dir}/wasi-sysroot
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${wasi_sysroot_SOURCE_DIR}
+        ${cxx_runtime_library_dir}/wasi-sysroot
     COMMAND ${CMAKE_COMMAND} -E copy
         ${wasi_builtins_SOURCE_DIR}/wasm32-unknown-wasip1/libclang_rt.builtins.a
-        $<TARGET_FILE_DIR:cxx>/../lib/wasi-sysroot/lib/wasm32-wasip1/libclang_rt.builtins-wasm32.a
+        ${cxx_runtime_library_dir}/wasi-sysroot/lib/wasm32-wasip1/libclang_rt.builtins-wasm32.a
     COMMAND ${CMAKE_COMMAND} -E touch wasi-sysroot.timestamp
 )
 
