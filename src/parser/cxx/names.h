@@ -470,6 +470,19 @@ template <>
 struct std::equal_to<cxx::TemplateId> {
   auto operator()(const cxx::TemplateId& id, const cxx::TemplateId& other) const
       -> bool {
-    return id.name() == other.name() && id.arguments() == other.arguments();
+    if (id.name() != other.name()) return false;
+    const auto& left = id.arguments();
+    const auto& right = other.arguments();
+    if (left.size() != right.size()) return false;
+    for (std::size_t i = 0; i < left.size(); ++i) {
+      if (auto value = std::get_if<cxx::ConstValue>(&left[i])) {
+        auto otherValue = std::get_if<cxx::ConstValue>(&right[i]);
+        if (!otherValue || !cxx::equivalent_values(*value, *otherValue))
+          return false;
+      } else if (left[i] != right[i]) {
+        return false;
+      }
+    }
+    return true;
   }
 };

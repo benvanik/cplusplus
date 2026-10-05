@@ -24,6 +24,7 @@
 #include <cxx/types.h>
 
 #include <algorithm>
+#include <compare>
 #include <cstdint>
 
 namespace cxx {
@@ -163,18 +164,19 @@ struct EquivalentValues {
 
   [[nodiscard]] auto operator()(long double lhs) const -> bool {
     auto value = other<long double>();
-    return value && lhs == *value;
+    return value && std::strong_order(lhs, *value) == 0;
   }
 
   [[nodiscard]] auto operator()(
       const std::shared_ptr<InitializerList>& lhs) const -> bool {
     auto value = other<std::shared_ptr<InitializerList>>();
     if (!value || !*value || !lhs) return false;
-    return std::ranges::equal(lhs->elements, (*value)->elements,
-                              [](const auto& left, const auto& right) {
-                                return equivalent_values(std::get<0>(left),
-                                                         std::get<0>(right));
-                              });
+    return std::ranges::equal(
+        lhs->elements, (*value)->elements,
+        [](const auto& left, const auto& right) {
+          return std::get<1>(left) == std::get<1>(right) &&
+                 equivalent_values(std::get<0>(left), std::get<0>(right));
+        });
   }
 
   [[nodiscard]] auto operator()(const std::shared_ptr<ConstObject>& lhs) const
