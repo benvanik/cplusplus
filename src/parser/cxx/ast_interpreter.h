@@ -403,7 +403,6 @@ class ASTInterpreter {
   [[nodiscard]] auto endAutomaticScope(std::size_t mark) -> bool;
   [[nodiscard]] auto destroyValue(const Type* type, ConstValue& value) -> bool;
 
-  void applyNsdmis(const std::shared_ptr<ConstObject>& obj);
   [[nodiscard]] auto initializeDefaultedObject(
       const std::shared_ptr<ConstObject>& obj, ClassSymbol* classSymbol)
       -> bool;
@@ -414,7 +413,7 @@ class ASTInterpreter {
       -> bool;
 
   [[nodiscard]] auto valueInitializeClass(const Type* type, ClassSymbol* symbol)
-      -> std::shared_ptr<ConstObject>;
+      -> ExpressionResult;
 
   void applyMemInitializer(MemInitializerAST* ast,
                            const std::vector<ExpressionAST*>& arguments);

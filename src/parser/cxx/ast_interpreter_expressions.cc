@@ -2223,7 +2223,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(TypeConstructionAST* ast)
     if (!ast->expressionList &&
         unit()->typeTraits().requires_zero_initialization(
             ast->type, ast->constructorSymbol))
-      return ConstValue{interp.valueInitializeClass(ast->type, classSymbol)};
+      return interp.valueInitializeClass(ast->type, classSymbol);
     std::vector<ExpressionAST*> arguments;
     for (auto argument : ListView{ast->expressionList})
       arguments.push_back(argument);
@@ -3655,18 +3655,31 @@ namespace {
 }  // namespace
 
 auto ASTInterpreter::valueInitializeClass(const Type* type, ClassSymbol* symbol)
-    -> std::shared_ptr<ConstObject> {
+    -> ExpressionResult {
   auto object = std::make_shared<ConstObject>(type);
   for (auto element : traits.aggregate_elements(symbol)) {
-    ConstValue zero = std::intmax_t{0};
-    if (auto elementZero =
-            zeroInitialize(traits.aggregate_element_type(element)))
-      zero = *elementZero;
-    object->addMember(element, std::move(zero));
+    auto zero = zeroInitialize(traits.aggregate_element_type(element));
+    if (!zero) return std::nullopt;
+    object->addMember(element, std::move(*zero));
     if (symbol->isUnion()) break;
   }
-  applyNsdmis(object);
-  return object;
+
+  auto savedReceiver = std::exchange(receiver_, Receiver{object, {}});
+  bool initialized = true;
+  for (auto member : symbol->members()) {
+    auto field = symbol_cast<FieldSymbol>(member);
+    if (!field || field->isStatic() || !field->initializer()) continue;
+    auto value = initialValue(field->type(), field->initializer());
+    if (!value) {
+      initialized = false;
+      break;
+    }
+    object->setMember(field, std::move(*value));
+    if (symbol->isUnion()) break;
+  }
+  receiver_ = std::move(savedReceiver);
+  if (!initialized) return std::nullopt;
+  return ConstValue{std::move(object)};
 }
 
 auto ASTInterpreter::ExpressionVisitor::aggregateObject(

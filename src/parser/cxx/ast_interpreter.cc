@@ -639,22 +639,6 @@ auto ASTInterpreter::bindParametersFromExprs(
   return true;
 }
 
-void ASTInterpreter::applyNsdmis(const std::shared_ptr<ConstObject>& obj) {
-  auto classType = unqualified_cast<ClassType>(obj->type());
-  auto classSymbol = classType ? classType->symbol() : nullptr;
-  if (!classSymbol) return;
-  auto savedThis = std::exchange(receiver_, Receiver{obj, {}});
-  for (auto member : classSymbol->members()) {
-    auto field = symbol_cast<FieldSymbol>(member);
-    if (!field || field->isStatic() || !field->initializer()) continue;
-    auto value = initialValue(field->type(), field->initializer());
-    if (!value) continue;
-    obj->setMember(field, std::move(*value));
-    if (classSymbol->isUnion()) break;
-  }
-  receiver_ = std::move(savedThis);
-}
-
 auto ASTInterpreter::initializeDefaultedObject(
     const std::shared_ptr<ConstObject>& obj, ClassSymbol* classSymbol) -> bool {
   if (!obj || !classSymbol) return false;
