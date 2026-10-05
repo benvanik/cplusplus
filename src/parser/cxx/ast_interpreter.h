@@ -57,7 +57,8 @@ class ASTInterpreter {
 
   [[nodiscard]] auto initializationValue(const Type* type,
                                          FunctionSymbol* constructor,
-                                         ExpressionAST* initializer)
+                                         ExpressionAST* initializer,
+                                         ConstValue* storage = nullptr)
       -> std::optional<ConstValue>;
 
   [[nodiscard]] auto evaluateInitializer(const Type* type,
@@ -124,10 +125,11 @@ class ASTInterpreter {
 
   [[nodiscard]] auto evaluateConstructorFromExprs(
       FunctionSymbol* constructor, const Type* type,
-      const std::vector<ExpressionAST*>& arguments)
-      -> std::optional<ConstValue>;
+      const std::vector<ExpressionAST*>& arguments,
+      std::shared_ptr<ConstObject> object = {}) -> std::optional<ConstValue>;
 
-  [[nodiscard]] auto defaultConstruct(const Type* type)
+  [[nodiscard]] auto defaultConstruct(const Type* type,
+                                      ConstValue* storage = nullptr)
       -> std::optional<ConstValue>;
 
   [[nodiscard]] auto zeroInitialize(const Type* type)
@@ -412,7 +414,8 @@ class ASTInterpreter {
       const std::shared_ptr<ConstObject>& source, ClassSymbol* classSymbol)
       -> bool;
 
-  [[nodiscard]] auto valueInitializeClass(const Type* type, ClassSymbol* symbol)
+  [[nodiscard]] auto valueInitializeClass(const Type* type,
+                                          FunctionSymbol* constructor)
       -> ExpressionResult;
 
   void applyMemInitializer(MemInitializerAST* ast,
@@ -424,7 +427,7 @@ class ASTInterpreter {
 
   [[nodiscard]] auto constructSubobject(
       MemInitializerAST* ast, const Type* type,
-      const std::vector<ExpressionAST*>& arguments)
+      const std::vector<ExpressionAST*>& arguments, ConstValue* storage)
       -> std::optional<ConstValue>;
 
   [[nodiscard]] auto referenceBinding(ExpressionAST* initializer)
@@ -621,7 +624,8 @@ class ASTInterpreter {
 
   [[nodiscard]] auto copyArrayElements(const Type* type,
                                        FunctionSymbol* constructor,
-                                       const ConstValue& source)
+                                       const ConstValue& source,
+                                       ConstValue* storage)
       -> std::optional<ConstValue>;
 
   TranslationUnit* unit_ = nullptr;

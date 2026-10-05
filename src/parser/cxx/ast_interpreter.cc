@@ -23,6 +23,7 @@
 #include <cxx/ast_rewriter.h>
 #include <cxx/control.h>
 #include <cxx/floating_point.h>
+#include <cxx/initialization.h>
 #include <cxx/literals.h>
 #include <cxx/memory_layout.h>
 #include <cxx/names.h>
@@ -595,6 +596,10 @@ auto ASTInterpreter::bindParameters(Frame& frame, FunctionSymbol* func,
       auto value = traits.is_reference(params[i]->type()) ? args[i]
                                                           : cloneValue(args[i]);
       frame.locals.insert_or_assign(params[i], std::move(value));
+      if (traits.is_reference(params[i]->type())) {
+        frame.referenceAddresses.insert_or_assign(
+            params[i], std::make_shared<ConstAddress>(params[i]));
+      }
     } else {
       auto defaultArgument =
           ASTRewriter::requireDefaultArgument(unit_, params[i]);
@@ -649,12 +654,13 @@ auto ASTInterpreter::initializeDefaultedObject(
     if (base->isVirtual()) continue;
     auto baseClass = symbol_cast<ClassSymbol>(base->symbol());
     if (!baseClass) continue;
-    auto value = defaultConstruct(baseClass->type());
+    auto value =
+        defaultConstruct(baseClass->type(), obj->mutableSubobject(base));
     if (!value) {
       receiver_ = std::move(savedThis);
       return false;
     }
-    obj->addMember(base, std::move(*value));
+    obj->setMember(base, std::move(*value));
   }
 
   for (auto member : classSymbol->members()) {
@@ -662,7 +668,9 @@ auto ASTInterpreter::initializeDefaultedObject(
     if (!field || field->isStatic()) continue;
 
     if (field->initializer()) {
-      auto value = initialValue(field->type(), field->initializer());
+      auto value = initializationValue(field->type(), field->constructor(),
+                                       field->initializer(),
+                                       obj->mutableSubobject(field));
       if (!value) {
         receiver_ = std::move(savedThis);
         return false;
@@ -672,15 +680,15 @@ auto ASTInterpreter::initializeDefaultedObject(
       continue;
     }
 
-    if (!obj->subobject(field)) {
-      auto value = defaultConstruct(field->type());
-      if (!value) {
-        receiver_ = std::move(savedThis);
-        return false;
-      }
-      obj->setMember(field, std::move(*value));
+    // A union without a default member initializer has no construction step.
+    // Value initialization retains the zero-initialized first member.
+    if (classSymbol->isUnion()) continue;
+    auto value = defaultConstruct(field->type(), obj->mutableSubobject(field));
+    if (!value) {
+      receiver_ = std::move(savedThis);
+      return false;
     }
-    if (classSymbol->isUnion()) break;
+    obj->setMember(field, std::move(*value));
   }
 
   receiver_ = std::move(savedThis);
@@ -757,41 +765,72 @@ auto ASTInterpreter::subobjectSlot(const std::shared_ptr<ConstObject>& object,
 
 auto ASTInterpreter::copyArrayElements(const Type* type,
                                        FunctionSymbol* constructor,
-                                       const ConstValue& source)
+                                       const ConstValue& source,
+                                       ConstValue* storage)
     -> std::optional<ConstValue> {
   auto array = type_cast<BoundedArrayType>(traits.remove_cv(type));
   if (!array) {
-    if (constructor) return evaluateConstructor(constructor, type, {source});
+    auto object =
+        storage ? std::get_if<std::shared_ptr<ConstObject>>(storage) : nullptr;
+    if (constructor)
+      return evaluateConstructor(constructor, type, {source},
+                                 object ? *object : nullptr);
     return cloneValue(source);
   }
 
   auto sourceElements = std::get_if<std::shared_ptr<InitializerList>>(&source);
   if (!sourceElements || !*sourceElements) return std::nullopt;
-  auto elements = std::make_shared<InitializerList>();
-  for (const auto& [value, elementType] : (*sourceElements)->elements) {
-    auto element = copyArrayElements(array->elementType(), constructor, value);
+  auto retained = storage
+                      ? std::get_if<std::shared_ptr<InitializerList>>(storage)
+                      : nullptr;
+  auto elements =
+      retained && *retained ? *retained : std::make_shared<InitializerList>();
+  const bool reuseStorage = retained && *retained;
+  if (!reuseStorage) elements->elements.reserve(array->size());
+  for (std::size_t index = 0; index < (*sourceElements)->elements.size();
+       ++index) {
+    const auto& [value, elementType] = (*sourceElements)->elements[index];
+    auto slot =
+        reuseStorage ? &std::get<0>(elements->elements[index]) : nullptr;
+    auto element =
+        copyArrayElements(array->elementType(), constructor, value, slot);
     if (!element) return std::nullopt;
-    elements->elements.emplace_back(std::move(*element), array->elementType());
+    if (slot)
+      *slot = std::move(*element);
+    else
+      elements->elements.emplace_back(std::move(*element), elementType);
   }
   return ConstValue{std::move(elements)};
 }
 
 auto ASTInterpreter::constructSubobject(
     MemInitializerAST* ast, const Type* type,
-    const std::vector<ExpressionAST*>& arguments) -> std::optional<ConstValue> {
+    const std::vector<ExpressionAST*>& arguments, ConstValue* storage)
+    -> std::optional<ConstValue> {
   if (auto array = type_cast<BoundedArrayType>(traits.remove_cv(type))) {
     if (arguments.size() == 1 &&
         isWholeArrayCopy(traits, arguments.front(), type)) {
       auto source = expression(arguments.front());
       if (!source) return std::nullopt;
-      return copyArrayElements(type, ast->constructor, *source);
+      return copyArrayElements(type, ast->constructor, *source, storage);
     }
-    auto elements = std::make_shared<InitializerList>();
+    auto retained = storage
+                        ? std::get_if<std::shared_ptr<InitializerList>>(storage)
+                        : nullptr;
+    auto elements =
+        retained && *retained ? *retained : std::make_shared<InitializerList>();
+    const bool reuseStorage = retained && *retained;
+    if (!reuseStorage) elements->elements.reserve(array->size());
     for (std::size_t i = 0; i < array->size(); ++i) {
-      auto element = constructSubobject(ast, array->elementType(), arguments);
+      auto slot = reuseStorage ? &std::get<0>(elements->elements[i]) : nullptr;
+      auto element =
+          constructSubobject(ast, array->elementType(), arguments, slot);
       if (!element) return std::nullopt;
-      elements->elements.emplace_back(std::move(*element),
-                                      array->elementType());
+      if (slot)
+        *slot = std::move(*element);
+      else
+        elements->elements.emplace_back(std::move(*element),
+                                        array->elementType());
     }
     return elements;
   }
@@ -801,15 +840,26 @@ auto ASTInterpreter::constructSubobject(
 
   if (valueInitialized &&
       traits.requires_zero_initialization(type, ast->constructor)) {
-    auto zero = zeroInitialize(type);
-    if (!zero) return std::nullopt;
-    if (traits.is_trivially_constructible(type, {})) return zero;
-    auto object = std::get_if<std::shared_ptr<ConstObject>>(&*zero);
-    if (!object || !*object) return std::nullopt;
-    return evaluateConstructor(ast->constructor, type, {}, *object);
+    auto retained =
+        storage ? std::get_if<std::shared_ptr<ConstObject>>(storage) : nullptr;
+    std::optional<ConstValue> zero;
+    if (!retained || !*retained) {
+      zero = zeroInitialize(type);
+      if (!zero) return std::nullopt;
+      retained = std::get_if<std::shared_ptr<ConstObject>>(&*zero);
+    }
+    if (!retained || !*retained) return std::nullopt;
+    if (traits.is_trivially_constructible(type, {})) {
+      if (zero) return zero;
+      return *storage;
+    }
+    return evaluateConstructor(ast->constructor, type, {}, *retained);
   }
 
-  return evaluateConstructorFromExprs(ast->constructor, type, arguments);
+  auto object =
+      storage ? std::get_if<std::shared_ptr<ConstObject>>(storage) : nullptr;
+  return evaluateConstructorFromExprs(ast->constructor, type, arguments,
+                                      object ? *object : nullptr);
 }
 
 void ASTInterpreter::applyMemInitializer(
@@ -819,13 +869,10 @@ void ASTInterpreter::applyMemInitializer(
   if (auto cls = symbol_cast<ClassSymbol>(ast->symbol)) {
     if (cls != currentConstructorClass_) return;
     if (!ast->constructor) return;
-    auto result = evaluateConstructorFromExprs(
-        ast->constructor, receiver_.object->type(), arguments);
-    if (result) {
-      if (auto obj = std::get_if<std::shared_ptr<ConstObject>>(&*result)) {
-        if (*obj) *receiver_.object = **obj;
-      }
-    }
+    auto result =
+        evaluateConstructorFromExprs(ast->constructor, receiver_.object->type(),
+                                     arguments, receiver_.object);
+    if (!result) aborted_ = true;
     return;
   }
 
@@ -848,8 +895,11 @@ void ASTInterpreter::initializeSubobject(
     const std::vector<ExpressionAST*>& arguments) {
   if (!ast->constructor && arguments.empty()) return;
 
-  auto value = ast->constructor ? constructSubobject(ast, type, arguments)
-                                : initialValue(type, arguments.front());
+  auto value =
+      ast->constructor
+          ? constructSubobject(ast, type, arguments,
+                               receiver_.object->mutableSubobject(subobject))
+          : initialValue(type, arguments.front());
   if (!value) {
     aborted_ = true;
     return;
@@ -857,23 +907,34 @@ void ASTInterpreter::initializeSubobject(
   receiver_.object->setMember(subobject, std::move(*value));
 }
 
-auto ASTInterpreter::defaultConstruct(const Type* type)
+auto ASTInterpreter::defaultConstruct(const Type* type, ConstValue* storage)
     -> std::optional<ConstValue> {
   EvaluationScope evaluationScope{*this};
   auto unqualified = traits.remove_cv(type);
   if (auto arrayType = type_cast<BoundedArrayType>(unqualified)) {
-    auto elements = std::make_shared<InitializerList>();
-    elements->elements.reserve(arrayType->size());
+    auto retained = storage
+                        ? std::get_if<std::shared_ptr<InitializerList>>(storage)
+                        : nullptr;
+    auto elements =
+        retained && *retained ? *retained : std::make_shared<InitializerList>();
+    const bool reuseStorage = retained && *retained;
+    if (!reuseStorage) elements->elements.reserve(arrayType->size());
     for (std::size_t index = 0; index < arrayType->size(); ++index) {
-      auto value = defaultConstruct(arrayType->elementType());
+      auto slot =
+          reuseStorage ? &std::get<0>(elements->elements[index]) : nullptr;
+      auto value = defaultConstruct(arrayType->elementType(), slot);
       if (!value) return std::nullopt;
-      elements->elements.emplace_back(std::move(*value),
-                                      arrayType->elementType());
+      if (slot)
+        *slot = std::move(*value);
+      else
+        elements->elements.emplace_back(std::move(*value),
+                                        arrayType->elementType());
     }
     return ConstValue{std::move(elements)};
   }
 
-  if (!traits.is_class(unqualified)) return ConstValue{IndeterminateValue{}};
+  if (!traits.is_class(unqualified))
+    return storage ? *storage : ConstValue{IndeterminateValue{}};
 
   auto classType = type_cast<ClassType>(unqualified);
   if (!classType || !classType->symbol()) return std::nullopt;
@@ -882,7 +943,9 @@ auto ASTInterpreter::defaultConstruct(const Type* type)
   auto constructor = classSymbol->defaultConstructor();
   if (!constructor) return std::nullopt;
   if (!constructor->isConstexpr()) return std::nullopt;
-  return evaluateConstructor(constructor, type, {});
+  auto object =
+      storage ? std::get_if<std::shared_ptr<ConstObject>>(storage) : nullptr;
+  return evaluateConstructor(constructor, type, {}, object ? *object : nullptr);
 }
 
 void ASTInterpreter::pushFrame() { frames_.push_back({}); }
@@ -1095,7 +1158,8 @@ auto ASTInterpreter::evaluateCallLValue(FunctionSymbol* func,
 
 auto ASTInterpreter::evaluateConstructorFromExprs(
     FunctionSymbol* constructor, const Type* type,
-    const std::vector<ExpressionAST*>& arguments) -> std::optional<ConstValue> {
+    const std::vector<ExpressionAST*>& arguments,
+    std::shared_ptr<ConstObject> object) -> std::optional<ConstValue> {
   EvaluationScope evaluationScope{*this};
   if (!constructor || !constructor->isConstexpr()) return std::nullopt;
   if (constructor->isDefaulted()) {
@@ -1105,14 +1169,15 @@ auto ASTInterpreter::evaluateConstructorFromExprs(
       if (!value) return std::nullopt;
       values.push_back(std::move(*value));
     }
-    return evaluateConstructor(constructor, type, std::move(values));
+    return evaluateConstructor(constructor, type, std::move(values),
+                               std::move(object));
   }
   Frame frame;
   if (!bindParametersFromExprs(frame, constructor, arguments))
     return std::nullopt;
+  if (!object) object = std::make_shared<ConstObject>(type);
   return executeFunction(constructor, std::move(frame), CallResultKind::kValue,
-                         Receiver{std::make_shared<ConstObject>(type), {}},
-                         true)
+                         Receiver{std::move(object), {}}, true)
       .value;
 }
 

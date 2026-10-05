@@ -661,10 +661,6 @@ auto ASTInterpreter::initializeAutomaticVariable(Symbol* symbol,
     initVal = expression(initializer);
   }
 
-  if (!initVal.has_value() && !initializer) {
-    if (var) initVal = defaultConstruct(var->type());
-  }
-
   if (!initVal.has_value()) return false;
 
   if (var && (traits.is_class(traits.remove_cv(var->type())) ||

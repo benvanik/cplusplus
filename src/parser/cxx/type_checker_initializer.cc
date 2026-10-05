@@ -272,59 +272,15 @@ void TypeDeducer::deduceAutoType(S* var) {
   }
 }
 
-struct ConstexprEvaluator {
-  InitContext& ctx;
-
-  template <typename S>
-  auto tryEvaluateConstructor(S* var, ASTInterpreter& interp)
-      -> std::optional<ConstValue>;
-};
-
-template <typename S>
-auto ConstexprEvaluator::tryEvaluateConstructor(S* var, ASTInterpreter& interp)
-    -> std::optional<ConstValue> {
-  auto classType = unqualified_cast<ClassType>(var->type());
-  if (!classType) return std::nullopt;
-
-  auto classSym = classType->symbol();
-  if (!classSym) return std::nullopt;
-
-  auto initArgs = Initializer{var->initializer()}.arguments();
-
-  if (initArgs.size() == 1) {
-    if (auto typeConstruction = ast_cast<TypeConstructionAST>(initArgs[0])) {
-      if (typeConstruction->type == classType ||
-          typeConstruction->type == var->type()) {
-        initArgs.clear();
-        for (auto it = typeConstruction->expressionList; it; it = it->next)
-          initArgs.push_back(it->value);
-      }
-    }
-  }
-
-  auto constructor = var->constructor();
-  if (!constructor) constructor = classSym->defaultConstructor();
-  if (!constructor) return std::nullopt;
-  if (!constructor->isConstexpr()) return std::nullopt;
-  auto value =
-      interp.evaluateConstructorFromExprs(constructor, classType, initArgs);
-  if (!value || !isFullyInitialized(*value)) return std::nullopt;
-  return value;
-}
-
 struct InitDeclaratorChecker {
   InitContext ctx;
   TypeDeducer typeDeducer;
-  ConstexprEvaluator constexprEval;
   ArrayCopyPolicy arrayCopyPolicy;
 
   explicit InitDeclaratorChecker(
       TypeChecker& checker,
       ArrayCopyPolicy arrayCopyPolicy = ArrayCopyPolicy::kBracedInitializerOnly)
-      : ctx(checker),
-        typeDeducer{ctx},
-        constexprEval{ctx},
-        arrayCopyPolicy(arrayCopyPolicy) {}
+      : ctx(checker), typeDeducer{ctx}, arrayCopyPolicy(arrayCopyPolicy) {}
 
   void checkInitDeclarator(InitDeclaratorAST* ast, SpecifierAST* typeSpecifier);
   template <typename S>
@@ -438,14 +394,8 @@ void InitDeclaratorChecker::evaluateFieldConstValue(FieldSymbol* field) {
 
   auto interp = ASTInterpreter{ctx.unit, ctx.checker.scope()};
 
-  std::optional<ConstValue> value;
-  if (field->initializer())
-    value = interp.initialValue(field->type(), field->initializer());
-
-  if (!value.has_value() || field->constructor()) {
-    if (auto ctorValue = constexprEval.tryEvaluateConstructor(field, interp))
-      value = std::move(ctorValue);
-  }
+  auto value = interp.initializationValue(field->type(), field->constructor(),
+                                          field->initializer());
 
   if (value.has_value() && !isFullyInitialized(*value)) value.reset();
 
@@ -461,20 +411,18 @@ void InitDeclaratorChecker::evaluateConstValue(VariableSymbol* var,
 
   if (var->initializer()) {
     auto interp = ASTInterpreter{ctx.unit, ctx.checker.scope()};
-    auto value = interp.initialValue(var->type(), var->initializer());
-
-    if (var->constructor()) value.reset();
-
-    if (!value.has_value() && var->isConstexpr()) {
-      value = constexprEval.tryEvaluateConstructor(var, interp);
-    }
+    auto value = interp.initializationValue(var->type(), var->constructor(),
+                                            var->initializer());
 
     if (value.has_value() && !isFullyInitialized(*value)) value.reset();
 
     var->setConstValue(value);
   } else if (var->isConstexpr() && var->constructor()) {
     auto interp = ASTInterpreter{ctx.unit, ctx.checker.scope()};
-    var->setConstValue(constexprEval.tryEvaluateConstructor(var, interp));
+    auto value =
+        interp.initializationValue(var->type(), var->constructor(), nullptr);
+    if (value && !isFullyInitialized(*value)) value.reset();
+    var->setConstValue(std::move(value));
   }
 
   if (var->isConstexpr() && var->constValue().has_value() && !dependent) {

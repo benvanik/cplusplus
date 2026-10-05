@@ -1019,7 +1019,11 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
       auto result = address
                         ? std::get_if<std::shared_ptr<ConstAddress>>(&*address)
                         : nullptr;
-      return result && *result ? addressSlot(**result, 0) : nullptr;
+      auto slot = result && *result ? addressSlot(**result, 0) : nullptr;
+      if (!slot && receiver.object && receiver.object->isUnion()) {
+        slot = receiver.object->addMember(field, IndeterminateValue{});
+      }
+      return slot;
     }
     if (receiver.object) {
       ConstValue* slot = nullptr;
@@ -1507,14 +1511,33 @@ auto ASTInterpreter::initialValue(const Type* type, ExpressionAST* initializer)
 
 auto ASTInterpreter::initializationValue(const Type* type,
                                          FunctionSymbol* constructor,
-                                         ExpressionAST* initializer)
+                                         ExpressionAST* initializer,
+                                         ConstValue* storage)
     -> std::optional<ConstValue> {
+  EvaluationScope evaluationScope{*this};
   if (traits.is_reference(type)) return referenceBinding(initializer);
-  if (!constructor) return evaluateInitializer(type, initializer);
-  if (ast_cast<ConstExpressionAST>(Initializer{initializer}.clause()))
-    return evaluateInitializer(type, initializer);
-  return evaluateConstructorFromExprs(constructor, type,
-                                      Initializer{initializer}.arguments());
+  Initializer init{initializer};
+  if (!constructor || ast_cast<ConstExpressionAST>(init.clause())) {
+    return initializer ? evaluateInitializer(type, initializer)
+                       : defaultConstruct(type, storage);
+  }
+
+  auto retained =
+      storage ? std::get_if<std::shared_ptr<ConstObject>>(storage) : nullptr;
+  auto object = retained ? *retained : nullptr;
+  auto arguments = init.arguments();
+  if (!object && arguments.empty() &&
+      (init.form() == InitializerForm::kList ||
+       init.form() == InitializerForm::kParen) &&
+      traits.requires_zero_initialization(type, constructor)) {
+    auto zero = zeroInitialize(type);
+    if (!zero) return std::nullopt;
+    auto zeroObject = std::get_if<std::shared_ptr<ConstObject>>(&*zero);
+    if (!zeroObject || !*zeroObject) return std::nullopt;
+    object = *zeroObject;
+  }
+  return evaluateConstructorFromExprs(constructor, type, arguments,
+                                      std::move(object));
 }
 
 auto ASTInterpreter::evaluateInitializer(const Type* type,
@@ -2223,7 +2246,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(TypeConstructionAST* ast)
     if (!ast->expressionList &&
         unit()->typeTraits().requires_zero_initialization(
             ast->type, ast->constructorSymbol))
-      return interp.valueInitializeClass(ast->type, classSymbol);
+      return interp.valueInitializeClass(ast->type, ast->constructorSymbol);
     std::vector<ExpressionAST*> arguments;
     for (auto argument : ListView{ast->expressionList})
       arguments.push_back(argument);
@@ -2262,8 +2285,13 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
     if (!ast->constructorSymbol->isConstexpr())
       return ExpressionResult{std::nullopt};
 
-    return interp.evaluateConstructorFromExprs(
-        ast->constructorSymbol, ast->type, constructorArgumentExpressions(ast));
+    auto arguments = constructorArgumentExpressions(ast);
+    if (arguments.empty() && unit()->typeTraits().requires_zero_initialization(
+                                 ast->type, ast->constructorSymbol)) {
+      return interp.valueInitializeClass(ast->type, ast->constructorSymbol);
+    }
+    return interp.evaluateConstructorFromExprs(ast->constructorSymbol,
+                                               ast->type, arguments);
   }
 
   return interp.expression(ast->bracedInitList);
@@ -3654,32 +3682,14 @@ namespace {
 }
 }  // namespace
 
-auto ASTInterpreter::valueInitializeClass(const Type* type, ClassSymbol* symbol)
+auto ASTInterpreter::valueInitializeClass(const Type* type,
+                                          FunctionSymbol* constructor)
     -> ExpressionResult {
-  auto object = std::make_shared<ConstObject>(type);
-  for (auto element : traits.aggregate_elements(symbol)) {
-    auto zero = zeroInitialize(traits.aggregate_element_type(element));
-    if (!zero) return std::nullopt;
-    object->addMember(element, std::move(*zero));
-    if (symbol->isUnion()) break;
-  }
-
-  auto savedReceiver = std::exchange(receiver_, Receiver{object, {}});
-  bool initialized = true;
-  for (auto member : symbol->members()) {
-    auto field = symbol_cast<FieldSymbol>(member);
-    if (!field || field->isStatic() || !field->initializer()) continue;
-    auto value = initialValue(field->type(), field->initializer());
-    if (!value) {
-      initialized = false;
-      break;
-    }
-    object->setMember(field, std::move(*value));
-    if (symbol->isUnion()) break;
-  }
-  receiver_ = std::move(savedReceiver);
-  if (!initialized) return std::nullopt;
-  return ConstValue{std::move(object)};
+  auto zero = zeroInitialize(type);
+  if (!zero) return std::nullopt;
+  auto object = std::get_if<std::shared_ptr<ConstObject>>(&*zero);
+  if (!object || !*object) return std::nullopt;
+  return evaluateConstructor(constructor, type, {}, *object);
 }
 
 auto ASTInterpreter::ExpressionVisitor::aggregateObject(

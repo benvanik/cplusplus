@@ -454,6 +454,95 @@ constexpr unsigned count(unsigned elements) {
   }
 }
 
+TEST(PrecompiledHeader, ExecutesNestedConstructorsAfterRestore) {
+  std::vector<std::uint8_t> data;
+  {
+    Prefix prefix{R"(
+struct Format {
+  unsigned elements = 32;
+  unsigned words = elements / 8;
+};
+struct Configuration : Format {
+  Format groups[2];
+};
+constexpr unsigned read(const Format& format) {
+  return format.words;
+}
+constexpr unsigned count(unsigned extra) {
+  Configuration config = Configuration();
+  return config.words + read(Format()) + config.groups[1].words + extra;
+}
+struct Matrix {
+  Format groups[2][2];
+};
+constexpr Matrix matrix = Matrix();
+)"};
+
+    data = prefix.emit();
+    ASSERT_TRUE(prefix.errors().empty());
+    ASSERT_FALSE(data.empty());
+  }
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  MemoryLayout memoryLayout{32};
+  consumer.control()->setMemoryLayout(&memoryLayout);
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  auto functions =
+      views::each_function(findMember(consumer.globalScope(), "count"));
+  ASSERT_EQ(std::ranges::distance(functions), 1);
+
+  ASTInterpreter interpreter{&consumer, consumer.globalScope()};
+  for (std::intmax_t extra : {16, 32, 64}) {
+    SCOPED_TRACE(extra);
+    auto value = interpreter.evaluateCall(*functions.begin(), {extra});
+    ASSERT_TRUE(value);
+    auto integer = interpreter.toInt(*value);
+    ASSERT_TRUE(integer);
+    EXPECT_EQ(*integer, 12 + extra);
+  }
+
+  auto matrix =
+      symbol_cast<VariableSymbol>(findMember(consumer.globalScope(), "matrix"));
+  ASSERT_TRUE(matrix);
+  ASSERT_TRUE(matrix->constValue());
+  auto object =
+      std::get_if<std::shared_ptr<ConstObject>>(&*matrix->constValue());
+  ASSERT_TRUE(object);
+  ASSERT_TRUE(*object);
+  ASSERT_EQ((*object)->members().size(), 1u);
+
+  auto rows = std::get_if<std::shared_ptr<InitializerList>>(
+      &(*object)->members().front().value);
+  ASSERT_TRUE(rows);
+  ASSERT_TRUE(*rows);
+  ASSERT_EQ((*rows)->elements.size(), 2u);
+  for (const auto& [row, rowType] : (*rows)->elements) {
+    ASSERT_TRUE(rowType);
+    auto columns = std::get_if<std::shared_ptr<InitializerList>>(&row);
+    ASSERT_TRUE(columns);
+    ASSERT_TRUE(*columns);
+    ASSERT_EQ((*columns)->elements.size(), 2u);
+    for (const auto& [column, columnType] : (*columns)->elements) {
+      ASSERT_TRUE(columnType);
+      auto format = std::get_if<std::shared_ptr<ConstObject>>(&column);
+      ASSERT_TRUE(format);
+      ASSERT_TRUE(*format);
+      ASSERT_EQ((*format)->members().size(), 2u);
+      auto elements = interpreter.toInt((*format)->members()[0].value);
+      auto words = interpreter.toInt((*format)->members()[1].value);
+      ASSERT_TRUE(elements);
+      ASSERT_TRUE(words);
+      EXPECT_EQ(*elements, 32);
+      EXPECT_EQ(*words, 4);
+    }
+  }
+}
+
 TEST(PrecompiledHeader, RestoresBuiltinConvertVectorExpression) {
   Prefix prefix{R"(
 using Int4 = int __attribute__((ext_vector_type(4)));
