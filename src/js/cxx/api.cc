@@ -149,16 +149,28 @@ struct WrappedUnit {
   }
 
   auto parse() -> val {
+    cxx::ParserConfiguration config{
+        .analysisMode = cxx::ParserAnalysisMode::kFull,
+        .exceptionsEnabled = toolchain->exceptionsEnabled(),
+        .rttiEnabled = toolchain->rttiEnabled(),
+    };
+
+    if (!api.isUndefined()) {
+      if (val value = api["analysisMode"]; !value.isUndefined()) {
+        const auto mode = value.as<std::string>();
+        if (mode == "declarations") {
+          config.analysisMode = cxx::ParserAnalysisMode::kDeclarations;
+        } else if (mode != "full") {
+          cxx::cxx_runtime_error("invalid analysisMode: " + mode);
+        }
+      }
+    }
+
     cxx::js::AsyncParseRequest request{
         .unit = unit.get(),
         .source = std::move(source),
         .fileName = fileName,
-        .config =
-            {
-                .checkTypes = true,
-                .exceptionsEnabled = toolchain->exceptionsEnabled(),
-                .rttiEnabled = toolchain->rttiEnabled(),
-            },
+        .config = std::move(config),
     };
 
     if (!api.isUndefined()) {
@@ -297,7 +309,7 @@ auto createUnit(std::string source, std::string fileName, UnitOptions api)
 EMSCRIPTEN_BINDINGS(cxx) {
   register_type<UnitOptions>(
       "UnitOptions",
-      R"({ appdir?: string | undefined; sysroot?: string | undefined; target?: string | undefined; deviceProfile?: "vulkan1.1-f32" | undefined; std?: "c++14" | "c++17" | "c++20" | "c++23" | "c++26" | undefined; defines?: string[] | undefined; undefines?: string[] | undefined; quoteIncludePaths?: string[] | undefined; includePaths?: string[] | undefined; systemIncludePaths?: string[] | undefined; debugInfo?: boolean | undefined; mlirPipeline?: string | undefined; optimizationLevel?: number | undefined; exceptions?: boolean | undefined; rtti?: boolean | undefined; exists?: ((path: string) => boolean) | undefined; readFile?: ((path: string) => Promise<string | undefined>) | undefined; shouldContinue?: (() => Promise<boolean>) | undefined })");
+      R"({ appdir?: string | undefined; sysroot?: string | undefined; target?: string | undefined; deviceProfile?: "vulkan1.1-f32" | undefined; std?: "c++14" | "c++17" | "c++20" | "c++23" | "c++26" | undefined; analysisMode?: "full" | "declarations" | undefined; defines?: string[] | undefined; undefines?: string[] | undefined; quoteIncludePaths?: string[] | undefined; includePaths?: string[] | undefined; systemIncludePaths?: string[] | undefined; debugInfo?: boolean | undefined; mlirPipeline?: string | undefined; optimizationLevel?: number | undefined; exceptions?: boolean | undefined; rtti?: boolean | undefined; exists?: ((path: string) => boolean) | undefined; readFile?: ((path: string) => Promise<string | undefined>) | undefined; shouldContinue?: (() => Promise<boolean>) | undefined })");
 
   register_type<EmitterDelegate>("EmitterDelegate",
                                  R"(import("./Emitter.js").EmitterDelegate)");

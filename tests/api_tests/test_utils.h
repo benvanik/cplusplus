@@ -53,7 +53,7 @@ struct Source {
     unit.setSource(std::string(source), "<test>");
 
     unit.parse({
-        .checkTypes = true,
+        .analysisMode = ParserAnalysisMode::kFull,
     });
   }
 

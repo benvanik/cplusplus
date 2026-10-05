@@ -2166,7 +2166,7 @@ struct ClassInitChecker {
 };
 
 void ClassInitChecker::checkClassInit(Target& target) {
-  if (!ctx.unit->config().checkTypes) return;
+  if (!ctx.unit->config().checkTypes()) return;
 
   auto targetType = ctx.traits.remove_cv(target.type);
   auto classType = unqualified_cast<ClassType>(targetType);

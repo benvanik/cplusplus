@@ -7976,10 +7976,10 @@ void TypeChecker::Visitor::operator()(TypeTraitExpressionAST* ast) {
       }
       if (!traits.is_void(type) && !traits.is_complete(type)) {
         error(ast->typeIdList->value->firstSourceLocation(),
-              std::format("incomplete type '{}' where a complete type is "
-                          "required",
-                          to_diag_string(type, "",
-                                         check.diagnosticPrintOptions())));
+              std::format(
+                  "incomplete type '{}' where a complete type is "
+                  "required",
+                  to_diag_string(type, "", check.diagnosticPrintOptions())));
         return;
       }
     }
@@ -8613,7 +8613,7 @@ struct TypeChecker::CheckMemInitializers {
 
 void TypeChecker::check_mem_initializers(FunctionBodyAST* ast,
                                          ArrayCopyPolicy arrayCopyPolicy) {
-  if (!unit_->config().checkTypes) return;
+  if (!unit_->config().checkTypes()) return;
 
   auto functionSymbol = symbol_cast<FunctionSymbol>(scope_);
   if (!functionSymbol) return;
@@ -10551,7 +10551,7 @@ auto TypeChecker::useFunction(FunctionSymbol* function, SourceLocation loc)
 
 void TypeChecker::error(SourceLocation loc, std::string message) {
   if (!reportErrors_) return;
-  if (!unit_->config().checkTypes) return;
+  if (!unit_->config().checkTypes()) return;
   unit_->error(loc, std::move(message));
 }
 

@@ -428,7 +428,7 @@ struct Parser::CheckContext {
       : templatedContext(parser->unit_, parser->binder_.inTemplate()),
         check(parser->unit_) {
     check.setScope(scope);
-    check.setReportErrors(parser->config().checkTypes);
+    check.setReportErrors(parser->config().checkTypes());
   }
 };
 
@@ -470,6 +470,7 @@ Parser::Parser(TranslationUnit* unit)
   lang_ = unit_->language();
   pool_ = unit_->arena();
   globalScope_ = unit_->globalScope();
+  skipFunctionBody_ = !config().parseFunctionBodies();
 
   cursor_ = 1;
 
@@ -595,7 +596,7 @@ void Parser::record_failed_parse(SourceLocation start,
 }
 
 auto Parser::rejects_plain_type_name(TypeNameContext context) -> bool {
-  if (!config().checkTypes) return false;
+  if (!config().checkTypes()) return false;
   if (!lookat(TokenKind::T_IDENTIFIER)) return false;
   if (LA(1).is(TokenKind::T_COLON_COLON) || LA(1).is(TokenKind::T_LESS))
     return false;
@@ -677,7 +678,7 @@ void Parser::replayDiagnostics(const std::vector<Diagnostic>& diagnostics) {
 }
 
 void Parser::type_error(SourceLocation loc, std::string message) {
-  if (!config().checkTypes) return;
+  if (!config().checkTypes()) return;
   unit_->error(loc, std::move(message));
 }
 
@@ -1641,7 +1642,7 @@ void Parser::lookupUnqualifiedIdExpression(IdExpressionAST* ast,
         &ambiguous);
   }
 
-  if (ambiguous && config().checkTypes) {
+  if (ambiguous && config().checkTypes()) {
     parse_error(ast->unqualifiedId->firstSourceLocation(),
                 std::format("reference to '{}' is ambiguous",
                             to_diag_string(componentName)));
@@ -1699,7 +1700,7 @@ auto Parser::memberAccess(ExpressionAST* objectExpression, TokenKind accessOp)
     -> MemberAccess {
   MemberAccess access;
   access.isMember = true;
-  if (!objectExpression || !config().checkTypes) return access;
+  if (!objectExpression || !config().checkTypes()) return access;
 
   auto traits = unit_->typeTraits();
   access.isDependent = isDependent(unit_, objectExpression->type);
@@ -1951,7 +1952,7 @@ auto Parser::parse_template_nested_name_specifier(
   ast->scopeLoc = scopeLoc;
   ast->isTemplateIntroduced = isTemplateIntroduced;
 
-  if (config().checkTypes) {
+  if (config().checkTypes()) {
     bool hasDependentArgs = false;
     if (binder_.inTemplate()) {
       for (auto arg : ListView{templateId->templateArgumentList}) {
@@ -3235,7 +3236,7 @@ auto Parser::parse_cpp_type_cast_expression(ExpressionAST*& yyast,
     if (!lookat(TokenKind::T_LPAREN)) return false;
 
     if (auto namedTypeSpec = ast_cast<NamedTypeSpecifierAST>(typeSpecifier)) {
-      if (!config().checkTypes) {
+      if (!config().checkTypes()) {
         if (!namedTypeSpec->symbol || !is_type(namedTypeSpec->symbol)) {
           return true;
         }
@@ -3285,7 +3286,7 @@ auto Parser::parse_cpp_type_cast_expression(ExpressionAST*& yyast,
     if (!parse_simple_type_specifier(typeSpecifier, specs)) return false;
   }
 
-  if (!config().checkTypes && lookat_function_call()) return false;
+  if (!config().checkTypes() && lookat_function_call()) return false;
   if (lookat_braced_type_construction()) return true;
 
   LookaheadParser lookahead{this};
@@ -5987,14 +5988,14 @@ auto Parser::parse_simple_declaration(
     ast->symbol->setDeclaration(ast);
     if (abbreviatedHead) abbreviatedHead->declaration = ast;
 
-    if (classDepth_) {
+    if (classDepth_ || !config().parseFunctionBodies()) {
       unit_->markFunctionBodyUnparsed(ast);
-      pendingFunctionDefinitions_.push_back(ast);
+      if (classDepth_) pendingFunctionDefinitions_.push_back(ast);
     } else if (body_statement(functionBody)) {
       if (!binder_.inTemplate()) binder_.finishAutoReturnType(functionSymbol);
       check_function_body(functionSymbol, functionBody);
     }
-    if (!classDepth_ && !binder_.inTemplate())
+    if (config().parseFunctionBodies() && !classDepth_ && !binder_.inTemplate())
       binder_.synthesizeDefaultedMemberBody(functionSymbol);
     check_mem_initializers(ast);
 
@@ -6179,13 +6180,14 @@ auto Parser::parse_notypespec_function_definition(
   ast->symbol->setDeclaration(ast);
   if (abbreviatedHead) abbreviatedHead->declaration = ast;
 
-  if (classDepth_) {
+  if (classDepth_ || !config().parseFunctionBodies()) {
     unit_->markFunctionBodyUnparsed(ast);
-    pendingFunctionDefinitions_.push_back(ast);
+    if (classDepth_) pendingFunctionDefinitions_.push_back(ast);
   }
-  if (!classDepth_ && !binder_.inTemplate())
+  if (config().parseFunctionBodies() && !classDepth_ && !binder_.inTemplate())
     binder_.synthesizeDefaultedMemberBody(functionSymbol);
-  if (!classDepth_) check_function_body(functionSymbol, functionBody);
+  if (config().parseFunctionBodies() && !classDepth_)
+    check_function_body(functionSymbol, functionBody);
   check_mem_initializers(ast);
 
   return true;
@@ -6833,7 +6835,8 @@ auto Parser::parse_named_type_specifier(SpecifierAST*& yyast, DeclSpecs& specs,
     if (conceptSymbol && !lookat(TokenKind::T_AUTO)) return false;
   }
 
-  const auto checkTemplates = config().checkTypes;
+  const auto checkTemplates =
+      unit_->shouldResolveTemplateId(unqualifiedId->firstSourceLocation());
 
   Symbol* symbol = nullptr;
 
@@ -6872,7 +6875,7 @@ auto Parser::parse_named_type_specifier(SpecifierAST*& yyast, DeclSpecs& specs,
   const auto namesTypeTemplate = templateId && is_type(templateId->symbol);
 
   if (!is_type(symbol) && !namesTypeTemplate && !dependentTypeOnlyName &&
-      config().checkTypes) {
+      config().checkTypes()) {
     auto name = to_diag_string(get_name(control_, unqualifiedId));
     if (findsDeclaration(nestedNameSpecifier, unqualifiedId))
       parse_error(unqualifiedId->firstSourceLocation(),
@@ -10705,11 +10708,11 @@ auto Parser::parse_member_declaration_helper(DeclarationAST*& yyast) -> bool {
     ast->symbol->setDeclaration(ast);
     if (abbreviatedHead) abbreviatedHead->declaration = ast;
 
-    if (classDepth_) {
+    if (classDepth_ || !config().parseFunctionBodies()) {
       unit_->markFunctionBodyUnparsed(ast);
-      pendingFunctionDefinitions_.push_back(ast);
+      if (classDepth_) pendingFunctionDefinitions_.push_back(ast);
     }
-    if (!classDepth_ && !binder_.inTemplate())
+    if (config().parseFunctionBodies() && !classDepth_ && !binder_.inTemplate())
       binder_.synthesizeDefaultedMemberBody(functionSymbol);
     check_mem_initializers(ast);
 
@@ -12618,7 +12621,7 @@ auto Parser::parse_explicit_instantiation(DeclarationAST*& yyast) -> bool {
 void Parser::instantiateClassTemplateExplicitly(ExplicitInstantiationAST* ast,
                                                 SimpleTemplateIdAST* templateId,
                                                 ClassSymbol* classSymbol) {
-  if (!config().checkTypes) return;
+  if (!config().checkTypes()) return;
 
   const auto isDefinition = !ast->externLoc;
 
@@ -12652,7 +12655,7 @@ void Parser::instantiateMemberClassExplicitly(
     return;
   }
 
-  if (!config().checkTypes) return;
+  if (!config().checkTypes()) return;
 
   const auto isDefinition = !ast->externLoc;
   if (!binder_.checkExplicitInstantiationOrder(
@@ -13101,6 +13104,10 @@ void Parser::completeFieldInitializers(
 }
 
 void Parser::completePendingFunctionDefinitions() {
+  if (!config().parseFunctionBodies()) {
+    pendingFunctionDefinitions_.clear();
+    return;
+  }
   if (pendingFunctionDefinitions_.empty()) return;
 
   std::vector<FunctionDefinitionAST*> functions;
@@ -13434,7 +13441,7 @@ void Parser::resolve_user_defined_literal(ExpressionAST* ast,
     candidates.push_back(function);
 
   auto reportMissingOperator = [&] {
-    if (!config().checkTypes) return;
+    if (!config().checkTypes()) return;
     parse_error(ast->firstSourceLocation(),
                 std::format("no matching literal operator for '{}'", suffix));
   };
@@ -13497,7 +13504,7 @@ void Parser::resolve_user_defined_literal(ExpressionAST* ast,
 
   auto reportRawAndTemplateConflict = [&] {
     if (!findRaw() || !findNumericTemplate()) return false;
-    if (config().checkTypes) {
+    if (config().checkTypes()) {
       parse_error(
           ast->firstSourceLocation(),
           std::format("literal suffix '{}' declares both a raw literal "

@@ -2635,7 +2635,7 @@ auto TypeTraits::require_complete_class(ClassSymbol* classSymbol) -> bool {
   if (!classSymbol) return false;
   if (classSymbol->isComplete()) return true;
   if (!unit_) return false;
-  if (!unit_->config().checkTypes) return false;
+  if (!unit_->config().checkTypes()) return false;
   return ASTRewriter::ensureCompleteClass(unit_, classSymbol);
 }
 

@@ -164,19 +164,19 @@ void Binder::setReportErrors(bool reportErrors) {
 
 void Binder::error(SourceLocation loc, std::string message) {
   if (!reportErrors_) return;
-  if (!unit_->config().checkTypes) return;
+  if (!unit_->config().checkTypes()) return;
   unit_->error(loc, std::move(message));
 }
 
 void Binder::warning(SourceLocation loc, std::string message) {
   if (!reportErrors_) return;
-  if (!unit_->config().checkTypes) return;
+  if (!unit_->config().checkTypes()) return;
   unit_->warning(loc, std::move(message));
 }
 
 void Binder::note(SourceLocation loc, std::string message) {
   if (!reportErrors_) return;
-  if (!unit_->config().checkTypes) return;
+  if (!unit_->config().checkTypes()) return;
   unit_->note(loc, std::move(message));
 }
 
@@ -1904,7 +1904,8 @@ void Binder::checkBaseClass(BaseSpecifierAST* ast, ClassSymbol* baseClass) {
 }
 
 void Binder::bind(BaseSpecifierAST* ast, Symbol* resolvedType) {
-  const auto checkTemplates = unit_->config().checkTypes;
+  const auto checkTemplates =
+      unit_->shouldResolveTemplateId(ast->unqualifiedId->firstSourceLocation());
 
   if (ast->nestedNameSpecifier && !ast->nestedNameSpecifier->symbol) {
     if (reportUnresolvedNestedNameSpecifier(ast->nestedNameSpecifier)) return;
@@ -3630,7 +3631,8 @@ void Binder::bind(UsingEnumDeclarationAST* ast) {
     if (reportUnresolvedNestedNameSpecifier(spec->nestedNameSpecifier)) return;
   }
 
-  const auto checkTemplates = unit_->config().checkTypes;
+  const auto checkTemplates = unit_->shouldResolveTemplateId(
+      spec->unqualifiedId->firstSourceLocation());
   auto symbol = resolve(spec->nestedNameSpecifier, spec->unqualifiedId,
                         checkTemplates, spec->symbol);
 
@@ -5060,7 +5062,7 @@ void Binder::qualifiedLookupIdExpression(IdExpressionAST* ast, bool isCallee) {
 void Binder::resolveIdExpression(IdExpressionAST* ast, bool isCallee) {
   if (isArgumentDependentCallee(ast->symbol)) return;
 
-  if (unit_->config().checkTypes) {
+  if (unit_->config().checkTypes()) {
     auto templateId = ast->unqualifiedId;
     if (auto templateIdName =
             name_cast<TemplateId>(get_name(control(), templateId))) {
@@ -5199,7 +5201,7 @@ void Binder::resolveIdExpression(IdExpressionAST* ast, bool isCallee) {
 }
 
 auto Binder::resolveMemberTemplateId(MemberExpressionAST* ast) -> bool {
-  if (!unit_->config().checkTypes) return false;
+  if (!unit_->config().checkTypes()) return false;
   if (!ast->symbol ||
       !name_cast<TemplateId>(get_name(control(), ast->unqualifiedId)))
     return false;

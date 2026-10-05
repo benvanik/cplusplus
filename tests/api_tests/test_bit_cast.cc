@@ -45,7 +45,7 @@ class ParsedBitCasts {
       : memoryLayout_(64, byteOrder), unit_(&diagnostics_) {
     unit_.control()->setMemoryLayout(&memoryLayout_);
     unit_.setSource(std::move(source), "<test>");
-    unit_.parse({.checkTypes = true});
+    unit_.parse({.analysisMode = ParserAnalysisMode::kFull});
   }
 
   [[nodiscard]] auto errorCount() const -> int {

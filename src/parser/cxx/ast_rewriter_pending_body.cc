@@ -295,7 +295,7 @@ void ASTRewriter::checkMemInitializers(FunctionSymbol* function,
 
   TypeChecker check{unit_};
   check.setScope(function);
-  check.setReportErrors(unit_->config().checkTypes);
+  check.setReportErrors(unit_->config().checkTypes());
   auto hasDependentInitializer = [&] {
     for (auto memInit : ListView{ctor_initializers(body)}) {
       if (auto paren = ast_cast<ParenMemInitializerAST>(memInit)) {
