@@ -935,6 +935,7 @@ auto ASTInterpreter::initializeDefaultedObject(
   for (auto member : classSymbol->members()) {
     auto field = symbol_cast<FieldSymbol>(member);
     if (!field || field->isStatic()) continue;
+    if (field->isBitField() && !field->name()) continue;
     if (classSymbol->isUnion() && !field->initializer()) continue;
 
     if (field->initializer()) {
@@ -986,6 +987,7 @@ auto ASTInterpreter::copyDefaultedObject(
   for (auto member : classSymbol->members()) {
     auto field = symbol_cast<FieldSymbol>(member);
     if (!field || field->isStatic()) continue;
+    if (field->isBitField() && !field->name()) continue;
     auto value = source->subobject(field);
     if (auto anonymous = anonymous_member_class(field); anonymous && !value) {
       for (const auto& candidate : source->members()) {
@@ -1572,6 +1574,7 @@ auto ASTInterpreter::executeFunction(
       for (auto field :
            views::members(currentConstructorClass_->resolvedDefinition()) |
                views::non_static_fields) {
+        if (field->isBitField() && !field->name()) continue;
         if (thisObject_->subobject(field)) continue;
         if (anonymous_member_class(field)) continue;
         thisObject_->setMember(field, IndeterminateValue{});

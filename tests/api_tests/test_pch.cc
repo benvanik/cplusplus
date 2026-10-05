@@ -528,6 +528,63 @@ constexpr Matrix matrix = Matrix();
   }
 }
 
+TEST(PrecompiledHeader, OmitsUnnamedBitFieldSubobjectsAfterRestore) {
+  std::vector<std::uint8_t> data;
+  {
+    Prefix prefix{R"(
+struct Padded {
+  unsigned : 3;
+  unsigned value;
+};
+union Storage {
+  Padded padded;
+  unsigned other;
+};
+constexpr Storage activate() {
+  Storage storage;
+  storage.padded.value = 9;
+  return storage;
+}
+constexpr Storage activated = activate();
+static_assert(activated.padded.value == 9);
+)"};
+
+    data = prefix.emit();
+    ASSERT_TRUE(prefix.errors().empty());
+    ASSERT_FALSE(data.empty());
+  }
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  MemoryLayout memoryLayout{32};
+  consumer.control()->setMemoryLayout(&memoryLayout);
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  auto activated = symbol_cast<VariableSymbol>(
+      findMember(consumer.globalScope(), "activated"));
+  ASSERT_TRUE(activated);
+  ASSERT_TRUE(activated->constValue());
+  auto storage =
+      std::get_if<std::shared_ptr<ConstObject>>(&*activated->constValue());
+  ASSERT_TRUE(storage);
+  ASSERT_TRUE(*storage);
+  ASSERT_EQ((*storage)->members().size(), 1u);
+
+  auto padded = std::get_if<std::shared_ptr<ConstObject>>(
+      &(*storage)->members().front().value);
+  ASSERT_TRUE(padded);
+  ASSERT_TRUE(*padded);
+  ASSERT_EQ((*padded)->members().size(), 1u);
+
+  ASTInterpreter interpreter{&consumer, consumer.globalScope()};
+  auto value = interpreter.toInt((*padded)->members().front().value);
+  ASSERT_TRUE(value);
+  EXPECT_EQ(*value, 9);
+}
+
 TEST(PrecompiledHeader, RestoresBuiltinConvertVectorExpression) {
   Prefix prefix{R"(
 using Int4 = int __attribute__((ext_vector_type(4)));

@@ -1195,6 +1195,7 @@ void ASTInterpreter::beginNominatedLifetime(ConstValue& storage,
                            baseClass->type());
   }
   for (auto field : views::members(definition) | views::non_static_fields) {
+    if (field->isBitField() && !field->name()) continue;
     auto anonymous = anonymous_member_class(field);
     if (anonymous && anonymous->isUnion()) continue;
     beginNominatedLifetime(*object->addMember(field, IndeterminateValue{}),
