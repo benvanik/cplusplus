@@ -109,6 +109,24 @@ class Prefix {
   return nullptr;
 }
 
+[[nodiscard]] auto constantAddress(ScopeSymbol* scope, std::string_view name)
+    -> std::shared_ptr<ConstAddress> {
+  auto variable = symbol_cast<VariableSymbol>(findMember(scope, name));
+  if (!variable || !variable->constValue()) return {};
+  auto address =
+      std::get_if<std::shared_ptr<ConstAddress>>(&*variable->constValue());
+  return address ? *address : nullptr;
+}
+
+template <typename T>
+void expectSubobject(const ConstAddress& address, std::size_t index,
+                     T expected) {
+  ASSERT_LT(index, address.subobjectPath().size());
+  auto actual = std::get_if<T>(&address.subobjectPath()[index]);
+  ASSERT_TRUE(actual);
+  EXPECT_EQ(*actual, expected);
+}
+
 [[nodiscard]] auto findBuiltinOffsetof(ExpressionAST* expression)
     -> BuiltinOffsetofExpressionAST* {
   struct Finder final : ASTVisitor {
@@ -496,6 +514,100 @@ constexpr auto saved_offset =
   auto integer = std::get_if<ConstInt>(&*value);
   ASSERT_TRUE(integer);
   EXPECT_EQ(integer->toUIntMax(), 16u);
+}
+
+TEST(PrecompiledHeader, RestoresRootedSubobjectAddresses) {
+  std::vector<std::uint8_t> data;
+  {
+    Prefix prefix{R"(
+struct Parameters {
+  unsigned scale;
+  unsigned bias;
+  constexpr const unsigned& get() const { return scale; }
+};
+struct Pair {
+  Parameters left;
+  Parameters right;
+};
+constexpr Parameters first{3, 5};
+constexpr Parameters second{7, 11};
+constexpr Pair pair{{3, 5}, {7, 11}};
+constexpr Parameters table[2] = {{3, 5}, {7, 11}};
+extern Parameters external;
+template <const unsigned& value>
+struct Ref {};
+static_assert(__is_same(Ref<first.get()>, Ref<first.scale>));
+static_assert(__is_same(Ref<external.get()>, Ref<external.scale>));
+constexpr const unsigned* first_get_address = &first.get();
+constexpr const unsigned* first_scale_address = &first.scale;
+constexpr const unsigned* second_scale_address = &second.scale;
+constexpr const unsigned* pair_left_scale_address = &pair.left.scale;
+constexpr const unsigned* table_one_scale_address = &table[1].scale;
+constexpr const unsigned* external_scale_address = &external.scale;
+)"};
+    data = prefix.emit();
+    ASSERT_TRUE(prefix.errors().empty());
+    ASSERT_FALSE(data.empty());
+  }
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  auto globalScope = consumer.globalScope();
+  auto parameters =
+      symbol_cast<ClassSymbol>(findMember(globalScope, "Parameters"));
+  auto pairType = symbol_cast<ClassSymbol>(findMember(globalScope, "Pair"));
+  auto first = findMember(globalScope, "first");
+  auto second = findMember(globalScope, "second");
+  auto pair = findMember(globalScope, "pair");
+  auto table = findMember(globalScope, "table");
+  auto external = findMember(globalScope, "external");
+  ASSERT_TRUE(parameters);
+  ASSERT_TRUE(pairType);
+  ASSERT_TRUE(first);
+  ASSERT_TRUE(second);
+  ASSERT_TRUE(pair);
+  ASSERT_TRUE(table);
+  ASSERT_TRUE(external);
+  auto scale = findMember(parameters, "scale");
+  auto left = findMember(pairType, "left");
+  ASSERT_TRUE(scale);
+  ASSERT_TRUE(left);
+
+  auto firstGet = constantAddress(globalScope, "first_get_address");
+  auto firstScale = constantAddress(globalScope, "first_scale_address");
+  auto secondScale = constantAddress(globalScope, "second_scale_address");
+  auto pairLeftScale = constantAddress(globalScope, "pair_left_scale_address");
+  auto tableOneScale = constantAddress(globalScope, "table_one_scale_address");
+  auto externalScale = constantAddress(globalScope, "external_scale_address");
+  ASSERT_TRUE(firstGet);
+  ASSERT_TRUE(firstScale);
+  ASSERT_TRUE(secondScale);
+  ASSERT_TRUE(pairLeftScale);
+  ASSERT_TRUE(tableOneScale);
+  ASSERT_TRUE(externalScale);
+
+  EXPECT_TRUE(firstGet->sameObject(*firstScale));
+  EXPECT_FALSE(firstScale->sameObject(*secondScale));
+  EXPECT_EQ(firstGet->root(), first);
+  EXPECT_EQ(firstScale->root(), first);
+  EXPECT_EQ(secondScale->root(), second);
+  EXPECT_EQ(pairLeftScale->root(), pair);
+  EXPECT_EQ(tableOneScale->root(), table);
+  EXPECT_EQ(externalScale->root(), external);
+
+  ASSERT_EQ(firstScale->subobjectPath().size(), 1u);
+  expectSubobject(*firstScale, 0, scale);
+  ASSERT_EQ(pairLeftScale->subobjectPath().size(), 2u);
+  expectSubobject(*pairLeftScale, 0, left);
+  expectSubobject(*pairLeftScale, 1, scale);
+  ASSERT_EQ(tableOneScale->subobjectPath().size(), 2u);
+  expectSubobject(*tableOneScale, 0, std::size_t{1});
+  expectSubobject(*tableOneScale, 1, scale);
 }
 
 TEST(PrecompiledHeader, RestoresConstexprBranchSelections) {
