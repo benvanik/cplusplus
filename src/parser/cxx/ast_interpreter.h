@@ -623,11 +623,12 @@ class ASTInterpreter {
     Frame(const Frame&) = delete;
     auto operator=(const Frame&) -> Frame& = delete;
 
-    // Values owned by this invocation.
+    // Values owned by this invocation, including readable constant referents.
     std::unordered_map<const Symbol*, ConstValue> locals;
-    // Slots borrowed from storage owned outside this frame.
+    // Slots borrowed from existing storage for reference bindings.
     std::unordered_map<const Symbol*, ConstValue*> refs;
-    // Reference identities retained for address evaluation.
+    // Reference identities, including referents without a readable value.
+    // Every binding shadows the same parameter in an outer recursive call.
     std::unordered_map<const Symbol*, ConstValue> referenceAddresses;
     // Local objects whose lifetimes end with this invocation.
     std::vector<VariableSymbol*> automaticObjects;

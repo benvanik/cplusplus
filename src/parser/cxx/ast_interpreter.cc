@@ -517,6 +517,7 @@ auto ASTInterpreter::lookupLocalSlot(const Symbol* sym) -> ConstValue* {
     if (ref != it->refs.end()) return ref->second;
     auto found = it->locals.find(sym);
     if (found != it->locals.end()) return &found->second;
+    if (it->referenceAddresses.contains(sym)) return nullptr;
   }
   return nullptr;
 }
@@ -557,8 +558,8 @@ auto ASTInterpreter::bindReferenceTo(Frame& frame, Symbol* reference,
       }
       if (auto referent = loadAddress(**address, 0, reference->type())) {
         frame.locals.insert_or_assign(reference, std::move(*referent));
-        return true;
       }
+      return true;
     }
   }
 
