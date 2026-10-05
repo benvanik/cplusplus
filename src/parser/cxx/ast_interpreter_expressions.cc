@@ -887,7 +887,7 @@ auto ASTInterpreter::evaluateStaticField(FieldSymbol* field)
     if (!address) return std::nullopt;
     auto referent = std::get_if<std::shared_ptr<ConstAddress>>(&*address);
     if (!referent || !*referent) return std::nullopt;
-    return loadAddress(**referent, 0);
+    return loadAddress(**referent, 0, field->type());
   }
 
   if (auto definition = symbol_cast<VariableSymbol>(field->definition())) {
@@ -940,7 +940,7 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
       if (!constant->constValue) return nullptr;
       auto address =
           std::get_if<std::shared_ptr<ConstAddress>>(constant->constValue);
-      if (address && *address) return addressSlot(**address, 0);
+      if (address && *address) return addressSlot(**address, 0, constant->type);
       ast = constant->expression;
       continue;
     }
@@ -1019,7 +1019,8 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
       auto result = address
                         ? std::get_if<std::shared_ptr<ConstAddress>>(&*address)
                         : nullptr;
-      auto slot = result && *result ? addressSlot(**result, 0) : nullptr;
+      auto slot =
+          result && *result ? addressSlot(**result, 0, member->type) : nullptr;
       if (!slot && receiver.object && receiver.object->isUnion()) {
         slot = receiver.object->addMember(field, IndeterminateValue{});
       }
@@ -1073,7 +1074,7 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
       if (!idxVal.has_value()) return nullptr;
       auto idx = toInt(*idxVal);
       if (!idx.has_value()) return nullptr;
-      return addressSlot(**addr, *idx);
+      return addressSlot(**addr, *idx, sub->type);
     }
 
     return nullptr;
@@ -1085,7 +1086,7 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
     if (!ptrVal.has_value()) return nullptr;
     auto addr = std::get_if<std::shared_ptr<ConstAddress>>(&*ptrVal);
     if (!addr || !*addr) return nullptr;
-    return addressSlot(**addr, 0);
+    return addressSlot(**addr, 0, unary->type);
   }
 
   if (auto cond = ast_cast<ConditionalExpressionAST>(ast)) {
@@ -2159,7 +2160,8 @@ auto ASTInterpreter::ExpressionVisitor::operator()(SubscriptExpressionAST* ast)
 
   if (auto addr =
           std::get_if<std::shared_ptr<ConstAddress>>(&*baseExpressionResult)) {
-    return interp.loadAddress(**addr, static_cast<std::intmax_t>(*idx));
+    return interp.loadAddress(**addr, static_cast<std::intmax_t>(*idx),
+                              ast->type);
   }
 
   return std::nullopt;
@@ -2315,7 +2317,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(MemberExpressionAST* ast)
       auto result = address
                         ? std::get_if<std::shared_ptr<ConstAddress>>(&*address)
                         : nullptr;
-      if (result && *result) return interp.loadAddress(**result, 0);
+      if (result && *result) return interp.loadAddress(**result, 0, ast->type);
     } else if (receiver.object) {
       for (const auto& subobject : receiver.object->members()) {
         if (subobject.symbol != field) continue;
@@ -2592,7 +2594,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(UnaryExpressionAST* ast)
       }
       if (auto addr =
               std::get_if<std::shared_ptr<ConstAddress>>(&*expressionResult)) {
-        return interp.loadAddress(**addr, 0);
+        return interp.loadAddress(**addr, 0, ast->type);
       }
       if (auto str = std::get_if<const StringLiteral*>(&*expressionResult))
         return stringLiteralElement(*str, 0);

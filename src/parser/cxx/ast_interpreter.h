@@ -455,6 +455,8 @@ class ASTInterpreter {
 
   [[nodiscard]] auto lvalue(ExpressionAST* ast) -> ConstValue*;
 
+  // Typed expression reads identify a whole array or vector at its base.
+  // Untyped structural reads select an element of aggregate storage.
   [[nodiscard]] auto loadAddress(const ConstAddress& address,
                                  std::intmax_t extraIndex,
                                  const Type* objectType = nullptr)
@@ -473,6 +475,7 @@ class ASTInterpreter {
                                        std::size_t count)
       -> std::optional<std::string>;
 
+  // Uses the same whole-object selection as loadAddress.
   [[nodiscard]] auto addressSlot(const ConstAddress& address,
                                  std::intmax_t extraIndex,
                                  const Type* objectType = nullptr)
