@@ -63,7 +63,11 @@ export async function dumpSemanticModel(root: string): Promise<string> {
     sysroot: sysrootPath(root),
     path: input,
     source: fs.readFileSync(input, "utf8"),
-    includePaths: [path.join(root, "src/parser"), path.join(root, "src/codegen")],
+    analysisMode: "declarations",
+    includePaths: [
+      path.join(root, "src/parser"),
+      path.join(root, "src/codegen"),
+    ],
     exists: fs.existsSync,
     readFile: async (file: string) => {
       try {
