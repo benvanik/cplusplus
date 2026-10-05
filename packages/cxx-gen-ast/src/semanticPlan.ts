@@ -323,10 +323,17 @@ export class PlanBuilder {
       return undefined;
     }
 
+    let returnType: ModelType;
+    try {
+      returnType = substituteWireType(accessor.returnType, substitution);
+    } catch (error) {
+      this.diagnostics.push(`${context}: ${(error as Error).message}`);
+      return undefined;
+    }
+
     let wire: Wire;
     let cppType: string;
     try {
-      const returnType = substituteWireType(accessor.returnType, substitution);
       wire = this.mapper.wireOf(returnType, context);
       cppType = this.mapper.cppTypeOf(returnType);
     } catch (error) {
@@ -598,11 +605,18 @@ export class PlanBuilder {
         return undefined;
       }
 
+      const context = `${entry.name}(${parameter.name})`;
       let type: ModelType;
-      let wire: Wire;
       try {
         type = substituteWireType(parameter.type, []);
-        wire = this.mapper.wireOf(type, `${entry.name}(${parameter.name})`);
+      } catch (error) {
+        this.diagnostics.push(`${context}: ${(error as Error).message}`);
+        return undefined;
+      }
+
+      let wire: Wire;
+      try {
+        wire = this.mapper.wireOf(type, context);
       } catch (error) {
         this.diagnostics.push((error as Error).message);
         return undefined;

@@ -24,3 +24,49 @@ test("persisted field plans retain their binding rationale", () => {
     assert.equal(field.why, "abiTags() answers a span over the interned list");
   }
 });
+
+test("semantic plan substitution diagnostics identify their owner", () => {
+  const model = JSON.parse(source);
+  const missingParameter = {
+    kind: "type-param",
+    index: 99,
+    depth: 0,
+    isPack: false,
+  };
+
+  const maybeTemplate = model.classes.find(
+    (entry) => entry.name === "::cxx::MaybeTemplate",
+  );
+  assert.ok(maybeTemplate);
+  const templateDeclaration = maybeTemplate.methods.find(
+    (method) => method.name === "templateDeclaration",
+  );
+  assert.ok(templateDeclaration);
+  templateDeclaration.returnType = missingParameter;
+
+  const control = model.classes.find(
+    (entry) => entry.name === "::cxx::Control",
+  );
+  assert.ok(control);
+  const getIdentifier = control.methods.find(
+    (method) => method.name === "getIdentifier",
+  );
+  assert.ok(getIdentifier);
+  assert.ok(
+    getIdentifier.parameters[0]?.typeName.includes("basic_string_view"),
+  );
+  getIdentifier.parameters[0].type = missingParameter;
+
+  const diagnostics = new PlanBuilder(loadModel(JSON.stringify(model))).build()
+    .diagnostics;
+  assert.ok(
+    diagnostics.includes(
+      "::cxx::MaybeTemplate::templateDeclaration: no template argument for type-param<99, 0>",
+    ),
+  );
+  assert.ok(
+    diagnostics.includes(
+      "::cxx::Identifier(name): no template argument for type-param<99, 0>",
+    ),
+  );
+});
