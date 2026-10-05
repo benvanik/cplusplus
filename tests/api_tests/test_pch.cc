@@ -33,6 +33,7 @@
 #include <cxx/translation_unit.h>
 #include <cxx/types.h>
 #include <cxx/views/symbol_chain.h>
+#include <cxx/views/symbols.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -399,6 +400,57 @@ constexpr Int4 lanes{1, 2};
     auto integer = interpreter.toInt(value);
     ASSERT_TRUE(integer);
     EXPECT_EQ(*integer, expected[index]);
+  }
+}
+
+TEST(PrecompiledHeader, EvaluatesAggregateDefaultsAfterRestore) {
+  std::vector<std::uint8_t> data;
+  {
+    Prefix prefix{R"(
+struct Descriptor {
+  unsigned elements;
+  unsigned words = this->elements / 8;
+};
+struct Outer {
+  unsigned elements;
+  constexpr unsigned compute() const {
+    Descriptor first{this->elements};
+    Descriptor second{this->elements * 2};
+    return first.words + second.words + this->elements;
+  }
+};
+constexpr unsigned count(unsigned elements) {
+  return Outer{elements}.compute();
+}
+)"};
+
+    data = prefix.emit();
+    ASSERT_TRUE(prefix.errors().empty());
+    ASSERT_FALSE(data.empty());
+  }
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  MemoryLayout memoryLayout{32};
+  consumer.control()->setMemoryLayout(&memoryLayout);
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  auto functions =
+      views::each_function(findMember(consumer.globalScope(), "count"));
+  ASSERT_EQ(std::ranges::distance(functions), 1);
+  auto function = *functions.begin();
+
+  ASTInterpreter interpreter{&consumer, consumer.globalScope()};
+  for (std::intmax_t elements : {16, 32, 64}) {
+    SCOPED_TRACE(elements);
+    auto value = interpreter.evaluateCall(function, {elements});
+    ASSERT_TRUE(value);
+    auto integer = interpreter.toInt(*value);
+    ASSERT_TRUE(integer);
+    EXPECT_EQ(*integer, elements + 3 * elements / 8);
   }
 }
 

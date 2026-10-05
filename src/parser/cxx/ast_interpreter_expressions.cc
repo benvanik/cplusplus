@@ -845,7 +845,8 @@ struct ASTInterpreter::ExpressionVisitor {
                                   const ComplexType* complexType)
       -> ExpressionResult;
 
-  [[nodiscard]] auto aggregateObject(BracedInitListAST* ast,
+  [[nodiscard]] auto aggregateObject(const Type* type,
+                                     List<ExpressionAST*>* clauses,
                                      ClassSymbol* classSymbol)
       -> ExpressionResult;
 
@@ -1410,7 +1411,16 @@ auto ASTInterpreter::receiverFor(ExpressionAST* base, TokenKind accessOp)
 }
 
 auto ASTInterpreter::memberReceiver(MemberExpressionAST* ast) -> Receiver {
-  return applySubobjectPath(receiverFor(ast->baseExpression, ast->accessOp),
+  auto base = ast->baseExpression;
+  // A materialized temporary owns its value instead of referring to a named
+  // storage slot. Evaluate its construction once and retain that object.
+  if (auto materialized = ast_cast<ImplicitCastExpressionAST>(base);
+      materialized &&
+      materialized->castKind ==
+          ImplicitCastKind::kTemporaryMaterializationConversion) {
+    base = materialized->expression;
+  }
+  return applySubobjectPath(receiverFor(base, ast->accessOp),
                             ast->subobjectPath);
 }
 
@@ -2206,6 +2216,10 @@ auto ASTInterpreter::ExpressionVisitor::operator()(TypeConstructionAST* ast)
   if (auto classType = unqualified_cast<ClassType>(ast->type)) {
     auto classSymbol = classType->symbol();
     if (!classSymbol) return std::nullopt;
+    if (!ast->constructorSymbol &&
+        unit()->typeTraits().is_aggregate(ast->type)) {
+      return aggregateObject(ast->type, ast->expressionList, classSymbol);
+    }
     if (!ast->expressionList &&
         unit()->typeTraits().requires_zero_initialization(
             ast->type, ast->constructorSymbol))
@@ -3656,12 +3670,13 @@ auto ASTInterpreter::valueInitializeClass(const Type* type, ClassSymbol* symbol)
 }
 
 auto ASTInterpreter::ExpressionVisitor::aggregateObject(
-    BracedInitListAST* ast, ClassSymbol* classSymbol) -> ExpressionResult {
+    const Type* type, List<ExpressionAST*>* clauses, ClassSymbol* classSymbol)
+    -> ExpressionResult {
   auto elements = unit()->typeTraits().aggregate_elements(classSymbol);
-  auto object = std::make_shared<ConstObject>(ast->type);
+  auto object = std::make_shared<ConstObject>(type);
 
   std::size_t elementIndex = 0;
-  for (auto node : ListView{ast->expressionList}) {
+  for (auto node : ListView{clauses}) {
     auto clause = node;
     Symbol* element = nullptr;
     List<DesignatorAST*>* subobjectDesignators = nullptr;
@@ -3683,11 +3698,23 @@ auto ASTInterpreter::ExpressionVisitor::aggregateObject(
     }
     ++elementIndex;
 
-    auto value =
-        subobjectDesignators
-            ? interp.evaluate(clause)
-            : interp.initialValue(
-                  unit()->typeTraits().aggregate_element_type(element), clause);
+    auto evaluateClause = [&] {
+      if (subobjectDesignators) return interp.evaluate(clause);
+      return interp.initialValue(
+          unit()->typeTraits().aggregate_element_type(element), clause);
+    };
+    auto value = [&] {
+      // Defaults see the initialized prefix of this object. Explicit clauses
+      // still evaluate in the enclosing receiver, including nested aggregates.
+      if (ast_cast<DefaultInitializerExpressionAST>(clause)) {
+        auto savedReceiver =
+            std::exchange(interp.receiver_, Receiver{object, {}});
+        auto value = evaluateClause();
+        interp.receiver_ = std::move(savedReceiver);
+        return value;
+      }
+      return evaluateClause();
+    }();
     if (!value) return std::nullopt;
 
     if (!subobjectDesignators) {
@@ -3837,7 +3864,8 @@ auto ASTInterpreter::ExpressionVisitor::operator()(BracedInitListAST* ast)
 
   if (auto classType = type_cast<ClassType>(ast->type)) {
     if (traits.is_aggregate(ast->type))
-      return aggregateObject(ast, classType->symbol());
+      return aggregateObject(ast->type, ast->expressionList,
+                             classType->symbol());
     if (!traits.initializer_list_element_type(ast->type)) return std::nullopt;
   } else if (!traits.is_class(ast->type)) {
     if (!ast->expressionList) return interp.zeroInitialize(ast->type);
