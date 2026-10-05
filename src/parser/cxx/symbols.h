@@ -739,7 +739,8 @@ class ScopeSymbol : public Symbol {
 
   [[nodiscard]] auto members() const -> const std::vector<Symbol*>&;
 
-  [[nodiscard]] auto usingDirectives() const {
+  [[nodiscard]] auto usingDirectives() const
+      -> std::ranges::ref_view<const std::vector<ScopeSymbol*>> {
     return std::views::all(usingDirectives_);
   }
 
