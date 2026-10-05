@@ -425,7 +425,7 @@ auto SpecializationTable::matches(TranslationUnit* unit, std::size_t index,
   if (auto trace = unit->timeTrace())
     trace->count(TimeTrace::kSpecializationComparisons);
   if (specialization && entry.symbol != specialization) return false;
-  if (std::ranges::equal(entry.arguments, arguments)) return true;
+  if (template_argument_keys_equal(entry.arguments, arguments)) return true;
   return compare_args(unit, entry.arguments, arguments);
 }
 

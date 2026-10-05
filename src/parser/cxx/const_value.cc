@@ -789,12 +789,16 @@ struct EquivalentValues {
     const auto initialized = std::max(lhs->initializedElements().size(),
                                       rhs.initializedElements().size());
     for (std::size_t index = 0; index < initialized; ++index) {
-      if (!equivalent_values(std::get<0>(lhs->element(index)),
-                             std::get<0>(rhs.element(index))))
+      const auto& leftElement = lhs->element(index);
+      const auto& rightElement = rhs.element(index);
+      if (std::get<1>(leftElement) != std::get<1>(rightElement) ||
+          !equivalent_values(std::get<0>(leftElement),
+                             std::get<0>(rightElement)))
         return false;
     }
     if (initialized == lhs->size()) return true;
-    return equivalent_values(std::get<0>(lhs->filler()),
+    return std::get<1>(lhs->filler()) == std::get<1>(rhs.filler()) &&
+           equivalent_values(std::get<0>(lhs->filler()),
                              std::get<0>(rhs.filler()));
   }
 
@@ -894,9 +898,11 @@ class ValueHasher {
       -> std::optional<std::size_t> {
     if (!value) return std::nullopt;
     std::size_t seed = value->size();
-    for (std::size_t index = 0; index < value->size(); ++index)
-      if (!append(seed, std::get<0>(value->element(index))))
-        return std::nullopt;
+    for (std::size_t index = 0; index < value->size(); ++index) {
+      const auto& element = value->element(index);
+      hash_combine(seed, std::get<1>(element));
+      if (!append(seed, std::get<0>(element))) return std::nullopt;
+    }
     return seed;
   }
 

@@ -25,6 +25,7 @@
 #include <cxx/source_location.h>
 #include <cxx/token_fwd.h>
 
+#include <span>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -247,6 +248,10 @@ class TemplateId final : public Name {
   const Name* name_;
   std::vector<TemplateArgument> args_;
 };
+
+[[nodiscard]] auto template_argument_keys_equal(
+    std::span<const TemplateArgument> left,
+    std::span<const TemplateArgument> right) -> bool;
 
 template <typename Visitor>
 auto visit(Visitor&& visitor, const Name* name) {
@@ -471,6 +476,7 @@ template <>
 struct std::equal_to<cxx::TemplateId> {
   auto operator()(const cxx::TemplateId& id, const cxx::TemplateId& other) const
       -> bool {
-    return id.name() == other.name() && id.arguments() == other.arguments();
+    return id.name() == other.name() &&
+           cxx::template_argument_keys_equal(id.arguments(), other.arguments());
   }
 };

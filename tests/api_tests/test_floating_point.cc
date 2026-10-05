@@ -399,6 +399,42 @@ TEST(ConstFloat, PreservesWideRepresentations) {
   EXPECT_EQ(wide->negated().bits(), 0xfff0000012345678ULL);
 }
 
+TEST(ConstFloat, PreservesQuietNaNPayloadsThroughWidening) {
+  using Format = ConstFloat::Format;
+  struct Case {
+    Format format;
+    std::uint64_t firstBits;
+    std::uint64_t secondBits;
+  };
+  constexpr Case cases[] = {
+      {Format::kFloat8E4M3FN, 0x7f, 0x7f},
+      {Format::kFloat8E5M2, 0x7e, 0x7f},
+      {Format::kFloat16, 0x7e01, 0x7e02},
+      {Format::kBFloat16, 0x7fc1, 0x7fc2},
+      {Format::kFloat, 0x7fc00001, 0x7fc00002},
+      {Format::kDouble, 0x7ff8000000000001ULL, 0x7ff8000000000002ULL},
+  };
+
+  for (const auto& [format, firstBits, secondBits] : cases) {
+    SCOPED_TRACE(static_cast<unsigned>(format));
+    const auto positiveFirst = ConstFloat::fromBits(format, firstBits);
+    ASSERT_TRUE(positiveFirst);
+    const auto sign = std::uint64_t{1} << (positiveFirst->bitWidth() - 1);
+    for (auto signBits : {std::uint64_t{0}, sign}) {
+      const auto signedFirstBits = firstBits | signBits;
+      const auto signedSecondBits = secondBits | signBits;
+      const auto first = ConstFloat::fromBits(format, signedFirstBits);
+      const auto second = ConstFloat::fromBits(format, signedSecondBits);
+      ASSERT_TRUE(first);
+      ASSERT_TRUE(second);
+      EXPECT_EQ(ConstFloat::fromValue(format, first->toLongDouble()).bits(),
+                signedFirstBits);
+      EXPECT_EQ(ConstFloat::fromValue(format, second->toLongDouble()).bits(),
+                signedSecondBits);
+    }
+  }
+}
+
 TEST(ConstFloat, EveryFiniteNarrowRepresentationRoundTrips) {
   using Format = ConstFloat::Format;
   for (const auto format : {Format::kFloat16, Format::kBFloat16,

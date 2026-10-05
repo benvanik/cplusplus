@@ -29,6 +29,10 @@
 #include <cxx/types.h>
 #include <gtest/gtest.h>
 
+#include <bit>
+#include <cstdint>
+#include <memory>
+
 using namespace cxx;
 
 TEST(Control, integer_literals) {
@@ -336,6 +340,64 @@ TEST(Control, constant_template_argument_keys) {
   auto otherPrimary = control->newClassSymbol(nullptr, {});
   otherPrimary->addSpecialization(&unit, valueArguments, instance);
   EXPECT_EQ(otherPrimary->findSpecialization(&unit, symbolArguments), instance);
+}
+
+TEST(Control, structural_template_argument_keys) {
+  DiagnosticsClient diagnostics;
+  TranslationUnit unit{&diagnostics};
+  auto control = unit.control();
+  auto name = control->getIdentifier("Tag");
+
+  std::vector<TemplateArgument> positiveZero{ConstValue{0.0L}};
+  std::vector<TemplateArgument> negativeZero{ConstValue{-0.0L}};
+  EXPECT_NE(control->getTemplateId(name, positiveZero),
+            control->getTemplateId(name, negativeZero));
+
+  auto nan = static_cast<long double>(
+      std::bit_cast<double>(std::uint64_t{0x7ff8000000000001}));
+  auto otherNan = static_cast<long double>(
+      std::bit_cast<double>(std::uint64_t{0x7ff8000000000002}));
+  std::vector<TemplateArgument> firstNan{ConstValue{nan}};
+  std::vector<TemplateArgument> secondNan{ConstValue{nan}};
+  std::vector<TemplateArgument> distinctNan{ConstValue{otherNan}};
+  EXPECT_EQ(control->getTemplateId(name, firstNan),
+            control->getTemplateId(name, secondNan));
+  EXPECT_NE(control->getTemplateId(name, firstNan),
+            control->getTemplateId(name, distinctNan));
+
+  std::vector<TemplateArgument> integerNull{ConstValue{ConstInt{0}}};
+  std::vector<TemplateArgument> addressNull{
+      ConstValue{std::make_shared<ConstAddress>()}};
+  EXPECT_EQ(control->getTemplateId(name, integerNull),
+            control->getTemplateId(name, addressNull));
+
+  auto primary = control->newClassSymbol(nullptr, {});
+  auto positiveInstance = control->newClassSymbol(nullptr, {});
+  auto negativeInstance = control->newClassSymbol(nullptr, {});
+  primary->addSpecialization(&unit, positiveZero, positiveInstance);
+  primary->addSpecialization(&unit, negativeZero, negativeInstance);
+  EXPECT_EQ(primary->findSpecialization(&unit, positiveZero), positiveInstance);
+  EXPECT_EQ(primary->findSpecialization(&unit, negativeZero), negativeInstance);
+
+  auto integerList = std::make_shared<InitializerList>();
+  integerList->append(ConstInt{1}, control->getIntType());
+  auto sameIntegerList = std::make_shared<InitializerList>();
+  sameIntegerList->append(ConstInt{1}, control->getIntType());
+  auto unsignedList = std::make_shared<InitializerList>();
+  unsignedList->append(ConstInt{1}, control->getUnsignedIntType());
+  EXPECT_TRUE(
+      equivalent_values(ConstValue{integerList}, ConstValue{sameIntegerList}));
+  EXPECT_FALSE(
+      equivalent_values(ConstValue{integerList}, ConstValue{unsignedList}));
+
+  auto integerFiller = std::make_shared<InitializerList>(
+      std::vector<InitializerList::Element>{}, 3,
+      InitializerList::Element{ConstInt{0}, control->getIntType()});
+  auto unsignedFiller = std::make_shared<InitializerList>(
+      std::vector<InitializerList::Element>{}, 3,
+      InitializerList::Element{ConstInt{0}, control->getUnsignedIntType()});
+  EXPECT_FALSE(
+      equivalent_values(ConstValue{integerFiller}, ConstValue{unsignedFiller}));
 }
 
 TEST(Control, integer_template_argument_key_distribution) {

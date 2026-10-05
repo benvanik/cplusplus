@@ -22,7 +22,9 @@
 #include <cxx/memory_layout.h>
 #include <cxx/types.h>
 
+#include <bit>
 #include <cmath>
+#include <limits>
 #include <utility>
 
 namespace cxx {
@@ -50,6 +52,46 @@ namespace {
       return {.exponentBits = 11, .significandDigits = 53};
   }
   std::unreachable();
+}
+
+[[nodiscard]] auto isNaNRepresentation(ConstFloat::Format format,
+                                       std::uint64_t bits) -> bool {
+  const auto description = floatingPointFormat(format);
+  const auto fractionBits = description.fractionBits();
+  const auto fractionMask = (std::uint64_t{1} << fractionBits) - 1;
+  const auto exponentMask = (std::uint64_t{1} << description.exponentBits) - 1;
+  const auto exponent = (bits >> fractionBits) & exponentMask;
+  const auto fraction = bits & fractionMask;
+  if (description.specialValueEncoding ==
+      FloatingPointFormat::SpecialValueEncoding::kFiniteOnly)
+    return exponent == exponentMask && fraction == fractionMask;
+  return exponent == exponentMask && fraction != 0;
+}
+
+[[nodiscard]] auto widenNaNToFloat(std::uint64_t bits,
+                                   ConstFloat::Format sourceFormat)
+    -> std::uint32_t {
+  const auto source = floatingPointFormat(sourceFormat);
+  const auto target = floatingPointFormat(ConstFloat::Format::kFloat);
+  const auto sourceFractionBits = source.fractionBits();
+  const auto targetFractionBits = target.fractionBits();
+  const auto sourceFractionMask = (std::uint64_t{1} << sourceFractionBits) - 1;
+  const auto targetFractionMask = (std::uint64_t{1} << targetFractionBits) - 1;
+  const auto negative =
+      (bits >> (source.exponentBits + sourceFractionBits)) & 1;
+  const auto sign = negative << (target.exponentBits + targetFractionBits);
+  const auto exponentMask = (std::uint64_t{1} << target.exponentBits) - 1;
+
+  auto payload = bits & sourceFractionMask;
+  if (targetFractionBits < sourceFractionBits)
+    payload >>= sourceFractionBits - targetFractionBits;
+  else
+    payload <<= targetFractionBits - sourceFractionBits;
+  if (targetFractionBits != sourceFractionBits || !payload)
+    payload |= std::uint64_t{1} << (targetFractionBits - 1);
+  return static_cast<std::uint32_t>(sign |
+                                    (exponentMask << targetFractionBits) |
+                                    (payload & targetFractionMask));
 }
 
 }  // namespace
@@ -93,9 +135,23 @@ auto ConstFloat::bitWidth() const -> unsigned {
   return 1 + description.exponentBits + description.fractionBits();
 }
 
-auto ConstFloat::isNaN() const -> bool { return std::isnan(toDouble()); }
+auto ConstFloat::isNaN() const -> bool {
+  return isNaNRepresentation(format_, bits_);
+}
 
 auto ConstFloat::toDouble() const -> double {
+  if constexpr (sizeof(float) == sizeof(std::uint32_t) &&
+                std::numeric_limits<float>::is_iec559) {
+    if (format_ == Format::kFloat)
+      return std::bit_cast<float>(static_cast<std::uint32_t>(bits_));
+    if (format_ != Format::kDouble && isNaN()) {
+      return static_cast<double>(
+          std::bit_cast<float>(widenNaNToFloat(bits_, format_)));
+    }
+  }
+  if constexpr (sizeof(double) == sizeof(std::uint64_t) &&
+                std::numeric_limits<double>::is_iec559)
+    if (format_ == Format::kDouble) return std::bit_cast<double>(bits_);
   return floatingPointFormat(format_).value(bits_);
 }
 

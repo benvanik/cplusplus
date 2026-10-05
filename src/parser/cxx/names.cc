@@ -18,8 +18,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <cxx/const_value.h>
 #include <cxx/names.h>
-#include <cxx/reflection.h>
 
 // cxx
 #include <cxx/ast.h>
@@ -30,69 +30,9 @@
 #include <cxx/translation_unit.h>
 #include <cxx/util.h>
 
-#include <cstring>
-
 namespace cxx {
 
 namespace {
-
-struct ConstValueHash {
-  auto operator()(ConstFloat value) const -> std::size_t {
-    auto seed = std::hash<std::uint64_t>{}(value.bits());
-    hash_combine(seed, static_cast<unsigned>(value.format()));
-    return seed;
-  }
-
-  auto operator()(bool value) const -> std::size_t {
-    return std::hash<bool>{}(value);
-  }
-  auto operator()(ConstInt value) const -> std::size_t { return value.hash(); }
-  auto operator()(long double value) const -> std::size_t {
-    return std::hash<long double>{}(value);
-  }
-  auto operator()(const StringLiteral* value) const -> std::size_t {
-    return value->hashCode();
-  }
-  auto operator()(const std::shared_ptr<Meta>& value) const -> std::size_t {
-    return value ? Reflection::hash(*value) : 0;
-  }
-  auto operator()(const std::shared_ptr<InitializerList>& value) const
-      -> std::size_t {
-    std::size_t seed = 0;
-    hash_combine(seed, value->size());
-    for (std::size_t index = 0; index < value->size(); ++index) {
-      const auto& element = std::get<0>(value->element(index));
-      hash_combine(seed, std::visit(ConstValueHash{}, element));
-    }
-    return seed;
-  }
-  auto operator()(const std::shared_ptr<ConstComplex>& value) const
-      -> std::size_t {
-    std::size_t seed = 0;
-    hash_combine(seed, std::visit(ConstValueHash{}, value->real()));
-    hash_combine(seed, std::visit(ConstValueHash{}, value->imag()));
-    return seed;
-  }
-  auto operator()(const std::shared_ptr<ConstObject>& value) const
-      -> std::size_t {
-    std::size_t seed = std::hash<const void*>{}(value->type());
-    for (const auto& member : value->members()) {
-      hash_combine(seed, std::hash<const void*>{}(member.symbol));
-      hash_combine(seed, std::visit(ConstValueHash{}, member.value));
-    }
-    return seed;
-  }
-  auto operator()(const std::shared_ptr<ConstAddress>& value) const
-      -> std::size_t {
-    return std::hash<const void*>{}(value->symbol());
-  }
-  auto operator()(const std::shared_ptr<ConstLabelAddress>& value) const
-      -> std::size_t {
-    return std::hash<std::string>{}(value->name());
-  }
-  auto operator()(IndeterminateValue) const -> std::size_t { return 0; }
-  auto operator()(OutOfLifetimeValue) const -> std::size_t { return 0; }
-};
 
 struct TemplateArgumentHash {
   auto operator()(const Type* arg) const -> std::size_t {
@@ -103,8 +43,8 @@ struct TemplateArgumentHash {
     return arg->name() ? arg->name()->hashValue() : 0;
   }
 
-  auto operator()(ConstValue arg) const -> std::size_t {
-    return std::visit(ConstValueHash{}, arg);
+  auto operator()(const ConstValue& arg) const -> std::size_t {
+    return hash_value(arg).value_or(0);
   }
 
   auto operator()(ExpressionAST* arg) const -> std::size_t {
@@ -169,6 +109,21 @@ struct ConvertToName {
 };
 
 }  // namespace
+
+auto template_argument_keys_equal(std::span<const TemplateArgument> left,
+                                  std::span<const TemplateArgument> right)
+    -> bool {
+  if (left.size() != right.size()) return false;
+  for (std::size_t index = 0; index < left.size(); ++index) {
+    if (auto value = std::get_if<ConstValue>(&left[index])) {
+      auto otherValue = std::get_if<ConstValue>(&right[index]);
+      if (!otherValue || !equivalent_values(*value, *otherValue)) return false;
+    } else if (left[index] != right[index]) {
+      return false;
+    }
+  }
+  return true;
+}
 
 [[nodiscard]] auto get_name(Control* control, UnqualifiedIdAST* id)
     -> const Name* {
