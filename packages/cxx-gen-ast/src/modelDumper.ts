@@ -55,6 +55,10 @@ function accessOf(
   return current;
 }
 
+function defaultAccessOf(node: S.ClassSpecifierAST): ModelAccess {
+  return node.classKey === "class" ? "private" : "public";
+}
+
 function nameOf(symbol: S.Symbol | undefined): string {
   if (!symbol) return "";
   return symbol.text;
@@ -222,9 +226,10 @@ export function dumpModel(parser: Parser): Model {
   }
   function methods(
     declarations: Iterable<S.DeclarationAST | undefined>,
+    defaultAccess: ModelAccess,
   ): ModelMethod[] {
     const result: ModelMethod[] = [];
-    let access: ModelAccess = "public";
+    let access = defaultAccess;
     for (const declaration of declarations) {
       if (declaration instanceof S.AccessDeclarationAST) {
         access = accessOf(declaration, access);
@@ -259,9 +264,10 @@ export function dumpModel(parser: Parser): Model {
   function fields(
     declarations: Iterable<S.DeclarationAST | undefined>,
     anonymousPath: string[] = [],
+    defaultAccess: ModelAccess = "public",
   ): ModelField[] {
     const result: ModelField[] = [];
-    let access: ModelAccess = "public";
+    let access = defaultAccess;
     for (const declaration of declarations) {
       if (declaration instanceof S.AccessDeclarationAST) {
         access = accessOf(declaration, access);
@@ -280,7 +286,11 @@ export function dumpModel(parser: Parser): Model {
           let kind = "struct";
           if (anonymous.symbol?.isUnion) kind = "union";
           result.push(
-            ...fields(anonymous.declarationList, [...anonymousPath, kind]),
+            ...fields(
+              anonymous.declarationList,
+              [...anonymousPath, kind],
+              defaultAccessOf(anonymous),
+            ),
           );
           continue;
         }
@@ -322,6 +332,7 @@ export function dumpModel(parser: Parser): Model {
       const loc = location(node.classToken?.location);
       if (isModelled(loc)) {
         const symbol = node.symbol;
+        const defaultAccess = defaultAccessOf(node);
         const entry: ModelClass = {
           name: qualifiedName(symbol),
           unqualifiedName: nameOf(symbol),
@@ -344,7 +355,7 @@ export function dumpModel(parser: Parser): Model {
                 isVirtual: base.isVirtual,
               };
             }),
-          fields: fields(node.declarationList),
+          fields: fields(node.declarationList, [], defaultAccess),
           constructors: [...symbol.declaredConstructors]
             .filter(
               (fn): fn is S.FunctionSymbol => fn !== undefined && !fn.isDeleted,
@@ -353,7 +364,7 @@ export function dumpModel(parser: Parser): Model {
               isExplicit: fn.isExplicit,
               parameters: parameters(fn),
             })),
-          methods: methods(node.declarationList),
+          methods: methods(node.declarationList, defaultAccess),
         };
         const body = span(
           node.lbraceToken?.location,
