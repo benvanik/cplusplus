@@ -10,9 +10,9 @@ import { gen_semantic_codec } from "../src/gen_semantic_codec.ts";
 const index = loadModel(
   fs.readFileSync(new URL("../semantic-model.json", import.meta.url), "utf8"),
 );
+const plan = new PlanBuilder(index).build();
 
 test("semantic decoding derives nested container types from their accessor", () => {
-  const plan = new PlanBuilder(index).build();
   assert.deepEqual(plan.diagnostics, []);
   const address = plan.structs.find(
     (entity) => entity.short === "ConstAddress",
@@ -44,7 +44,6 @@ test("semantic decoding derives nested container types from their accessor", () 
 });
 
 test("semantic decoding keeps owning types when accessors return pointers or views", () => {
-  const plan = new PlanBuilder(index).build();
   const parameter = plan.symbols.find(
     (entity) => entity.short === "ParameterSymbol",
   );
@@ -64,7 +63,6 @@ test("semantic decoding keeps owning types when accessors return pointers or vie
 });
 
 test("semantic encoding preserves parameter reflections as a distinct variant", () => {
-  const plan = new PlanBuilder(index).build();
   assert.deepEqual(plan.diagnostics, []);
   const meta = plan.structs.find((entity) => entity.name === "::cxx::Meta");
   const value = meta.fields.find((field) => field.name === "value");
@@ -79,4 +77,39 @@ test("semantic encoding preserves parameter reflections as a distinct variant", 
     parameter.fields.map((field) => field.name),
     ["function", "index"],
   );
+});
+
+test("persisted field plans retain their binding rationale", () => {
+  const expected = [
+    [
+      "::cxx::Symbol",
+      "abiTags_",
+      "abiTags() answers a span over the interned list",
+    ],
+    [
+      "::cxx::NamespaceSymbol",
+      "anonNamespaceIndex_",
+      "the accessor answers nullopt for a named namespace",
+    ],
+    [
+      "::cxx::MaybeRedecl",
+      "canonical_",
+      "canonical() answers `this` when the field is null",
+    ],
+    [
+      "::cxx::ClassSymbol",
+      "minimumAlignmentShift_",
+      "the accessor represents the encoded request as byte alignment",
+    ],
+  ];
+  for (const [owner, name, why] of expected) {
+    const fields = plan.report.filter(
+      (field) => field.owner === owner && field.name === name,
+    );
+    assert.ok(fields.length > 0, `${owner}::${name}`);
+    for (const field of fields) {
+      assert.equal(field.cls, "P");
+      assert.equal(field.why, why);
+    }
+  }
 });
