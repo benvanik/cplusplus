@@ -7,9 +7,11 @@ import { loadModel } from "../src/parseModel.ts";
 import { PlanBuilder } from "../src/semanticPlan.ts";
 import { gen_semantic_codec } from "../src/gen_semantic_codec.ts";
 
-const index = loadModel(
-  fs.readFileSync(new URL("../semantic-model.json", import.meta.url), "utf8"),
+const source = fs.readFileSync(
+  new URL("../semantic-model.json", import.meta.url),
+  "utf8",
 );
+const index = loadModel(source);
 const plan = new PlanBuilder(index).build();
 
 test("semantic decoding derives nested container types from their accessor", () => {
@@ -111,5 +113,55 @@ test("persisted field plans retain their binding rationale", () => {
       assert.equal(field.cls, "P");
       assert.equal(field.why, why);
     }
+  }
+});
+
+test("semantic plan substitution diagnostics identify their owner", () => {
+  const model = JSON.parse(source);
+  const missingParameter = {
+    kind: "type-param",
+    index: 99,
+    depth: 0,
+    isPack: false,
+  };
+
+  const classNamed = (name) => {
+    const entry = model.classes.find((entry) => entry.name === name);
+    assert.ok(entry, name);
+    return entry;
+  };
+  const methodNamed = (entry, name) => {
+    const method = entry.methods.find((method) => method.name === name);
+    assert.ok(method, `${entry.name}::${name}`);
+    return method;
+  };
+  const fieldNamed = (entry, name) => {
+    const field = entry.fields.find((field) => field.name === name);
+    assert.ok(field, `${entry.name}::${name}`);
+    return field;
+  };
+
+  methodNamed(
+    classNamed("::cxx::MaybeTemplate"),
+    "templateDeclaration",
+  ).returnType = missingParameter;
+  methodNamed(
+    classNamed("::cxx::Control"),
+    "getIdentifier",
+  ).parameters[0].type = missingParameter;
+  methodNamed(classNamed("::cxx::ConstAddress"), "subobjectPath").returnType =
+    missingParameter;
+  fieldNamed(classNamed("::cxx::Symbol"), "location_").type = missingParameter;
+
+  const diagnostics = new PlanBuilder(loadModel(JSON.stringify(model))).build()
+    .diagnostics;
+  const message = "no template argument for type-param<99, 0>";
+  for (const context of [
+    "::cxx::MaybeTemplate::templateDeclaration",
+    "::cxx::Identifier(name)",
+    "::cxx::ConstAddress::subobjectPath_",
+    "::cxx::Symbol::location_",
+  ]) {
+    assert.ok(diagnostics.includes(`${context}: ${message}`), context);
   }
 });

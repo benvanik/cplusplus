@@ -119,6 +119,19 @@ export class PlanBuilder {
     this.mapper = new WireMapper(index);
   }
 
+  private substituteForWire(
+    type: ModelType,
+    substitution: ModelType[],
+    context: string,
+  ): ModelType | undefined {
+    try {
+      return substituteWireType(type, substitution);
+    } catch (error) {
+      this.diagnostics.push(`${context}: ${(error as Error).message}`);
+      return undefined;
+    }
+  }
+
   build(): CodecPlan {
     for (const name of [
       "::cxx::Attribute",
@@ -336,10 +349,16 @@ export class PlanBuilder {
       return undefined;
     }
 
+    const returnType = this.substituteForWire(
+      accessor.returnType,
+      substitution,
+      context,
+    );
+    if (!returnType) return undefined;
+
     let wire: Wire;
     let cppType: string;
     try {
-      const returnType = substituteWireType(accessor.returnType, substitution);
       wire = this.mapper.wireOf(returnType, context);
       cppType = this.mapper.cppTypeOf(returnType);
     } catch (error) {
@@ -409,15 +428,22 @@ export class PlanBuilder {
         this.diagnostics.push(`${context}: no accessor '${binding.from}()'`);
         return undefined;
       }
-      type = accessor.returnType;
+      const returnType = this.substituteForWire(
+        accessor.returnType,
+        substitution,
+        context,
+      );
+      if (!returnType) return undefined;
+      type = returnType;
       typeExpression = `$->${binding.from}()`;
     } else {
-      try {
-        type = substituteWireType(field.type, substitution);
-      } catch (error) {
-        this.diagnostics.push(`${context}: ${(error as Error).message}`);
-        return undefined;
-      }
+      const fieldType = this.substituteForWire(
+        field.type,
+        substitution,
+        context,
+      );
+      if (!fieldType) return undefined;
+      type = fieldType;
     }
 
     let wire: Wire;
@@ -444,10 +470,12 @@ export class PlanBuilder {
     if (!typeExpression && !binding?.read) {
       const accessor = this.accessorNamed(entity, fieldBaseName(field.name));
       if (accessor) {
-        const returnType = substituteWireType(
+        const returnType = this.substituteForWire(
           accessor.returnType,
           substitution,
+          context,
         );
+        if (!returnType) return undefined;
         if (typeKey(valueType(returnType)) === typeKey(valueType(type)))
           typeExpression = read;
       }
@@ -623,11 +651,13 @@ export class PlanBuilder {
         return undefined;
       }
 
-      let type: ModelType;
+      const context = `${entry.name}(${parameter.name})`;
+      const type = this.substituteForWire(parameter.type, [], context);
+      if (!type) return undefined;
+
       let wire: Wire;
       try {
-        type = substituteWireType(parameter.type, []);
-        wire = this.mapper.wireOf(type, `${entry.name}(${parameter.name})`);
+        wire = this.mapper.wireOf(type, context);
       } catch (error) {
         this.diagnostics.push((error as Error).message);
         return undefined;
