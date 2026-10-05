@@ -24,11 +24,11 @@ import {
   ModelIndex,
   type ModelClass,
   type ModelType,
-  substituteType,
   typeKey,
   unqualified,
   typeArguments,
 } from "./parseModel.ts";
+import { substituteWireType } from "./semanticWire.ts";
 import { cpy_header } from "./cpy_header.ts";
 import * as tokens from "./tokens.ts";
 
@@ -315,7 +315,9 @@ export function gen_reflection(index: ModelIndex, root: string) {
     if (transform.kind !== "class") return;
     const call = index
       .classOf(transform.name)
-      ?.methods.find((method) => method.name === "operator()" && method.isConst);
+      ?.methods.find(
+        (method) => method.name === "operator()" && method.isConst,
+      );
     return call?.returnType;
   }
 
@@ -664,7 +666,7 @@ export function gen_reflection(index: ModelIndex, root: string) {
             if (field.access !== "public") continue;
             items.set(field.name, {
               name: field.name,
-              type: substituteType(field.type, substitution),
+              type: substituteWireType(field.type, substitution),
               expression: `self->${field.name}`,
               owner: owner.name,
               isVirtual: false,
@@ -681,7 +683,7 @@ export function gen_reflection(index: ModelIndex, root: string) {
             continue;
           items.set(method.name, {
             name: method.name,
-            type: substituteType(method.returnType, substitution),
+            type: substituteWireType(method.returnType, substitution),
             expression: `self->${method.name}()`,
             owner: owner.name,
             isVirtual: method.isVirtual,
