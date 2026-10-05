@@ -22,7 +22,6 @@ import {
   type ModelIndex,
   type ModelType,
   className,
-  substituteType,
   typeArguments,
   unqualified,
 } from "./parseModel.ts";
@@ -485,7 +484,7 @@ function substituteTypeSafely(
   substitution: ModelType[],
 ): ModelType {
   try {
-    return substituteType(type, substitution);
+    return substituteWireType(type, substitution);
   } catch {
     return type;
   }
@@ -522,6 +521,7 @@ const keptArgumentCounts: Record<string, number> = {
   "::std::map": 2,
   "::std::unordered_set": 1,
   "::std::basic_string": 0,
+  "::std::basic_string_view": 0,
 };
 
 function isStdContainer(name: string): boolean {
@@ -531,6 +531,55 @@ function isStdContainer(name: string): boolean {
 function keptArguments(name: string, args: string[]): string[] {
   const count = keptArgumentCounts[name];
   return count === undefined ? args : args.slice(0, count);
+}
+
+/** Substitutes after retaining only template arguments represented on the wire. */
+export function substituteWireType(
+  type: ModelType,
+  substitution: ModelType[],
+): ModelType {
+  switch (type.kind) {
+    case "type-param": {
+      const replacement = substitution[type.index];
+      if (!replacement)
+        throw new Error(
+          `no template argument for type-param<${type.index}, ${type.depth}>`,
+        );
+      return replacement;
+    }
+    case "pointer":
+    case "lvalue-reference":
+    case "rvalue-reference":
+    case "qual":
+    case "array":
+      return {
+        ...type,
+        element: substituteWireType(type.element, substitution),
+      };
+    case "class": {
+      const count = keptArgumentCounts[type.name];
+      let typeArgumentIndex = 0;
+      return {
+        ...type,
+        arguments: type.arguments
+          .filter((argument) => {
+            if (count === undefined) return true;
+            if (argument.kind !== "type") return false;
+            return typeArgumentIndex++ < count;
+          })
+          .map((argument) =>
+            argument.kind === "type"
+              ? {
+                  ...argument,
+                  type: substituteWireType(argument.type, substitution),
+                }
+              : argument,
+          ),
+      };
+    }
+    default:
+      return type;
+  }
 }
 
 export function normalizeClassName(name: string): string {

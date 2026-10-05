@@ -22,7 +22,6 @@ import {
   type ModelClass,
   type ModelIndex,
   type ModelType,
-  substituteType,
 } from "./parseModel.ts";
 import {
   type ExtraField,
@@ -30,7 +29,12 @@ import {
   bindingOf,
   extraFieldsOf,
 } from "./semanticClassification.ts";
-import { type Wire, WireMapper, normalizeClassName } from "./semanticWire.ts";
+import {
+  type Wire,
+  WireMapper,
+  normalizeClassName,
+  substituteWireType,
+} from "./semanticWire.ts";
 
 export interface FieldPlan {
   owner: string;
@@ -322,7 +326,7 @@ export class PlanBuilder {
     let wire: Wire;
     let cppType: string;
     try {
-      const returnType = substituteType(accessor.returnType, substitution);
+      const returnType = substituteWireType(accessor.returnType, substitution);
       wire = this.mapper.wireOf(returnType, context);
       cppType = this.mapper.cppTypeOf(returnType);
     } catch (error) {
@@ -396,7 +400,7 @@ export class PlanBuilder {
       typeExpression = `$->${binding.from}()`;
     } else {
       try {
-        type = substituteType(field.type, substitution);
+        type = substituteWireType(field.type, substitution);
       } catch (error) {
         this.diagnostics.push(`${context}: ${(error as Error).message}`);
         return undefined;
@@ -593,12 +597,11 @@ export class PlanBuilder {
         return undefined;
       }
 
+      let type: ModelType;
       let wire: Wire;
       try {
-        wire = this.mapper.wireOf(
-          parameter.type,
-          `${entry.name}(${parameter.name})`,
-        );
+        type = substituteWireType(parameter.type, []);
+        wire = this.mapper.wireOf(type, `${entry.name}(${parameter.name})`);
       } catch (error) {
         this.diagnostics.push((error as Error).message);
         return undefined;
@@ -606,7 +609,7 @@ export class PlanBuilder {
 
       parameters.push({
         name: parameter.name,
-        cppType: this.mapper.cppTypeOf(parameter.type),
+        cppType: this.mapper.cppTypeOf(type),
         wire,
         read: `$->${reader}()`,
       });
