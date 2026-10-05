@@ -666,6 +666,7 @@ auto ASTInterpreter::initializeDefaultedObject(
   for (auto member : classSymbol->members()) {
     auto field = symbol_cast<FieldSymbol>(member);
     if (!field || field->isStatic()) continue;
+    if (field->isBitField() && !field->name()) continue;
 
     if (field->initializer()) {
       auto value = initializationValue(field->type(), field->constructor(),
@@ -717,6 +718,7 @@ auto ASTInterpreter::copyDefaultedObject(
   for (auto member : classSymbol->members()) {
     auto field = symbol_cast<FieldSymbol>(member);
     if (!field || field->isStatic()) continue;
+    if (field->isBitField() && !field->name()) continue;
     auto value = source->subobject(field);
     if (!value) return false;
     obj->setMember(field, cloneValue(*value));
@@ -1089,6 +1091,7 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
       for (auto field :
            views::members(currentConstructorClass_->resolvedDefinition()) |
                views::non_static_fields) {
+        if (field->isBitField() && !field->name()) continue;
         if (receiver_.object->subobject(field)) continue;
         auto value = defaultConstruct(field->type());
         if (!value) {
