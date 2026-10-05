@@ -1146,8 +1146,13 @@ auto ASTRewriter::ExpressionVisitor::operator()(MemberExpressionAST* ast)
   auto member = rewrite.remapSymbol(ast->symbol);
   if (!member) return copy;
 
-  if (memberBelongsToObjectType(translationUnit(), objectType, member))
+  if (memberBelongsToObjectType(translationUnit(), objectType, member)) {
     copy->symbol = member;
+    std::vector<Symbol*> subobjectPath;
+    for (auto symbol : ListView(ast->subobjectPath))
+      subobjectPath.push_back(rewrite.remapSymbol(symbol));
+    copy->subobjectPath = make_symbol_path(arena(), subobjectPath);
+  }
 
   return copy;
 }
@@ -1566,6 +1571,10 @@ auto ASTRewriter::ExpressionVisitor::operator()(ImplicitCastExpressionAST* ast)
   copy->expression = expression;
   copy->castKind = ast->castKind;
   copy->conversionFunction = ast->conversionFunction;
+  std::vector<Symbol*> subobjectPath;
+  for (auto symbol : ListView(ast->subobjectPath))
+    subobjectPath.push_back(rewrite.remapSymbol(symbol));
+  copy->subobjectPath = make_symbol_path(arena(), subobjectPath);
   copy->isVirtualDispatch = ast->isVirtualDispatch;
 
   return copy;

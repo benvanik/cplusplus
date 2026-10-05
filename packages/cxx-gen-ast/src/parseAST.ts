@@ -18,7 +18,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-export type Member = Token | TokenList | Node | NodeList | Attribute;
+export type Member =
+  Token | TokenList | Node | NodeList | SemanticList | Attribute;
 
 export interface AST {
   nodes: Class[];
@@ -51,6 +52,12 @@ export interface TokenList {
 
 export interface NodeList {
   kind: "node-list";
+  name: string;
+  type: string;
+}
+
+export interface SemanticList {
+  kind: "semantic-list";
   name: string;
   type: string;
 }

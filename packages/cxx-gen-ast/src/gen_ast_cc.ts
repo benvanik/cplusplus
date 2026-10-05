@@ -38,7 +38,7 @@ export function gen_ast_cc({ ast, output }: { ast: AST; output: string }) {
     emit();
     emit(`auto ${name}::firstSourceLocation() -> SourceLocation {`);
     members.forEach((m) => {
-      if (m.kind === "attribute") return;
+      if (m.kind === "attribute" || m.kind === "semantic-list") return;
       emit(`  if (auto loc = cxx::firstSourceLocation(${m.name})) return loc;`);
     });
     emit(`  return {};`);
@@ -47,7 +47,7 @@ export function gen_ast_cc({ ast, output }: { ast: AST; output: string }) {
     emit();
     emit(`auto ${name}::lastSourceLocation() -> SourceLocation {`);
     [...members].reverse().forEach((m) => {
-      if (m.kind === "attribute") return;
+      if (m.kind === "attribute" || m.kind === "semantic-list") return;
       emit(`  if (auto loc = cxx::lastSourceLocation(${m.name})) return loc;`);
     });
     emit(`  return {};`);
@@ -86,6 +86,8 @@ export function gen_ast_cc({ ast, output }: { ast: AST; output: string }) {
           case "node-list":
             params.push(`List<${m.type}*>* ${m.name}`);
             paramsNoLoc.push(`List<${m.type}*>* ${m.name}`);
+            break;
+          case "semantic-list":
             break;
           case "token":
             params.push(`SourceLocation ${m.name}`);
@@ -127,6 +129,9 @@ export function gen_ast_cc({ ast, output }: { ast: AST; output: string }) {
             emit(`    }`);
             emit(`  }`);
             emit();
+            break;
+          case "semantic-list":
+            emit(`  node->${m.name} = clone_symbol_path(arena, ${m.name});`);
             break;
           case "token":
             emit(`  node->${m.name} = ${m.name};`);

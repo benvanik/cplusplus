@@ -137,7 +137,8 @@ auto ASTInterpreter::sameObjectOperand(ExpressionAST* ast) -> ExpressionAST* {
     return nested->expression;
   if (!is_glvalue(ast)) return nullptr;
   if (auto cast = ast_cast<ImplicitCastExpressionAST>(ast)) {
-    if (cast->castKind == ImplicitCastKind::kUserDefinedConversion)
+    if (cast->castKind == ImplicitCastKind::kUserDefinedConversion ||
+        cast->castKind == ImplicitCastKind::kDerivedToBaseConversion)
       return nullptr;
     return cast->expression;
   }
@@ -949,6 +950,26 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
     if (cast->castKind == ImplicitCastKind::kUserDefinedConversion)
       return evaluateConversionFunctionCall(cast, CallResultKind::kLValue)
           .lvalue;
+    if (cast->castKind == ImplicitCastKind::kDerivedToBaseConversion) {
+      auto slot = lvalue(cast->expression);
+      for (auto symbol : ListView(cast->subobjectPath)) {
+        auto base = symbol_cast<BaseClassSymbol>(symbol);
+        if (base && base->isVirtual()) return nullptr;
+
+        auto object =
+            slot ? std::get_if<std::shared_ptr<ConstObject>>(slot) : nullptr;
+        if (!object || !*object) return nullptr;
+
+        slot = nullptr;
+        for (auto& member : (*object)->mutableMembers()) {
+          if (member.symbol != symbol) continue;
+          slot = &member.value;
+          break;
+        }
+        if (!slot) return nullptr;
+      }
+      return slot;
+    }
   }
 
   if (auto condition = ast_cast<ConditionExpressionAST>(ast)) {
@@ -991,7 +1012,28 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
     auto field = symbol_cast<FieldSymbol>(member->symbol);
     if (!field || field->isStatic()) return nullptr;
 
-    if (auto object = memberObject(member)) return memberSlot(object, field);
+    auto receiver = memberReceiver(member);
+    if (receiver.address) {
+      auto address = addressOfField(receiver, field);
+      auto result = address
+                        ? std::get_if<std::shared_ptr<ConstAddress>>(&*address)
+                        : nullptr;
+      return result && *result ? addressSlot(**result, 0) : nullptr;
+    }
+    if (receiver.object) {
+      ConstValue* slot = nullptr;
+      for (auto& subobject : receiver.object->mutableMembers()) {
+        if (subobject.symbol != field) continue;
+        slot = &subobject.value;
+        break;
+      }
+      if (!slot || !traits.is_reference(field->type())) return slot;
+      auto address = std::get_if<std::shared_ptr<ConstAddress>>(slot);
+      return address && *address
+                 ? addressSlot(**address, 0,
+                               traits.remove_reference(field->type()))
+                 : nullptr;
+    }
     return nullptr;
   }
 
@@ -1077,7 +1119,13 @@ auto ASTInterpreter::loadAddress(const ConstAddress& address,
     if (!parent) return std::nullopt;
     auto object = std::get_if<std::shared_ptr<ConstObject>>(&*parent);
     if (!object || !*object) return std::nullopt;
-    if (auto member = (*object)->subobject(sym)) storage = *member;
+    // A parent address records an exact storage step selected by semantics.
+    // Search only the parent's direct children so repeated bases stay distinct.
+    for (const auto& member : (*object)->members()) {
+      if (member.symbol != sym) continue;
+      storage = member.value;
+      break;
+    }
   } else if (address.owner()) {
     if (auto fv = address.owner()->subobject(sym)) storage = *fv;
   } else if (auto slot = lookupLocalSlot(sym)) {
@@ -1162,7 +1210,13 @@ auto ASTInterpreter::addressSlot(const ConstAddress& address,
     if (!parent) return nullptr;
     auto object = std::get_if<std::shared_ptr<ConstObject>>(parent);
     if (!object || !*object) return nullptr;
-    slot = subobjectSlot(*object, sym);
+    // Parent chains name exact storage steps, so recursive lookup would erase
+    // the identity of repeated base subobjects.
+    for (auto& member : (*object)->mutableMembers()) {
+      if (member.symbol != sym) continue;
+      slot = &member.value;
+      break;
+    }
   } else {
     slot = address.owner() ? subobjectSlot(address.owner(), sym)
                            : lookupLocalSlot(sym);
@@ -1281,14 +1335,20 @@ auto ASTInterpreter::designatedObject(ExpressionAST* ast)
 
 auto ASTInterpreter::memberObject(MemberExpressionAST* ast)
     -> std::shared_ptr<ConstObject> {
-  if (ast->accessOp != TokenKind::T_MINUS_GREATER)
-    return designatedObject(ast->baseExpression);
+  auto receiver = memberReceiver(ast);
+  if (receiver.object) return receiver.object;
+  if (!receiver.address) return {};
 
-  auto value = expression(ast->baseExpression);
-  if (!value) return {};
+  auto symbol = receiver.address->symbol();
+  if (auto base = symbol_cast<BaseClassSymbol>(symbol)) symbol = base->symbol();
 
-  return pointeeObject(std::move(*value),
-                       traits.remove_pointer(ast->baseExpression->type));
+  const Type* objectType = symbol ? symbol->type() : nullptr;
+  if (!objectType && ast->baseExpression) {
+    objectType = ast->accessOp == TokenKind::T_MINUS_GREATER
+                     ? traits.remove_pointer(ast->baseExpression->type)
+                     : traits.remove_cvref(ast->baseExpression->type);
+  }
+  return constexprUnknownObject(*receiver.address, objectType);
 }
 
 auto ASTInterpreter::pointeeObject(ConstValue value, const Type* pointeeType)
@@ -1350,7 +1410,37 @@ auto ASTInterpreter::receiverFor(ExpressionAST* base, TokenKind accessOp)
 }
 
 auto ASTInterpreter::memberReceiver(MemberExpressionAST* ast) -> Receiver {
-  return receiverFor(ast->baseExpression, ast->accessOp);
+  return applySubobjectPath(receiverFor(ast->baseExpression, ast->accessOp),
+                            ast->subobjectPath);
+}
+
+auto ASTInterpreter::applySubobjectPath(Receiver receiver,
+                                        List<Symbol*>* subobjectPath)
+    -> Receiver {
+  for (auto symbol : ListView(subobjectPath)) {
+    auto base = symbol_cast<BaseClassSymbol>(symbol);
+    if (base && base->isVirtual()) return {};
+
+    if (receiver.address) {
+      receiver.address =
+          std::make_shared<ConstAddress>(receiver.address, symbol);
+    }
+
+    if (!receiver.object) continue;
+
+    const ConstValue* value = nullptr;
+    for (const auto& member : receiver.object->members()) {
+      if (member.symbol != symbol) continue;
+      value = &member.value;
+      break;
+    }
+
+    auto nested =
+        value ? std::get_if<std::shared_ptr<ConstObject>>(value) : nullptr;
+    receiver.object = nested ? *nested : nullptr;
+    if (!receiver.object && !receiver.address) return {};
+  }
+  return receiver;
 }
 
 auto ASTInterpreter::addressOfField(const Receiver& receiver,
@@ -1358,7 +1448,11 @@ auto ASTInterpreter::addressOfField(const Receiver& receiver,
     -> std::optional<ConstValue> {
   const Type* receiverType = nullptr;
   if (receiver.address && receiver.address->symbol()) {
-    receiverType = traits.remove_cvref(receiver.address->symbol()->type());
+    auto symbol = receiver.address->symbol();
+    if (auto base = symbol_cast<BaseClassSymbol>(symbol)) {
+      symbol = base->symbol();
+    }
+    receiverType = symbol ? traits.remove_cvref(symbol->type()) : nullptr;
     if (traits.is_array(receiverType)) {
       receiverType = traits.remove_extent(receiverType);
     }
@@ -1533,6 +1627,17 @@ auto ASTInterpreter::addressOfLvalue(ExpressionAST* ast)
     if (cast->castKind == ImplicitCastKind::kUserDefinedConversion)
       return evaluateConversionFunctionCall(cast, CallResultKind::kAddress)
           .value;
+    if (cast->castKind == ImplicitCastKind::kDerivedToBaseConversion) {
+      auto value = addressOfLvalue(cast->expression);
+      auto address =
+          value ? std::get_if<std::shared_ptr<ConstAddress>>(&*value) : nullptr;
+      if (!address || !*address) return std::nullopt;
+
+      auto receiver =
+          applySubobjectPath(Receiver{{}, *address}, cast->subobjectPath);
+      if (!receiver.address) return std::nullopt;
+      return ConstValue{std::move(receiver.address)};
+    }
   }
 
   if (auto idExpr = ast_cast<IdExpressionAST>(ast)) {
@@ -2160,9 +2265,28 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
 
 auto ASTInterpreter::ExpressionVisitor::operator()(MemberExpressionAST* ast)
     -> ExpressionResult {
-  auto object = interp.memberObject(ast);
-  if (object && ast->symbol) {
-    if (auto value = interp.memberValue(object, ast->symbol)) return value;
+  if (auto field = symbol_cast<FieldSymbol>(ast->symbol);
+      field && !field->isStatic()) {
+    auto receiver = interp.memberReceiver(ast);
+    if (receiver.address) {
+      auto address = interp.addressOfField(receiver, field);
+      auto result = address
+                        ? std::get_if<std::shared_ptr<ConstAddress>>(&*address)
+                        : nullptr;
+      if (result && *result) return interp.loadAddress(**result, 0);
+    } else if (receiver.object) {
+      for (const auto& subobject : receiver.object->members()) {
+        if (subobject.symbol != field) continue;
+        if (!interp.traits.is_reference(field->type())) return subobject.value;
+        auto address =
+            std::get_if<std::shared_ptr<ConstAddress>>(&subobject.value);
+        if (address && *address) {
+          return interp.loadAddress(
+              **address, 0, interp.traits.remove_reference(field->type()));
+        }
+      }
+    }
+    return std::nullopt;
   }
 
   if (interp.thisObject() && ast->symbol) {
@@ -2174,6 +2298,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(MemberExpressionAST* ast)
       interp.nestedNameSpecifier(ast->nestedNameSpecifier);
   auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
 
+  auto object = interp.memberObject(ast);
   if (object && ast->symbol) {
     if (auto field = symbol_cast<FieldSymbol>(ast->symbol);
         field && field->isStatic()) {
@@ -2715,6 +2840,24 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
 
   auto value = evaluate(ast->expression);
   if (!value.has_value()) return std::nullopt;
+
+  if (ast->castKind == ImplicitCastKind::kDerivedToBaseConversion) {
+    Receiver receiver;
+    if (auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value)) {
+      receiver.address = *address;
+    } else if (auto object =
+                   std::get_if<std::shared_ptr<ConstObject>>(&*value)) {
+      receiver.object = *object;
+    } else {
+      return std::nullopt;
+    }
+
+    receiver =
+        interp.applySubobjectPath(std::move(receiver), ast->subobjectPath);
+    if (receiver.address) return ConstValue{std::move(receiver.address)};
+    if (receiver.object) return ConstValue{std::move(receiver.object)};
+    return std::nullopt;
+  }
 
   if (ast->castKind == ImplicitCastKind::kVectorSplat) {
     auto vectorType = unqualified_cast<VectorType>(ast->type);

@@ -33,6 +33,7 @@
 
 #include <optional>
 #include <ranges>
+#include <span>
 
 namespace cxx {
 
@@ -125,6 +126,29 @@ template <typename T>
 auto make_list_node(Arena* arena, T* element = nullptr) -> List<T*>* {
   auto list = new (arena) List<T*>(element);
   return list;
+}
+
+[[nodiscard]] inline auto make_symbol_path(Arena* arena,
+                                           std::span<Symbol* const> symbols)
+    -> List<Symbol*>* {
+  List<Symbol*>* result = nullptr;
+  auto tail = &result;
+  for (auto symbol : symbols) {
+    *tail = make_list_node<Symbol>(arena, symbol);
+    tail = &(*tail)->next;
+  }
+  return result;
+}
+
+[[nodiscard]] inline auto clone_symbol_path(Arena* arena, List<Symbol*>* path)
+    -> List<Symbol*>* {
+  List<Symbol*>* result = nullptr;
+  auto tail = &result;
+  for (auto symbol : ListView(path)) {
+    *tail = make_list_node<Symbol>(arena, symbol);
+    tail = &(*tail)->next;
+  }
+  return result;
 }
 
 [[nodiscard]] inline auto firstSourceLocation(SourceLocation loc)
@@ -3871,6 +3895,8 @@ class MemberExpressionAST final : public ExpressionAST {
   SourceLocation templateLoc;
   UnqualifiedIdAST* unqualifiedId = nullptr;
   Symbol* symbol = nullptr;
+  // Ordered storage subobjects selected by semantic resolution.
+  List<Symbol*>* subobjectPath = nullptr;
   TokenKind accessOp = TokenKind::T_EOF_SYMBOL;
   bool isTemplateIntroduced = false;
 
@@ -4741,6 +4767,8 @@ class ImplicitCastExpressionAST final : public ExpressionAST {
   ExpressionAST* expression = nullptr;
   ImplicitCastKind castKind = ImplicitCastKind::kIdentity;
   FunctionSymbol* conversionFunction = nullptr;
+  // Ordered storage subobjects selected by semantic resolution.
+  List<Symbol*>* subobjectPath = nullptr;
   bool isVirtualDispatch = false;
 
   void accept(ASTVisitor* visitor) override { visitor->visit(this); }

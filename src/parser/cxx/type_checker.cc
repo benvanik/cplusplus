@@ -8204,6 +8204,7 @@ auto TypeChecker::Visitor::checkUnambiguousMemberLookup(
 
   if (lookup.ambiguous) return reportAmbiguous();
   if (!is_non_static_member(member)) return true;
+  if (!lookup.subobjectPath.empty()) return true;
   auto declaringClass = member->enclosingClass();
   if (!declaringClass || declaringClass == classSymbol) return true;
 
@@ -8406,7 +8407,15 @@ auto TypeChecker::Visitor::CheckMemberAccess::lookupMember(
     }
   }
 
-  auto symbol = qualifiedLookup(lookupScope, memberName);
+  ClassMemberLookup lookup;
+  auto lookupClass = resolveClassScope(lookupScope);
+  if (lookupClass) {
+    lookup = lookupClassMember(lookupClass, memberName,
+                               [](Symbol*) { return true; });
+  } else {
+    lookup.symbol = qualifiedLookup(lookupScope, memberName);
+  }
+  auto symbol = lookup.symbol;
 
   if (lookupScope == classSymbol &&
       !visitor.checkUnambiguousMemberLookup(classSymbol, memberName, symbol,
@@ -8425,6 +8434,21 @@ auto TypeChecker::Visitor::CheckMemberAccess::lookupMember(
       usingDeclaration && usingDeclaration->target()) {
     symbol = resolve_using_declaration(symbol);
   }
+
+  std::vector<Symbol*> subobjectPath;
+  if (symbol && is_non_static_member(symbol) && lookupClass) {
+    auto objectClass = classSymbol->resolvedDefinition();
+    lookupClass = lookupClass->resolvedDefinition();
+    if (lookupClass == objectClass) {
+      subobjectPath = std::move(lookup.subobjectPath);
+    } else if (auto prefix =
+                   lookupBaseSubobjectPath(objectClass, lookupClass)) {
+      subobjectPath = std::move(*prefix);
+      subobjectPath.insert(subobjectPath.end(), lookup.subobjectPath.begin(),
+                           lookup.subobjectPath.end());
+    }
+  }
+  ast->subobjectPath = make_symbol_path(visitor.arena(), subobjectPath);
 
   return symbol;
 }

@@ -127,6 +127,17 @@ export function emitWrite(
       push(`writeAstList(out, ${value});`);
       return;
 
+    case "arena-list": {
+      const element = names.fresh("element");
+      push(
+        `out.varU32(static_cast<std::uint32_t>(std::ranges::distance(cxx::ListView(${value}))));`,
+      );
+      push(`for (const auto& ${element} : cxx::ListView(${value})) {`);
+      emitWrite(lines, `${indent}  `, wire.element, element, names);
+      push(`}`);
+      return;
+    }
+
     case "identifier":
       push(`out.varU32(static_cast<std::uint32_t>(identifierRef(${value})));`);
       return;
@@ -387,6 +398,35 @@ export function emitRead(
     case "ast-list":
       push(`${cppType} ${target} = readAstList<${wire.element}>(in);`);
       return;
+
+    case "arena-list": {
+      const count = names.fresh("count");
+      const position = names.fresh("i");
+      const temp = names.fresh("element");
+      const tail = names.fresh("tail");
+      push(`${cppType} ${target} = nullptr;`);
+      push(`{`);
+      push(`  const auto ${count} = in.varCount(1);`);
+      push(`  auto ${tail} = &${target};`);
+      push(
+        `  for (std::uint32_t ${position} = 0; ok() && ${position} < ${count}; ++${position}) {`,
+      );
+      emitRead(
+        lines,
+        `${indent}    `,
+        wire.element,
+        `decltype(${target}->value)`,
+        temp,
+        names,
+      );
+      push(
+        `    *${tail} = new (arena()) std::remove_pointer_t<decltype(${target})>(std::move(${temp}));`,
+      );
+      push(`    ${tail} = &(*${tail})->next;`);
+      push(`  }`);
+      push(`}`);
+      return;
+    }
 
     case "identifier":
       push(`${cppType} ${target} = identifierAt(StringRef{in.varU32()});`);

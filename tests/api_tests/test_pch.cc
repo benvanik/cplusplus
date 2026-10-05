@@ -35,6 +35,8 @@
 #include <cxx/views/symbol_chain.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
@@ -127,6 +129,43 @@ class BranchSelectionVisitor final : public ASTVisitor {
 
   std::vector<std::optional<bool>> selections;
 };
+
+class SubobjectPathVisitor final : public ASTVisitor {
+ public:
+  void visit(MemberExpressionAST* ast) override {
+    if (ast->subobjectPath) {
+      memberPaths.emplace_back(ListView(ast->subobjectPath).begin(),
+                               ListView(ast->subobjectPath).end());
+    }
+    ASTVisitor::visit(ast);
+  }
+
+  void visit(ImplicitCastExpressionAST* ast) override {
+    if (ast->subobjectPath) {
+      castPaths.emplace_back(ListView(ast->subobjectPath).begin(),
+                             ListView(ast->subobjectPath).end());
+    }
+    ASTVisitor::visit(ast);
+  }
+
+  std::vector<std::vector<Symbol*>> memberPaths;
+  std::vector<std::vector<Symbol*>> castPaths;
+};
+
+[[nodiscard]] auto containsBasePath(
+    const std::vector<std::vector<Symbol*>>& paths,
+    std::initializer_list<ClassSymbol*> expected) -> bool {
+  for (const auto& path : paths) {
+    if (path.size() != expected.size()) continue;
+    auto expectedSymbol = expected.begin();
+    const bool matches = std::ranges::all_of(path, [&](Symbol* step) {
+      auto base = symbol_cast<BaseClassSymbol>(step);
+      return base && base->symbol() == *expectedSymbol++;
+    });
+    if (matches) return true;
+  }
+  return false;
+}
 
 auto branchSelections(AST* ast) -> std::vector<std::optional<bool>> {
   BranchSelectionVisitor visitor;
@@ -582,6 +621,53 @@ constexpr const unsigned* external_scale_address = &external.scale;
   ASSERT_TRUE(tableOneScale->parent());
   EXPECT_EQ(tableOneScale->parent()->symbol(), table);
   EXPECT_EQ(tableOneScale->parent()->offset(), 1);
+}
+
+TEST(PrecompiledHeader, RestoresSelectedSubobjectPaths) {
+  std::vector<std::uint8_t> data;
+  {
+    Prefix prefix{R"(
+struct Base { unsigned value; };
+struct Left : Base {};
+struct Right : Base {};
+struct Both : Left, Right {};
+extern Both object;
+template <const unsigned&>
+struct Ref {};
+using Member = Ref<object.Left::value>;
+constexpr const unsigned& select(const Left& left) { return left.value; }
+using Converted = Ref<select(static_cast<const Left&>(object))>;
+static_assert(__is_same(Member, Converted));
+)"};
+    data = prefix.emit();
+    ASSERT_TRUE(prefix.errors().empty());
+    ASSERT_FALSE(data.empty());
+  }
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  auto base =
+      symbol_cast<ClassSymbol>(findMember(consumer.globalScope(), "Base"));
+  auto left =
+      symbol_cast<ClassSymbol>(findMember(consumer.globalScope(), "Left"));
+  ASSERT_TRUE(base);
+  ASSERT_TRUE(left);
+
+  SubobjectPathVisitor restoredPaths;
+  restoredPaths.accept(consumer.ast());
+  EXPECT_TRUE(containsBasePath(restoredPaths.memberPaths, {left, base}));
+  EXPECT_TRUE(containsBasePath(restoredPaths.castPaths, {left}));
+
+  auto cloned = consumer.ast()->clone(consumer.arena());
+  SubobjectPathVisitor clonedPaths;
+  clonedPaths.accept(cloned);
+  EXPECT_TRUE(containsBasePath(clonedPaths.memberPaths, {left, base}));
+  EXPECT_TRUE(containsBasePath(clonedPaths.castPaths, {left}));
 }
 
 TEST(PrecompiledHeader, RestoresConstexprBranchSelections) {

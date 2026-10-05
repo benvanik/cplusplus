@@ -1001,27 +1001,33 @@ auto lookupClassMember(ClassSymbol* scope, const Name* name,
   scope = scope->resolvedDefinition();
   if (!scope) return {};
   VisitedScopes visited;
-  if (auto symbol =
-          detail::searchScope(scope, name, visited, accept, false, false))
-    return {symbol, false};
+  std::vector<Symbol*> directPath;
+  if (auto symbol = detail::searchScope(scope, name, visited, accept, false,
+                                        false, &directPath))
+    return {symbol, std::move(directPath), false};
   if (scope->baseClasses().empty()) return {};
 
   struct Subobject {
     ClassSymbol* type;
     std::vector<int> bases;
+    // Ordered base-class symbols from the lookup root to this subobject.
+    std::vector<Symbol*> path;
   };
   struct LookupSet {
     Symbol* declaration = nullptr;
     std::vector<int> subobjects;
+    // Anonymous storage steps below the declaration's class subobject.
+    std::vector<Symbol*> subobjectPath;
     bool ambiguous = false;
   };
   std::vector<Subobject> graph;
   std::vector<std::pair<ClassSymbol*, int>> virtualBases;
   std::vector<ClassSymbol*> path;
-  auto build = [&](auto&& self, ClassSymbol* cls) -> int {
+  auto build = [&](auto&& self, ClassSymbol* cls,
+                   std::vector<Symbol*> subobjectPath) -> int {
     cls = cls->resolvedDefinition();
     auto index = int(graph.size());
-    graph.push_back({cls, {}});
+    graph.push_back({cls, {}, std::move(subobjectPath)});
     if (std::ranges::contains(path, cls)) return index;
     path.push_back(cls);
     for (auto base : cls->baseClasses()) {
@@ -1034,7 +1040,9 @@ auto lookupClassMember(ClassSymbol* scope, const Name* name,
           if (type == baseClass) baseIndex = candidate;
       }
       if (baseIndex < 0) {
-        baseIndex = self(self, baseClass);
+        auto basePath = graph[index].path;
+        basePath.push_back(base);
+        baseIndex = self(self, baseClass, std::move(basePath));
         if (base->isVirtual()) virtualBases.emplace_back(baseClass, baseIndex);
       }
       graph[index].bases.push_back(baseIndex);
@@ -1042,7 +1050,7 @@ auto lookupClassMember(ClassSymbol* scope, const Name* name,
     path.pop_back();
     return index;
   };
-  build(build, scope);
+  build(build, scope, {});
 
   auto isBase = [&](auto&& self, int base, int derived) -> bool {
     if (base == derived) return true;
@@ -1067,8 +1075,9 @@ auto lookupClassMember(ClassSymbol* scope, const Name* name,
     if (cache[index]) return *cache[index];
     LookupSet result;
     VisitedScopes directVisited;
-    result.declaration = detail::searchScope(
-        graph[index].type, name, directVisited, accept, false, false);
+    result.declaration =
+        detail::searchScope(graph[index].type, name, directVisited, accept,
+                            false, false, &result.subobjectPath);
     if (result.declaration) {
       result.subobjects.push_back(index);
     } else {
@@ -1102,7 +1111,52 @@ auto lookupClassMember(ClassSymbol* scope, const Name* name,
     return result;
   };
   auto result = lookup(lookup, 0);
-  return {result.declaration, result.ambiguous};
+  if (result.subobjects.size() > 1 &&
+      is_non_static_member(resolve_using_declaration(result.declaration))) {
+    result.ambiguous = true;
+  }
+  std::vector<Symbol*> subobjectPath;
+  if (result.subobjects.size() == 1) {
+    subobjectPath = graph[result.subobjects.front()].path;
+    subobjectPath.insert(subobjectPath.end(), result.subobjectPath.begin(),
+                         result.subobjectPath.end());
+  }
+  return {result.declaration, std::move(subobjectPath), result.ambiguous};
+}
+
+auto lookupBaseSubobjectPath(ClassSymbol* derived, ClassSymbol* base)
+    -> std::optional<std::vector<Symbol*>> {
+  if (!derived || !base) return std::nullopt;
+  derived = derived->resolvedDefinition();
+  base = base->resolvedDefinition();
+  if (!derived || !base) return std::nullopt;
+  if (derived == base) return std::vector<Symbol*>{};
+  if (!derived->baseSubobjectInfo(base).isUniqueSubobject())
+    return std::nullopt;
+
+  std::vector<ClassSymbol*> visited;
+  std::vector<Symbol*> path;
+  auto find = [&](auto&& self, ClassSymbol* current) -> bool {
+    current = current->resolvedDefinition();
+    if (current == base) return true;
+    if (std::ranges::contains(visited, current)) return false;
+    visited.push_back(current);
+    for (auto baseSpecifier : current->baseClasses()) {
+      auto baseClass = symbol_cast<ClassSymbol>(baseSpecifier->symbol());
+      if (!baseClass) continue;
+      path.push_back(baseSpecifier);
+      if (self(self, baseClass)) return true;
+      path.pop_back();
+    }
+    visited.pop_back();
+    return false;
+  };
+  if (!find(find, derived)) return std::nullopt;
+  return path;
+}
+
+auto resolveClassScope(Symbol* symbol) -> ClassSymbol* {
+  return symbol_cast<ClassSymbol>(resolveTypeScope(symbol));
 }
 
 }  // namespace cxx

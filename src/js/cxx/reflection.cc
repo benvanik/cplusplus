@@ -300,7 +300,7 @@ constexpr int SpliceMemberExpressionASTSlotBase =
 constexpr int MemberExpressionASTSlotBase =
     SpliceMemberExpressionASTSlotBase + 7;
 
-constexpr int PostIncrExpressionASTSlotBase = MemberExpressionASTSlotBase + 8;
+constexpr int PostIncrExpressionASTSlotBase = MemberExpressionASTSlotBase + 9;
 
 constexpr int CppCastExpressionASTSlotBase = PostIncrExpressionASTSlotBase + 5;
 
@@ -366,7 +366,7 @@ constexpr int CastExpressionASTSlotBase = DeleteExpressionASTSlotBase + 6;
 constexpr int ImplicitCastExpressionASTSlotBase = CastExpressionASTSlotBase + 4;
 
 constexpr int ConstExpressionASTSlotBase =
-    ImplicitCastExpressionASTSlotBase + 4;
+    ImplicitCastExpressionASTSlotBase + 5;
 
 constexpr int BinaryExpressionASTSlotBase = ConstExpressionASTSlotBase + 2;
 
@@ -3896,9 +3896,15 @@ auto readAST(std::intptr_t handle, int slot) -> double {
     case MemberExpressionASTSlotBase + 6: {
       auto self = static_cast<const ::cxx::MemberExpressionAST*>(
           reinterpret_cast<const ::cxx::AST*>(handle));
-      return static_cast<double>(self->accessOp);
+      return static_cast<double>(
+          reinterpret_cast<std::intptr_t>(self->subobjectPath));
     }
     case MemberExpressionASTSlotBase + 7: {
+      auto self = static_cast<const ::cxx::MemberExpressionAST*>(
+          reinterpret_cast<const ::cxx::AST*>(handle));
+      return static_cast<double>(self->accessOp);
+    }
+    case MemberExpressionASTSlotBase + 8: {
       auto self = static_cast<const ::cxx::MemberExpressionAST*>(
           reinterpret_cast<const ::cxx::AST*>(handle));
       return static_cast<double>(self->isTemplateIntroduced);
@@ -4502,6 +4508,12 @@ auto readAST(std::intptr_t handle, int slot) -> double {
           static_cast<const ::cxx::Symbol*>(self->conversionFunction)));
     }
     case ImplicitCastExpressionASTSlotBase + 3: {
+      auto self = static_cast<const ::cxx::ImplicitCastExpressionAST*>(
+          reinterpret_cast<const ::cxx::AST*>(handle));
+      return static_cast<double>(
+          reinterpret_cast<std::intptr_t>(self->subobjectPath));
+    }
+    case ImplicitCastExpressionASTSlotBase + 4: {
       auto self = static_cast<const ::cxx::ImplicitCastExpressionAST*>(
           reinterpret_cast<const ::cxx::AST*>(handle));
       return static_cast<double>(self->isVirtualDispatch);

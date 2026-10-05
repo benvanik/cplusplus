@@ -35,6 +35,27 @@ test("constant address parents are persisted with their rationale", () => {
   );
 });
 
+test("selected subobject paths are persisted with their rationale", () => {
+  const memberPaths = reportsFor("::cxx::MemberExpressionAST", "subobjectPath");
+  assert.equal(memberPaths.length, 1);
+  assert.equal(memberPaths[0].cls, "P");
+  assert.equal(
+    memberPaths[0].why,
+    "member lookup selected these exact base and anonymous subobjects",
+  );
+
+  const conversionPaths = reportsFor(
+    "::cxx::ImplicitCastExpressionAST",
+    "subobjectPath",
+  );
+  assert.equal(conversionPaths.length, 1);
+  assert.equal(conversionPaths[0].cls, "P");
+  assert.equal(
+    conversionPaths[0].why,
+    "class conversion selected these exact base subobjects",
+  );
+});
+
 test("semantic plan substitution diagnostics identify their owner", () => {
   const model = JSON.parse(source);
   const missingParameter = {

@@ -749,7 +749,7 @@ const TypeConstructionASTSlotBase = CallExpressionASTSlotBase + 6;
 const BracedTypeConstructionASTSlotBase = TypeConstructionASTSlotBase + 5;
 const SpliceMemberExpressionASTSlotBase = BracedTypeConstructionASTSlotBase + 3;
 const MemberExpressionASTSlotBase = SpliceMemberExpressionASTSlotBase + 7;
-const PostIncrExpressionASTSlotBase = MemberExpressionASTSlotBase + 8;
+const PostIncrExpressionASTSlotBase = MemberExpressionASTSlotBase + 9;
 const CppCastExpressionASTSlotBase = PostIncrExpressionASTSlotBase + 5;
 const BuiltinBitCastExpressionASTSlotBase = CppCastExpressionASTSlotBase + 8;
 const BuiltinConvertVectorExpressionASTSlotBase =
@@ -778,7 +778,7 @@ const NewExpressionASTSlotBase = NoexceptExpressionASTSlotBase + 5;
 const DeleteExpressionASTSlotBase = NewExpressionASTSlotBase + 12;
 const CastExpressionASTSlotBase = DeleteExpressionASTSlotBase + 6;
 const ImplicitCastExpressionASTSlotBase = CastExpressionASTSlotBase + 4;
-const ConstExpressionASTSlotBase = ImplicitCastExpressionASTSlotBase + 4;
+const ConstExpressionASTSlotBase = ImplicitCastExpressionASTSlotBase + 5;
 const BinaryExpressionASTSlotBase = ConstExpressionASTSlotBase + 2;
 const ConditionalExpressionASTSlotBase = BinaryExpressionASTSlotBase + 6;
 const YieldExpressionASTSlotBase = ConditionalExpressionASTSlotBase + 5;
@@ -4855,13 +4855,20 @@ export class MemberExpressionAST extends ExpressionAST {
       this.modelOwner,
     );
   }
+  get subobjectPath(): Iterable<Symbol | undefined> {
+    return listOf(
+      this.modelOwner,
+      cxx.readAST(this.handle, MemberExpressionASTSlotBase + 6),
+      (item: any) => symbolOf(item, this.modelOwner),
+    );
+  }
   get accessOp(): TokenKind {
     return tokenKindNames[
-      cxx.readAST(this.handle, MemberExpressionASTSlotBase + 6)
+      cxx.readAST(this.handle, MemberExpressionASTSlotBase + 7)
     ]!;
   }
   get isTemplateIntroduced(): boolean {
-    return cxx.readAST(this.handle, MemberExpressionASTSlotBase + 7) !== 0;
+    return cxx.readAST(this.handle, MemberExpressionASTSlotBase + 8) !== 0;
   }
 }
 /** @category AST Nodes */
@@ -5613,9 +5620,16 @@ export class ImplicitCastExpressionAST extends ExpressionAST {
       this.modelOwner,
     );
   }
+  get subobjectPath(): Iterable<Symbol | undefined> {
+    return listOf(
+      this.modelOwner,
+      cxx.readAST(this.handle, ImplicitCastExpressionASTSlotBase + 3),
+      (item: any) => symbolOf(item, this.modelOwner),
+    );
+  }
   get isVirtualDispatch(): boolean {
     return (
-      cxx.readAST(this.handle, ImplicitCastExpressionASTSlotBase + 3) !== 0
+      cxx.readAST(this.handle, ImplicitCastExpressionASTSlotBase + 4) !== 0
     );
   }
 }

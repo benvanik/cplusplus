@@ -516,7 +516,10 @@ export class PlanBuilder {
       if (unary(setter)) return `$->${setter}($value)`;
 
     const isContainer =
-      wire.k === "vector" || wire.k === "deque" || wire.k === "ast-list";
+      wire.k === "vector" ||
+      wire.k === "deque" ||
+      wire.k === "ast-list" ||
+      wire.k === "arena-list";
 
     this.diagnostics.push(
       isContainer

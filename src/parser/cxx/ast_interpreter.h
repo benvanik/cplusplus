@@ -484,6 +484,10 @@ class ASTInterpreter {
 
   [[nodiscard]] auto memberReceiver(MemberExpressionAST* ast) -> Receiver;
 
+  [[nodiscard]] auto applySubobjectPath(Receiver receiver,
+                                        List<Symbol*>* subobjectPath)
+      -> Receiver;
+
   [[nodiscard]] auto addressOfField(const Receiver& receiver,
                                     FieldSymbol* field)
       -> std::optional<ConstValue>;

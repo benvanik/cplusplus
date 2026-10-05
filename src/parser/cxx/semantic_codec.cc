@@ -4541,6 +4541,12 @@ void SemanticEncoder::writeAstMemberExpressionAST(
   out.varU32(static_cast<std::uint32_t>(astRef(self->unqualifiedId)));
   // ::cxx::MemberExpressionAST::symbol
   out.varU32(static_cast<std::uint32_t>(symbolRef(self->symbol)));
+  // ::cxx::MemberExpressionAST::subobjectPath
+  out.varU32(static_cast<std::uint32_t>(
+      std::ranges::distance(cxx::ListView(self->subobjectPath))));
+  for (const auto& element1 : cxx::ListView(self->subobjectPath)) {
+    out.varU32(static_cast<std::uint32_t>(symbolRef(element1)));
+  }
   // ::cxx::MemberExpressionAST::accessOp
   out.varU32(static_cast<std::uint32_t>(self->accessOp));
   // ::cxx::MemberExpressionAST::isTemplateIntroduced
@@ -4915,6 +4921,12 @@ void SemanticEncoder::writeAstImplicitCastExpressionAST(
   out.varU32(static_cast<std::uint32_t>(self->castKind));
   // ::cxx::ImplicitCastExpressionAST::conversionFunction
   out.varU32(static_cast<std::uint32_t>(symbolRef(self->conversionFunction)));
+  // ::cxx::ImplicitCastExpressionAST::subobjectPath
+  out.varU32(static_cast<std::uint32_t>(
+      std::ranges::distance(cxx::ListView(self->subobjectPath))));
+  for (const auto& element1 : cxx::ListView(self->subobjectPath)) {
+    out.varU32(static_cast<std::uint32_t>(symbolRef(element1)));
+  }
   // ::cxx::ImplicitCastExpressionAST::isVirtualDispatch
   out.boolean(self->isVirtualDispatch);
 }
@@ -13436,12 +13448,25 @@ void SemanticDecoder::readAstMemberExpressionAST(
   // ::cxx::MemberExpressionAST::symbol
   cxx::Symbol* value6 = symbolAt(SymbolRef{in.varU32()});
   self->symbol = std::move(value6);
+  // ::cxx::MemberExpressionAST::subobjectPath
+  cxx::List<cxx::Symbol*>* value7 = nullptr;
+  {
+    const auto count8 = in.varCount(1);
+    auto tail11 = &value7;
+    for (std::uint32_t i9 = 0; ok() && i9 < count8; ++i9) {
+      decltype(value7->value) element10 = symbolAt(SymbolRef{in.varU32()});
+      *tail11 = new (arena())
+          std::remove_pointer_t<decltype(value7)>(std::move(element10));
+      tail11 = &(*tail11)->next;
+    }
+  }
+  self->subobjectPath = std::move(value7);
   // ::cxx::MemberExpressionAST::accessOp
-  ::cxx::TokenKind value7 = static_cast<::cxx::TokenKind>(readEnum(in, 236));
-  self->accessOp = std::move(value7);
+  ::cxx::TokenKind value12 = static_cast<::cxx::TokenKind>(readEnum(in, 236));
+  self->accessOp = std::move(value12);
   // ::cxx::MemberExpressionAST::isTemplateIntroduced
-  bool value8 = in.boolean();
-  self->isTemplateIntroduced = std::move(value8);
+  bool value13 = in.boolean();
+  self->isTemplateIntroduced = std::move(value13);
 }
 
 void SemanticDecoder::readAstPostIncrExpressionAST(
@@ -13983,9 +14008,22 @@ void SemanticDecoder::readAstImplicitCastExpressionAST(
   cxx::FunctionSymbol* value3 =
       symbol_cast<FunctionSymbol>(symbolAt(SymbolRef{in.varU32()}));
   self->conversionFunction = std::move(value3);
+  // ::cxx::ImplicitCastExpressionAST::subobjectPath
+  cxx::List<cxx::Symbol*>* value4 = nullptr;
+  {
+    const auto count5 = in.varCount(1);
+    auto tail8 = &value4;
+    for (std::uint32_t i6 = 0; ok() && i6 < count5; ++i6) {
+      decltype(value4->value) element7 = symbolAt(SymbolRef{in.varU32()});
+      *tail8 = new (arena())
+          std::remove_pointer_t<decltype(value4)>(std::move(element7));
+      tail8 = &(*tail8)->next;
+    }
+  }
+  self->subobjectPath = std::move(value4);
   // ::cxx::ImplicitCastExpressionAST::isVirtualDispatch
-  bool value4 = in.boolean();
-  self->isVirtualDispatch = std::move(value4);
+  bool value9 = in.boolean();
+  self->isVirtualDispatch = std::move(value9);
 }
 
 void SemanticDecoder::readAstConstExpressionAST(

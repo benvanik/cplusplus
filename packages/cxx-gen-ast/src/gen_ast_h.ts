@@ -71,6 +71,12 @@ export function gen_ast_h({ ast, output }: { ast: AST; output: string }) {
           case "node-list":
             emit(`  List<${m.type}*>* ${m.name} = nullptr;`);
             break;
+          case "semantic-list":
+            emit(
+              `  // Ordered storage subobjects selected by semantic resolution.`,
+            );
+            emit(`  List<${m.type}*>* ${m.name} = nullptr;`);
+            break;
           case "token":
             emit(`  SourceLocation ${m.name};`);
             break;
@@ -119,6 +125,8 @@ export function gen_ast_h({ ast, output }: { ast: AST; output: string }) {
           case "node-list":
             params.push(`List<${m.type}*>* ${m.name}`);
             paramsNoLoc.push(`List<${m.type}*>* ${m.name}`);
+            break;
+          case "semantic-list":
             break;
           case "token":
             params.push(`SourceLocation ${m.name}`);
@@ -214,6 +222,7 @@ ${cpy_header}
 #include <cxx/symbols_fwd.h>
 #include <optional>
 #include <ranges>
+#include <span>
 
 namespace cxx {
 
@@ -306,6 +315,29 @@ template <typename T>
 auto make_list_node(Arena* arena, T* element = nullptr) -> List<T*>* {
   auto list = new (arena) List<T*>(element);
   return list;
+}
+
+[[nodiscard]] inline auto make_symbol_path(
+    Arena* arena, std::span<Symbol* const> symbols) -> List<Symbol*>* {
+  List<Symbol*>* result = nullptr;
+  auto tail = &result;
+  for (auto symbol : symbols) {
+    *tail = make_list_node<Symbol>(arena, symbol);
+    tail = &(*tail)->next;
+  }
+  return result;
+}
+
+[[nodiscard]] inline auto clone_symbol_path(Arena* arena,
+                                            List<Symbol*>* path)
+    -> List<Symbol*>* {
+  List<Symbol*>* result = nullptr;
+  auto tail = &result;
+  for (auto symbol : ListView(path)) {
+    *tail = make_list_node<Symbol>(arena, symbol);
+    tail = &(*tail)->next;
+  }
+  return result;
 }
 
 [[nodiscard]] inline auto firstSourceLocation(SourceLocation loc) -> SourceLocation { return loc; }

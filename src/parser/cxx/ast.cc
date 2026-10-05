@@ -9279,6 +9279,7 @@ auto MemberExpressionAST::clone(Arena* arena) -> MemberExpressionAST* {
   if (unqualifiedId) node->unqualifiedId = unqualifiedId->clone(arena);
 
   node->symbol = symbol;
+  node->subobjectPath = clone_symbol_path(arena, subobjectPath);
   node->accessOp = accessOp;
   node->isTemplateIntroduced = isTemplateIntroduced;
   node->valueCategory = valueCategory;
@@ -10543,6 +10544,7 @@ auto ImplicitCastExpressionAST::clone(Arena* arena)
 
   node->castKind = castKind;
   node->conversionFunction = conversionFunction;
+  node->subobjectPath = clone_symbol_path(arena, subobjectPath);
   node->isVirtualDispatch = isVirtualDispatch;
   node->valueCategory = valueCategory;
   node->type = type;

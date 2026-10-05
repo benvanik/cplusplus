@@ -109,6 +109,20 @@ export const bindings: Record<string, ClassBindings> = {
     },
   },
 
+  "::cxx::MemberExpressionAST": {
+    subobjectPath: {
+      cls: "P",
+      why: "member lookup selected these exact base and anonymous subobjects",
+    },
+  },
+
+  "::cxx::ImplicitCastExpressionAST": {
+    subobjectPath: {
+      cls: "P",
+      why: "class conversion selected these exact base subobjects",
+    },
+  },
+
   "::cxx::ScopeSymbol": {
     members_: {
       cls: "P",

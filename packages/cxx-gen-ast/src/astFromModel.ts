@@ -100,6 +100,12 @@ export function astFromModel(index: ModelIndex): AST {
                 name: field.name,
                 type: shortName(target.name),
               };
+            if (target.kind === "class" && target.name === "::cxx::Symbol")
+              return {
+                kind: "semantic-list",
+                name: field.name,
+                type: shortName(target.name),
+              };
           }
           if (item.kind === "class" && item.name === "::cxx::SourceLocation")
             return {

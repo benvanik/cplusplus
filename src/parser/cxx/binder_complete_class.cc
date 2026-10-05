@@ -1632,6 +1632,8 @@ auto Binder::CompleteClass::baseSubobject(ExpressionAST* object,
   conversion->expression = object;
   conversion->type =
       binder.traits.add_cv(base->type(), cv_qualifiers(object->type));
+  if (auto path = lookupBaseSubobjectPath(classSymbol, base))
+    conversion->subobjectPath = make_symbol_path(pool, *path);
   conversion->valueCategory = ValueCategory::kLValue;
   return conversion;
 }
@@ -2122,6 +2124,8 @@ auto Binder::CompleteClass::baseAssignmentStatement(TypeChecker& check,
   argument->type =
       isMove ? base->type()
              : control()->getQualType(base->type(), CvQualifiers::kConst);
+  if (auto path = lookupBaseSubobjectPath(classSymbol, base))
+    argument->subobjectPath = make_symbol_path(pool, *path);
   argument->valueCategory =
       isMove ? ValueCategory::kXValue : ValueCategory::kLValue;
 
@@ -2346,6 +2350,8 @@ void Binder::CompleteClass::synthesizeCompleteObjectCtor(FunctionSymbol* ctor) {
       cast->type =
           isCopy ? control()->getQualType(vbase->type(), CvQualifiers::kConst)
                  : vbase->type();
+      if (auto path = lookupBaseSubobjectPath(classSymbol, vbase))
+        cast->subobjectPath = make_symbol_path(pool, *path);
       cast->valueCategory = ValueCategory::kLValue;
       init->expressionList = make_list_node<ExpressionAST>(pool, cast);
     } else if (vbaseCtor) {
@@ -2405,6 +2411,8 @@ void Binder::CompleteClass::synthesizeCompleteObjectDtor(FunctionSymbol* dtor) {
     address->castKind = ImplicitCastKind::kDerivedToBaseConversion;
     address->expression = makeThisExpr();
     address->type = control()->getPointerType(vbase->type());
+    if (auto path = lookupBaseSubobjectPath(classSymbol, vbase))
+      address->subobjectPath = make_symbol_path(pool, *path);
     address->valueCategory = ValueCategory::kPrValue;
 
     auto variable =
@@ -2659,6 +2667,8 @@ void Binder::CompleteClass::synthesizeCopyMoveCtorBody(FunctionSymbol* fn,
     cast->type =
         isMove ? baseSym->type()
                : control()->getQualType(baseSym->type(), CvQualifiers::kConst);
+    if (auto path = lookupBaseSubobjectPath(classSymbol, baseSym))
+      cast->subobjectPath = make_symbol_path(pool, *path);
     cast->valueCategory =
         isMove ? ValueCategory::kXValue : ValueCategory::kLValue;
     init->expressionList = make_list_node<ExpressionAST>(pool, cast);

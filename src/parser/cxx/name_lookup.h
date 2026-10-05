@@ -44,12 +44,20 @@ namespace cxx {
 
 struct ClassMemberLookup {
   Symbol* symbol = nullptr;
+  // Ordered storage subobjects from the lookup scope to the declaration.
+  std::vector<Symbol*> subobjectPath;
   bool ambiguous = false;
 };
 
 [[nodiscard]] auto lookupClassMember(ClassSymbol* scope, const Name* name,
                                      const std::function<bool(Symbol*)>& accept)
     -> ClassMemberLookup;
+
+[[nodiscard]] auto lookupBaseSubobjectPath(ClassSymbol* derived,
+                                           ClassSymbol* base)
+    -> std::optional<std::vector<Symbol*>>;
+
+[[nodiscard]] auto resolveClassScope(Symbol* symbol) -> ClassSymbol*;
 
 class VisitedScopes {
  public:
@@ -83,14 +91,16 @@ template <typename Predicate>
 [[nodiscard]] auto searchScope(ScopeSymbol* scope, const Name* name,
                                VisitedScopes& visited, Predicate accept,
                                bool followUsingDirectives = true,
-                               bool searchBaseClasses = true) -> Symbol* {
+                               bool searchBaseClasses = true,
+                               std::vector<Symbol*>* subobjectPath = nullptr)
+    -> Symbol* {
   if (std::ranges::contains(visited, scope)) return nullptr;
   visited.push_back(scope);
 
   if (auto cls = symbol_cast<ClassSymbol>(scope)) {
     if (auto def = cls->definition(); def && def != cls)
       return searchScope(def, name, visited, accept, followUsingDirectives,
-                         searchBaseClasses);
+                         searchBaseClasses, subobjectPath);
   }
 
   Symbol* classOrEnumDeclaration = nullptr;
@@ -108,8 +118,30 @@ template <typename Predicate>
 
     if (auto u = symbol_cast<UsingDeclarationSymbol>(symbol);
         u && u->target()) {
-      if (auto found = consider(resolve_using_declaration(symbol)))
+      auto target = resolve_using_declaration(symbol);
+      if (auto found = consider(target)) {
+        if (subobjectPath && is_non_static_member(target)) {
+          auto classSymbol = symbol_cast<ClassSymbol>(scope);
+          auto declarator = u->declarator();
+          auto designatingClass =
+              declarator && declarator->nestedNameSpecifier
+                  ? resolveClassScope(declarator->nestedNameSpecifier->symbol)
+                  : nullptr;
+          if (classSymbol && designatingClass) {
+            auto prefix =
+                lookupBaseSubobjectPath(classSymbol, designatingClass);
+            auto selected = lookupClassMember(designatingClass, name, accept);
+            if (prefix && selected.symbol &&
+                resolve_using_declaration(selected.symbol) == target) {
+              *subobjectPath = std::move(*prefix);
+              subobjectPath->insert(subobjectPath->end(),
+                                    selected.subobjectPath.begin(),
+                                    selected.subobjectPath.end());
+            }
+          }
+        }
         return found;
+      }
     }
 
     if (auto found = consider(symbol)) return found;
@@ -119,15 +151,26 @@ template <typename Predicate>
 
   if (auto classSymbol = symbol_cast<ClassSymbol>(scope)) {
     for (auto member : classSymbol->find(/*unnamed=*/nullptr)) {
-      auto nestedClass = symbol_cast<ClassSymbol>(member);
+      auto field = symbol_cast<FieldSymbol>(member);
+      auto nestedClass = field ? anonymous_member_class(field) : nullptr;
       if (!nestedClass) continue;
+      std::vector<Symbol*> nestedPath;
       if (auto s = searchScope(nestedClass, name, visited, accept,
-                               followUsingDirectives))
+                               followUsingDirectives, true, &nestedPath)) {
+        if (subobjectPath) {
+          subobjectPath->push_back(field);
+          subobjectPath->insert(subobjectPath->end(), nestedPath.begin(),
+                                nestedPath.end());
+        }
         return s;
+      }
     }
 
-    if (searchBaseClasses && !classSymbol->baseClasses().empty())
-      return lookupClassMember(classSymbol, name, accept).symbol;
+    if (searchBaseClasses && !classSymbol->baseClasses().empty()) {
+      auto result = lookupClassMember(classSymbol, name, accept);
+      if (subobjectPath) *subobjectPath = std::move(result.subobjectPath);
+      return result.symbol;
+    }
   }
 
   if (!followUsingDirectives) return nullptr;

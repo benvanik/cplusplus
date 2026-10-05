@@ -43,7 +43,7 @@ struct TemplateArgumentPrinter {
     if (address.parent()) {
       auto parent = address_to_string(*address.parent(), nullptr);
       if (parent.starts_with("&")) parent.erase(0, 1);
-      name = parent + "." + name;
+      name = name.empty() ? std::move(parent) : parent + "." + name;
     }
     for (auto scope = symbol->parent(); scope && !address.parent();
          scope = scope->parent()) {

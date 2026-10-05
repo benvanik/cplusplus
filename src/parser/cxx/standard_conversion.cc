@@ -2179,6 +2179,13 @@ void StandardConversion::wrapWithImplicitCast(ImplicitCastKind castKind,
     }
   }
 
+  if (castKind == ImplicitCastKind::kDerivedToBaseConversion) {
+    if (auto path = lookupBaseSubobjectPath(convertedClassSymbol(expr->type),
+                                            convertedClassSymbol(type))) {
+      cast->subobjectPath = make_symbol_path(arena_, *path);
+    }
+  }
+
   if (isClassAdjustment(castKind) && !traits.is_pointer(type) &&
       is_glvalue(expr)) {
     cast->valueCategory = expr->valueCategory;
