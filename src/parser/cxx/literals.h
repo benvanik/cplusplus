@@ -76,7 +76,7 @@ class IntegerLiteral final : public Literal {
     return components_.value;
   }
 
-  [[nodiscard]] auto components() const { return components_; }
+  [[nodiscard]] auto components() const -> Components { return components_; }
 
   void initialize() const;
 
@@ -122,7 +122,7 @@ class FloatLiteral final : public Literal {
     return components_.longDoubleValue;
   }
 
-  [[nodiscard]] auto components() const { return components_; }
+  [[nodiscard]] auto components() const -> Components { return components_; }
 
   void initialize() const;
 
@@ -172,7 +172,7 @@ class StringLiteral final : public Literal {
 
   [[nodiscard]] auto utf16CodeUnits() const -> std::vector<std::uint16_t>;
 
-  [[nodiscard]] auto components() const { return components_; }
+  [[nodiscard]] auto components() const -> Components { return components_; }
 
   void initialize(StringLiteralEncoding encoding) const;
 
@@ -196,7 +196,7 @@ class CharLiteral final : public Literal {
 
   [[nodiscard]] auto charValue() const -> int { return components_.value; }
 
-  [[nodiscard]] auto components() const { return components_; }
+  [[nodiscard]] auto components() const -> Components { return components_; }
 
   void initialize() const;
 
