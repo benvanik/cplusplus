@@ -127,6 +127,14 @@ jobs:
         run: |
           npm -w cxx-frontend run prettier
 
+      - name: Test semantic model frontend
+        run: |
+          source "/opt/emsdk/emsdk_env.sh"
+          export EMSCRIPTEN_ROOT="/opt/emsdk/upstream/emscripten"
+          npm run build:semantic-model-frontend
+          npm run cxx-dump-model -- --check
+          npm -w cxx-gen-ast test
+
       - name: Build
         run: |
           source "/opt/emsdk/emsdk_env.sh"

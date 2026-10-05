@@ -77,7 +77,7 @@ if (!missing) {
   throw new Error(
     `${path.relative(outdir, snapshot)} does not exist and it cannot be generated ` +
       `(${missing === "--no-refresh" ? "--no-refresh was given" : `${path.relative(outdir, missing)} is missing`}); ` +
-      "run npm run build:cxx-frontend first",
+      "run npm run build:semantic-model-frontend first",
   );
 }
 

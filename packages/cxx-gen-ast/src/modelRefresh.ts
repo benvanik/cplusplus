@@ -49,7 +49,7 @@ export async function dumpSemanticModel(root: string): Promise<string> {
   const missing = missingFrontend(root);
   if (missing)
     throw new Error(
-      `${missing} is missing; build it with npm run build:cxx-frontend`,
+      `${missing} is missing; build it with npm run build:semantic-model-frontend`,
     );
 
   const { loadCxx, Parser } = await import("cxx-frontend");

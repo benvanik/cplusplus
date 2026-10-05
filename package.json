@@ -34,6 +34,7 @@
   ],
   "scripts": {
     "build:cxx-frontend": "npm run build:emscripten && npm run build --workspace=cxx-frontend",
+    "build:semantic-model-frontend": "npm run build:emscripten -- --parser-only && npm run build --workspace=cxx-frontend",
     "build:playground": "npm run build:playground-sysroot && npm run build -w @robertoraggi/cxx-playground",
     "build:playground-sysroot": "node scripts/build-playground-sysroot.js",
     "build:emscripten": "node scripts/build-emscripten.js",

@@ -19,8 +19,11 @@
 // SOFTWARE.
 
 #include <cxx/ast.h>
+#ifndef CXX_JS_PARSER_ONLY
 #include <cxx/codegen/codegen.h>
+#endif
 #include <cxx/control.h>
+#include <cxx/cxx_fwd.h>
 #include <cxx/preprocessor.h>
 #include <cxx/source_location.h>
 #include <cxx/translation_unit.h>
@@ -34,7 +37,9 @@
 
 #include "async_parse.h"
 #include "emit_code.h"
+#ifndef CXX_JS_PARSER_ONLY
 #include "emitter_delegate-priv.h"
+#endif
 #include "toolchain_options.h"
 
 using namespace emscripten;
@@ -172,6 +177,11 @@ struct WrappedUnit {
   }
 
   void emitWith(EmitterDelegate delegate) {
+#ifdef CXX_JS_PARSER_ONLY
+    static_cast<void>(delegate);
+    cxx::cxx_runtime_error(
+        "emitWith is unavailable in the parser-only frontend");
+#else
     if (diagnosticsClient->hasErrors) return;
 
     toolchain->applyEntryPointAbi(unit.get());
@@ -181,6 +191,7 @@ struct WrappedUnit {
     cxx::Codegen codegen(emitter, unit.get(), {.debugInfo = debugInfo});
 
     (void)codegen(unit->ast());
+#endif
   }
 
   auto emitCode(const std::string& format) -> val {

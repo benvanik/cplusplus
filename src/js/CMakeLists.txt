@@ -25,7 +25,21 @@ aux_source_directory(cxx SOURCES)
 
 add_executable(cxx-js ${SOURCES})
 
-target_link_libraries(cxx-js cxx-parser cxx-lsp cxx-codegen cxx-link embind)
+option(CXX_JS_PARSER_ONLY
+    "Build the JavaScript frontend without code emission support" OFF)
+
+if (CXX_JS_PARSER_ONLY AND CXX_ENABLE_MLIR)
+    message(FATAL_ERROR "CXX_JS_PARSER_ONLY requires CXX_ENABLE_MLIR=OFF")
+endif()
+
+target_link_libraries(cxx-js cxx-parser cxx-lsp cxx-link embind)
+
+if (CXX_JS_PARSER_ONLY)
+    target_compile_definitions(cxx-js PRIVATE CXX_JS_PARSER_ONLY)
+    target_include_directories(cxx-js PRIVATE ${CMAKE_SOURCE_DIR}/src/codegen)
+else()
+    target_link_libraries(cxx-js cxx-codegen)
+endif()
 
 if (CXX_ENABLE_MLIR)
     target_link_libraries(cxx-js cxx-mlir)

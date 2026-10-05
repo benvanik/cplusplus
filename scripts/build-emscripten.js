@@ -17,6 +17,13 @@ const distributionDirectory = path.join(frontendDirectory, "dist");
 
 $.cwd = repositoryDirectory;
 
+const arguments_ = process.argv.slice(2);
+for (const argument of arguments_) {
+  if (argument !== "--parser-only")
+    throw new Error(`unknown option ${argument}`);
+}
+const parserOnly = arguments_.includes("--parser-only");
+
 function shouldSkipWasmOpt() {
   const value = process.env.CXX_NO_WASM_OPT;
 
@@ -46,6 +53,10 @@ async function hasMlir() {
 }
 
 async function selectPresets() {
+  if (parserOnly) {
+    return { configure: "emscripten", build: "build-emscripten" };
+  }
+
   if (await hasMlir()) {
     return { configure: "emscripten-mlir", build: "build-emscripten-mlir" };
   }
@@ -64,10 +75,15 @@ async function configure(preset) {
     linkerFlags = "-O1 -sERROR_ON_WASM_CHANGES_AFTER_LINK";
   }
 
-  await $`cmake --preset ${preset} -DCMAKE_EXE_LINKER_FLAGS_RELEASE=${linkerFlags}`;
+  const parserOnlyValue = parserOnly ? "ON" : "OFF";
+  await $`cmake --preset ${preset} -DCXX_JS_PARSER_ONLY=${parserOnlyValue} -DCMAKE_EXE_LINKER_FLAGS_RELEASE=${linkerFlags}`;
 }
 
 async function build(preset) {
+  if (parserOnly) {
+    await $`cmake --build --preset ${preset} --target cxx-js link_cxx_include link_wasi_sysroot`;
+    return;
+  }
   await $`cmake --build --preset ${preset}`;
 }
 
