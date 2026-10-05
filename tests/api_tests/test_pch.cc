@@ -529,21 +529,39 @@ struct Pair {
   Parameters left;
   Parameters right;
 };
+struct AddressBase {
+  unsigned value;
+  constexpr const unsigned& get() const { return value; }
+};
+struct AddressLeft : AddressBase {};
+struct AddressRight : AddressBase {};
+struct RepeatedAddress : AddressLeft, AddressRight {};
 constexpr Parameters first{3, 5};
 constexpr Parameters second{7, 11};
 constexpr Pair pair{{3, 5}, {7, 11}};
 constexpr Parameters table[2] = {{3, 5}, {7, 11}};
 extern Parameters external;
+extern RepeatedAddress repeated_address;
 template <const unsigned& value>
 struct Ref {};
 static_assert(__is_same(Ref<first.get()>, Ref<first.scale>));
 static_assert(__is_same(Ref<external.get()>, Ref<external.scale>));
+static_assert(__is_same(Ref<repeated_address.AddressRight::get()>,
+                        Ref<repeated_address.AddressRight::value>));
 constexpr const unsigned* first_get_address = &first.get();
 constexpr const unsigned* first_scale_address = &first.scale;
 constexpr const unsigned* second_scale_address = &second.scale;
 constexpr const unsigned* pair_left_scale_address = &pair.left.scale;
 constexpr const unsigned* table_one_scale_address = &table[1].scale;
 constexpr const unsigned* external_scale_address = &external.scale;
+constexpr const unsigned* repeated_left_get_address =
+    &repeated_address.AddressLeft::get();
+constexpr const unsigned* repeated_left_value_address =
+    &repeated_address.AddressLeft::value;
+constexpr const unsigned* repeated_right_get_address =
+    &repeated_address.AddressRight::get();
+constexpr const unsigned* repeated_right_value_address =
+    &repeated_address.AddressRight::value;
 )"};
     data = prefix.emit();
     ASSERT_TRUE(prefix.errors().empty());
@@ -561,22 +579,41 @@ constexpr const unsigned* external_scale_address = &external.scale;
   auto parameters =
       symbol_cast<ClassSymbol>(findMember(globalScope, "Parameters"));
   auto pairType = symbol_cast<ClassSymbol>(findMember(globalScope, "Pair"));
+  auto addressBase =
+      symbol_cast<ClassSymbol>(findMember(globalScope, "AddressBase"));
+  auto addressLeft =
+      symbol_cast<ClassSymbol>(findMember(globalScope, "AddressLeft"));
+  auto addressRight =
+      symbol_cast<ClassSymbol>(findMember(globalScope, "AddressRight"));
+  auto repeatedAddressType =
+      symbol_cast<ClassSymbol>(findMember(globalScope, "RepeatedAddress"));
   auto first = findMember(globalScope, "first");
   auto second = findMember(globalScope, "second");
   auto pair = findMember(globalScope, "pair");
   auto table = findMember(globalScope, "table");
   auto external = findMember(globalScope, "external");
+  auto repeatedAddress = findMember(globalScope, "repeated_address");
   ASSERT_TRUE(parameters);
   ASSERT_TRUE(pairType);
+  ASSERT_TRUE(addressBase);
+  ASSERT_TRUE(addressLeft);
+  ASSERT_TRUE(addressRight);
+  ASSERT_TRUE(repeatedAddressType);
   ASSERT_TRUE(first);
   ASSERT_TRUE(second);
   ASSERT_TRUE(pair);
   ASSERT_TRUE(table);
   ASSERT_TRUE(external);
+  ASSERT_TRUE(repeatedAddress);
   auto scale = findMember(parameters, "scale");
   auto left = findMember(pairType, "left");
+  auto addressValue = findMember(addressBase, "value");
   ASSERT_TRUE(scale);
   ASSERT_TRUE(left);
+  ASSERT_TRUE(addressValue);
+  ASSERT_EQ(addressLeft->baseClasses().size(), 1u);
+  ASSERT_EQ(addressRight->baseClasses().size(), 1u);
+  ASSERT_EQ(repeatedAddressType->baseClasses().size(), 2u);
 
   auto firstGet = constantAddress(globalScope, "first_get_address");
   auto firstScale = constantAddress(globalScope, "first_scale_address");
@@ -584,12 +621,24 @@ constexpr const unsigned* external_scale_address = &external.scale;
   auto pairLeftScale = constantAddress(globalScope, "pair_left_scale_address");
   auto tableOneScale = constantAddress(globalScope, "table_one_scale_address");
   auto externalScale = constantAddress(globalScope, "external_scale_address");
+  auto repeatedLeftGet =
+      constantAddress(globalScope, "repeated_left_get_address");
+  auto repeatedLeftValue =
+      constantAddress(globalScope, "repeated_left_value_address");
+  auto repeatedRightGet =
+      constantAddress(globalScope, "repeated_right_get_address");
+  auto repeatedRightValue =
+      constantAddress(globalScope, "repeated_right_value_address");
   ASSERT_TRUE(firstGet);
   ASSERT_TRUE(firstScale);
   ASSERT_TRUE(secondScale);
   ASSERT_TRUE(pairLeftScale);
   ASSERT_TRUE(tableOneScale);
   ASSERT_TRUE(externalScale);
+  ASSERT_TRUE(repeatedLeftGet);
+  ASSERT_TRUE(repeatedLeftValue);
+  ASSERT_TRUE(repeatedRightGet);
+  ASSERT_TRUE(repeatedRightValue);
 
   EXPECT_TRUE(firstGet->sameObject(*firstScale));
   EXPECT_FALSE(firstScale->sameObject(*secondScale));
@@ -599,6 +648,11 @@ constexpr const unsigned* external_scale_address = &external.scale;
   EXPECT_EQ(pairLeftScale->root(), pair);
   EXPECT_EQ(tableOneScale->root(), table);
   EXPECT_EQ(externalScale->root(), external);
+  EXPECT_EQ(repeatedLeftGet->root(), repeatedAddress);
+  EXPECT_EQ(repeatedRightGet->root(), repeatedAddress);
+  EXPECT_TRUE(repeatedLeftGet->sameObject(*repeatedLeftValue));
+  EXPECT_TRUE(repeatedRightGet->sameObject(*repeatedRightValue));
+  EXPECT_FALSE(repeatedLeftValue->sameObject(*repeatedRightValue));
 
   ASSERT_EQ(firstScale->subobjectPath().size(), 1u);
   expectSubobject(*firstScale, 0, scale);
@@ -608,6 +662,22 @@ constexpr const unsigned* external_scale_address = &external.scale;
   ASSERT_EQ(tableOneScale->subobjectPath().size(), 2u);
   expectSubobject(*tableOneScale, 0, std::size_t{1});
   expectSubobject(*tableOneScale, 1, scale);
+  ASSERT_EQ(repeatedLeftValue->subobjectPath().size(), 3u);
+  expectSubobject(*repeatedLeftValue, 0,
+                  static_cast<Symbol*>(repeatedAddressType->baseClasses()[0]));
+  expectSubobject(*repeatedLeftValue, 1,
+                  static_cast<Symbol*>(addressLeft->baseClasses()[0]));
+  expectSubobject(*repeatedLeftValue, 2, addressValue);
+  EXPECT_EQ(repeatedLeftGet->subobjectPath(),
+            repeatedLeftValue->subobjectPath());
+  ASSERT_EQ(repeatedRightValue->subobjectPath().size(), 3u);
+  expectSubobject(*repeatedRightValue, 0,
+                  static_cast<Symbol*>(repeatedAddressType->baseClasses()[1]));
+  expectSubobject(*repeatedRightValue, 1,
+                  static_cast<Symbol*>(addressRight->baseClasses()[0]));
+  expectSubobject(*repeatedRightValue, 2, addressValue);
+  EXPECT_EQ(repeatedRightGet->subobjectPath(),
+            repeatedRightValue->subobjectPath());
 }
 
 TEST(PrecompiledHeader, RestoresConstexprBranchSelections) {

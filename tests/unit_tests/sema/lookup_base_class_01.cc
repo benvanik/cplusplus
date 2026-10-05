@@ -35,4 +35,23 @@ struct D : B, C {
   using type_c = C::type;
 };
 
-// expected-no-diagnostics
+struct RepeatedMember {
+  int value;
+  int get() const { return value; }
+};
+
+struct RepeatedLeft : RepeatedMember {};
+struct RepeatedRight : RepeatedMember {};
+
+struct UsingDoesNotSelectStorage : RepeatedLeft, RepeatedRight {
+  using RepeatedLeft::get;
+  using RepeatedLeft::value;
+};
+
+int ambiguous_value(UsingDoesNotSelectStorage& object) {
+  return object.value; // expected-error {{member 'value' found in multiple base classes of 'UsingDoesNotSelectStorage'}}
+}
+
+int ambiguous_call(UsingDoesNotSelectStorage& object) {
+  return object.get(); // expected-error {{member 'get' found in multiple base classes of 'UsingDoesNotSelectStorage'}}
+}

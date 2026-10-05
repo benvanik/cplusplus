@@ -3803,10 +3803,11 @@ void TypeChecker::Visitor::operator()(CallExpressionAST* ast) {
       markUntypedAfterError(ast);
       return;
     }
-    if (function->isImplicitObjectMemberFunction())
-      convertMemberObject(member, member->unqualifiedId
-                                      ? designatingClassOf(member)
-                                      : function->enclosingClass());
+    if (function->isImplicitObjectMemberFunction()) {
+      if (member->unqualifiedId)
+        convertMemberObject(member, designatingClassOf(member));
+      convertMemberObject(member, function->enclosingClass());
+    }
   }
 
   bool diagnosed = false;
