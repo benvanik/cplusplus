@@ -39,7 +39,9 @@
 #include <cxx/views/symbols.h>
 
 #include <algorithm>
+#include <cmath>
 #include <format>
+#include <utility>
 
 namespace cxx {
 
@@ -373,7 +375,7 @@ struct ElementInitChecker {
                                          initializationKind)) {
       ctx.error(expr->firstSourceLocation(), errorMessage(sourceType));
     } else if (isListInitialization(initializationKind)) {
-      diagnoseNarrowingListElement(ctx, source, targetType);
+      (void)diagnoseNarrowingListElement(ctx, source, targetType);
     }
   }
 
@@ -2037,7 +2039,7 @@ void ListInitChecker::enumerationFromScalar(const Type* type,
     return;
   }
 
-  diagnoseNarrowingListElement(ctx, source, underlyingType);
+  (void)diagnoseNarrowingListElement(ctx, source, underlyingType);
 
   auto cast = ImplicitCastExpressionAST::create(ctx.unit->arena());
   cast->expression = expr;
@@ -2424,7 +2426,8 @@ void ClassInitChecker::checkNarrowingArguments(
   std::size_t index = 0;
   for (auto argument : args) {
     if (index >= parameters.size()) break;
-    diagnoseNarrowingListElement(ctx, argument, parameters[index]->type());
+    (void)diagnoseNarrowingListElement(ctx, argument,
+                                       parameters[index]->type());
     ++index;
   }
 }
@@ -3694,18 +3697,64 @@ auto planAggregateInitialization(TranslationUnit* unit,
   return builder.build(aggregateType, bracedInitList);
 }
 
-void diagnoseNarrowingListElement(InitContext& ctx, ExpressionAST* element,
-                                  const Type* targetType) {
-  if (!ctx.isCxx()) return;
-  if (!element || !element->type) return;
-  if (!ctx.traits.is_narrowing_list_element(element, targetType)) return;
+auto describeNarrowingListElement(const ListElementNarrowing& narrowing,
+                                  std::string_view context) -> std::string {
+  auto message = std::format("narrowing conversion from '{}' to '{}' {}",
+                             to_diag_string(narrowing.sourceType),
+                             to_diag_string(narrowing.targetType), context);
 
-  auto source = stripImplicitCasts(element);
-  ctx.error(
-      element->firstSourceLocation(),
-      std::format("narrowing conversion from '{}' to '{}' in "
-                  "braced-init-list",
-                  to_diag_string(source->type), to_diag_string(targetType)));
+  switch (narrowing.kind) {
+    case ListElementNarrowing::Kind::kTypeConversion:
+      return message;
+
+    case ListElementNarrowing::Kind::kIntegerOutOfRange:
+      return std::format("{}: integer constant {} is outside the range of '{}'",
+                         message, narrowing.integerValue.toString(),
+                         to_diag_string(narrowing.targetType));
+
+    case ListElementNarrowing::Kind::kIntegerNotExactlyRepresentable:
+      return std::format(
+          "{}: integer constant {} is not exactly representable by '{}'",
+          message, narrowing.integerValue.toString(),
+          to_diag_string(narrowing.targetType));
+
+    case ListElementNarrowing::Kind::kFloatingPointOutsideFiniteRange:
+      return std::format(
+          "{}: constant value {} is outside the finite range of '{}'; "
+          "maximum magnitude is {}",
+          message, narrowing.floatingValue,
+          to_diag_string(narrowing.targetType),
+          narrowing.maximumFiniteMagnitude);
+
+    case ListElementNarrowing::Kind::kFloatingPointRoundsToInfinity:
+      return std::format(
+          "{}: constant value {} rounds to infinity in '{}'; maximum finite "
+          "value is {}",
+          message, narrowing.floatingValue,
+          to_diag_string(narrowing.targetType),
+          narrowing.maximumFiniteMagnitude);
+
+    case ListElementNarrowing::Kind::kInfinityNotRepresentable:
+      return std::format(
+          "{}: {}infinity is not representable by '{}'", message,
+          std::signbit(narrowing.floatingValue) ? "negative " : "",
+          to_diag_string(narrowing.targetType));
+  }
+
+  std::unreachable();
+}
+
+auto diagnoseNarrowingListElement(InitContext& ctx, ExpressionAST* element,
+                                  const Type* targetType) -> bool {
+  if (!ctx.isCxx()) return false;
+  if (!element || !element->type) return false;
+
+  auto narrowing = ctx.traits.narrowing_list_element(element, targetType);
+  if (!narrowing) return false;
+
+  ctx.error(element->firstSourceLocation(),
+            describeNarrowingListElement(*narrowing, "in braced-init-list"));
+  return true;
 }
 
 auto initialize(InitContext& ctx, const InitializedEntity& entity,

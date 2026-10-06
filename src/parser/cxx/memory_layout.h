@@ -78,6 +78,7 @@ struct FloatingPointFormat {
   [[nodiscard]] auto fractionBits() const -> int;
   [[nodiscard]] auto exponentBias() const -> int;
   [[nodiscard]] auto maxExponent() const -> int;
+  [[nodiscard]] auto maximumFiniteMagnitude() const -> long double;
   [[nodiscard]] auto representsInteger(const ConstInt& value) const -> bool;
   [[nodiscard]] auto conversionDoesNotOverflow(long double value) const -> bool;
   [[nodiscard]] auto representation(float value) const -> ConstInt::UWide;

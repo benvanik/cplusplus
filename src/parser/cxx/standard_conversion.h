@@ -111,8 +111,11 @@ class StandardConversion {
       InitializationKind initializationKind =
           InitializationKind::kCopyInitialization) -> bool;
 
-  [[nodiscard]] auto convertedConstantExpression(ExpressionAST* expression,
-                                                 const Type* targetType)
+  // When provided, receives source-value detail if list narrowing rejects the
+  // input. Other converted-constant narrowing failures leave it empty.
+  [[nodiscard]] auto convertedConstantExpression(
+      ExpressionAST* expression, const Type* targetType,
+      std::optional<ListElementNarrowing>* narrowing = nullptr)
       -> std::expected<ExpressionAST*, ConvertedConstantFailure>;
 
   void atomicToNonAtomic(ExpressionAST*& expr);

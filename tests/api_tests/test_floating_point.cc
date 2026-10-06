@@ -135,6 +135,7 @@ TEST(FloatingPointFormat, Binary16SubnormalValues) {
 }
 
 TEST(FloatingPointFormat, Binary16Overflow) {
+  EXPECT_EQ(65504.0L, kBinary16.maximumFiniteMagnitude());
   EXPECT_EQ(65504.0f, roundBinary16(65519.0L));
   EXPECT_EQ(std::numeric_limits<float>::infinity(), roundBinary16(65520.0L));
   EXPECT_EQ(-std::numeric_limits<float>::infinity(), roundBinary16(-65520.0L));
@@ -196,6 +197,7 @@ TEST(FloatingPointFormat, BFloat16SubnormalValues) {
 TEST(FloatingPointFormat, BFloat16Overflow) {
   constexpr auto kMaximum = 0x1.fep127f;
   constexpr auto kThreshold = 0x1.ffp127L;
+  EXPECT_EQ(0x1.fep127L, kBFloat16.maximumFiniteMagnitude());
   EXPECT_EQ(kMaximum, roundToBFloat16(std::nextafter(
                           kThreshold, static_cast<long double>(kMaximum))));
   EXPECT_EQ(std::numeric_limits<float>::infinity(),
@@ -227,6 +229,7 @@ TEST(FloatingPointFormat, BFloat16FiniteBoundaries) {
 }
 
 TEST(FloatingPointFormat, Float8E4M3FNSpecialValues) {
+  EXPECT_EQ(448.0L, kFloat8E4M3FN.maximumFiniteMagnitude());
   EXPECT_EQ(0x00, float8E4M3FNBits(0.0L));
   EXPECT_EQ(0x80, float8E4M3FNBits(-0.0L));
   EXPECT_EQ(0x7e,
@@ -313,6 +316,7 @@ TEST(FloatingPointFormat, Float8E5M2SpecialValues) {
 }
 
 TEST(FloatingPointFormat, Float8E5M2Values) {
+  EXPECT_EQ(57344.0L, kFloat8E5M2.maximumFiniteMagnitude());
   EXPECT_EQ(1.0f, roundE5M2(1.125L));
   EXPECT_EQ(1.5f, roundE5M2(1.375L));
   EXPECT_EQ(1.25f, roundE5M2(0x1.2000000000001p0L));

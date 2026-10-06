@@ -28,6 +28,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace cxx {
@@ -328,8 +329,13 @@ class PreparedInitialization {
   bool valid_ = false;
 };
 
-void diagnoseNarrowingListElement(InitContext& ctx, ExpressionAST* element,
-                                  const Type* targetType);
+[[nodiscard]] auto describeNarrowingListElement(
+    const ListElementNarrowing& narrowing, std::string_view context)
+    -> std::string;
+
+[[nodiscard]] auto diagnoseNarrowingListElement(InitContext& ctx,
+                                                ExpressionAST* element,
+                                                const Type* targetType) -> bool;
 
 void diagnoseConversionFailure(InitContext& ctx,
                                const InitializedEntity& entity,

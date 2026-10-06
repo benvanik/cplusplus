@@ -2946,16 +2946,24 @@ auto isConvertedConstantSequence(ExpressionAST* converted,
   return true;
 }
 
-auto StandardConversion::convertedConstantExpression(ExpressionAST* expression,
-                                                     const Type* targetType)
+auto StandardConversion::convertedConstantExpression(
+    ExpressionAST* expression, const Type* targetType,
+    std::optional<ListElementNarrowing>* narrowing)
     -> std::expected<ExpressionAST*, ConvertedConstantFailure> {
+  if (narrowing) narrowing->reset();
+
   auto sequence = computeConversionSequence(expression, targetType);
   if (!sequence || sequence.form == ConversionSequenceForm::kAmbiguous ||
       !isAccessible(sequence)) {
     return std::unexpected(ConvertedConstantFailure::kNoConversion);
   }
-  if (traits.is_narrowing_list_element(expression, targetType))
+  if (narrowing) {
+    *narrowing = traits.narrowing_list_element(expression, targetType);
+    if (*narrowing)
+      return std::unexpected(ConvertedConstantFailure::kNarrowing);
+  } else if (traits.is_narrowing_list_element(expression, targetType)) {
     return std::unexpected(ConvertedConstantFailure::kNarrowing);
+  }
 
   auto converted = expression;
   applyConversionSequence(sequence, converted);

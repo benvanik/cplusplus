@@ -46,6 +46,35 @@ class Symbol;
 class TranslationUnit;
 class Type;
 
+struct ListElementNarrowing {
+  enum class Kind {
+    kTypeConversion,
+    kIntegerOutOfRange,
+    kIntegerNotExactlyRepresentable,
+    kFloatingPointOutsideFiniteRange,
+    kFloatingPointRoundsToInfinity,
+    kInfinityNotRepresentable,
+  };
+
+  // Source type used to classify the list element conversion.
+  const Type* sourceType = nullptr;
+
+  // Unqualified destination type used to test representability.
+  const Type* targetType = nullptr;
+
+  // Semantic cause of the narrowing conversion.
+  Kind kind = Kind::kTypeConversion;
+
+  // Rejected value for an integer-specific cause.
+  ConstInt integerValue;
+
+  // Rejected value for a floating-point-specific cause.
+  long double floatingValue = 0;
+
+  // Positive finite limit for an overflowing floating-point conversion.
+  long double maximumFiniteMagnitude = 0;
+};
+
 struct OverloadSetOperand {
   const OverloadSetType* type = nullptr;
   bool takesAddress = false;
@@ -201,6 +230,9 @@ class TypeTraits {
                                              const Type* to) const -> bool;
   [[nodiscard]] auto converted_pack_index(ExpressionAST* index)
       -> std::optional<std::size_t>;
+  [[nodiscard]] auto narrowing_list_element(ExpressionAST* expr,
+                                            const Type* targetType) const
+      -> std::optional<ListElementNarrowing>;
   [[nodiscard]] auto is_narrowing_list_element(ExpressionAST* expr,
                                                const Type* targetType) const
       -> bool;

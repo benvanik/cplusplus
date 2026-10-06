@@ -1358,14 +1358,18 @@ namespace {}  // namespace
 namespace {
 
 [[nodiscard]] auto convertedConstantFailureMessage(
-    ConvertedConstantFailure failure, const Type* from, const Type* to)
-    -> std::string {
+    ConvertedConstantFailure failure,
+    const std::optional<ListElementNarrowing>& narrowing, const Type* from,
+    const Type* to) -> std::string {
   switch (failure) {
     case ConvertedConstantFailure::kNoConversion:
       return std::format(
           "template argument of type '{}' cannot be converted to '{}'",
           to_diag_string(from), to_diag_string(to));
     case ConvertedConstantFailure::kNarrowing:
+      if (narrowing)
+        return describeNarrowingListElement(*narrowing,
+                                            "in converted constant expression");
       return std::format(
           "narrowing conversion from '{}' to '{}' in converted constant "
           "expression",
@@ -1433,12 +1437,13 @@ void Substitution::convertNonTypeArgument(NonTypeArgumentValue& argument,
         expression->type);
 
   StandardConversion conversions{unit_};
-  auto converted =
-      conversions.convertedConstantExpression(expression, targetType);
+  std::optional<ListElementNarrowing> narrowing;
+  auto converted = conversions.convertedConstantExpression(
+      expression, targetType, &narrowing);
   if (!converted) {
     error(expression->firstSourceLocation(),
-          convertedConstantFailureMessage(converted.error(), expression->type,
-                                          targetType));
+          convertedConstantFailureMessage(converted.error(), narrowing,
+                                          expression->type, targetType));
     return;
   }
 

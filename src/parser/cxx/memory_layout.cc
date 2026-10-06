@@ -849,6 +849,12 @@ template <typename Float>
 }
 }  // namespace
 
+auto FloatingPointFormat::maximumFiniteMagnitude() const -> long double {
+  const auto significand =
+      static_cast<long double>(maximumFiniteSignificand(*this));
+  return std::ldexp(significand, maxExponent() - (significandDigits - 1));
+}
+
 auto FloatingPointFormat::representsInteger(const ConstInt& value) const
     -> bool {
   if (value.isZero()) return true;
@@ -856,7 +862,6 @@ auto FloatingPointFormat::representsInteger(const ConstInt& value) const
   const int width = wideBitWidth(magnitude);
   const int significant = width - wideCountTrailingZeros(magnitude);
   if (significant > significandDigits) return false;
-
   const int exponent = width - 1;
   if (exponent < maxExponent()) return true;
   if (exponent > maxExponent()) return false;
@@ -922,11 +927,7 @@ auto FloatingPointFormat::conversionDoesNotOverflow(long double value) const
       specialValueEncoding == SpecialValueEncoding::kFiniteOnly;
   if (std::isinf(value)) return !finiteOnly;
 
-  const auto significand =
-      static_cast<long double>(maximumFiniteSignificand(*this));
-  const auto maximumFinite =
-      std::ldexp(significand, maxExponent() - (significandDigits - 1));
-  if (finiteOnly) return std::fabs(value) <= maximumFinite;
+  if (finiteOnly) return std::fabs(value) <= maximumFiniteMagnitude();
 
   const auto overflowThreshold =
       std::ldexp(2.0L - std::ldexp(1.0L, -significandDigits), maxExponent());

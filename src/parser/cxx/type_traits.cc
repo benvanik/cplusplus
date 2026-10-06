@@ -2420,53 +2420,94 @@ auto listElementSource(ExpressionAST* expr) -> ExpressionAST* {
   return expr;
 }
 
-}  // namespace
-
-auto TypeTraits::is_narrowing_list_element(ExpressionAST* expr,
-                                           const Type* targetType) const
+[[nodiscard]] auto classifyListElementNarrowing(const TypeTraits& traits,
+                                                ExpressionAST* expression,
+                                                const Type* targetType,
+                                                ListElementNarrowing* result)
     -> bool {
-  if (!expr) return false;
+  if (!expression) return false;
 
-  auto source = listElementSource(expr);
-  if (!source) return false;
-  if (isDependent(unit_, source)) return false;
+  auto source = listElementSource(expression);
+  if (!source || isDependent(traits.unit(), source)) return false;
 
-  targetType = remove_reference(targetType);
+  targetType = traits.remove_reference(targetType);
 
-  auto sourceType = source->type ? source->type : expr->type;
-  if (!is_narrowing_conversion(sourceType, targetType)) return false;
+  auto sourceType = source->type ? source->type : expression->type;
+  if (!traits.is_narrowing_conversion(sourceType, targetType)) return false;
 
-  targetType = remove_cv(targetType);
+  targetType = traits.remove_cv(targetType);
 
-  auto fitsInteger = [&](const ConstInt& value) {
-    if (is_integral(targetType)) {
-      return converted_integral_constant(targetType, value).has_value();
+  auto report = [&](ListElementNarrowing::Kind kind) {
+    if (result) {
+      *result = ListElementNarrowing{
+          .sourceType = sourceType,
+          .targetType = targetType,
+          .kind = kind,
+      };
     }
-
-    auto format = control()->memoryLayout()->floatingPointFormat(targetType);
-    return format && format->representsInteger(value);
+    return true;
   };
 
-  auto fitsFloating = [&](long double value) {
-    auto format = control()->memoryLayout()->floatingPointFormat(targetType);
-    return format && format->conversionDoesNotOverflow(value);
+  auto genericNarrowing = [&] {
+    return report(ListElementNarrowing::Kind::kTypeConversion);
+  };
+
+  if (traits.is_floating_point(sourceType) && traits.is_integral(targetType))
+    return genericNarrowing();
+
+  auto integerNarrowing = [&](const ConstInt& value) {
+    if (traits.is_integral(targetType)) {
+      if (traits.converted_integral_constant(targetType, value)) return false;
+      report(ListElementNarrowing::Kind::kIntegerOutOfRange);
+      if (result) result->integerValue = value;
+      return true;
+    }
+
+    auto format =
+        traits.control()->memoryLayout()->floatingPointFormat(targetType);
+    if (!format) return genericNarrowing();
+    if (format->representsInteger(value)) return false;
+    report(ListElementNarrowing::Kind::kIntegerNotExactlyRepresentable);
+    if (result) result->integerValue = value;
+    return true;
+  };
+
+  auto floatingNarrowing = [&](long double value) {
+    auto format =
+        traits.control()->memoryLayout()->floatingPointFormat(targetType);
+    if (!format) return genericNarrowing();
+    if (format->conversionDoesNotOverflow(value)) return false;
+
+    auto kind = ListElementNarrowing::Kind::kFloatingPointRoundsToInfinity;
+    if (format->specialValueEncoding ==
+        FloatingPointFormat::SpecialValueEncoding::kFiniteOnly) {
+      kind = std::isinf(value)
+                 ? ListElementNarrowing::Kind::kInfinityNotRepresentable
+                 : ListElementNarrowing::Kind::kFloatingPointOutsideFiniteRange;
+    }
+    report(kind);
+    if (result) {
+      result->floatingValue = value;
+      result->maximumFiniteMagnitude = format->maximumFiniteMagnitude();
+    }
+    return true;
   };
 
   if (auto literal = ast_cast<IntLiteralExpressionAST>(source);
       literal && literal->literal && !literal->literalOperatorCall) {
     const auto raw = static_cast<ConstInt::Wide>(
         static_cast<ConstInt::UWide>(literal->literal->integerValue()));
-    auto value = integral_constant(sourceType, raw);
-    return !value || !fitsInteger(*value);
+    auto value = traits.integral_constant(sourceType, raw);
+    return value ? integerNarrowing(*value) : genericNarrowing();
   }
 
   if (auto literal = ast_cast<FloatLiteralExpressionAST>(source);
       literal && literal->literal && !literal->literalOperatorCall) {
     const auto components = literal->literal->components();
     if (components.isLongDouble)
-      return !fitsFloating(literal->literal->longDoubleValue());
+      return floatingNarrowing(literal->literal->longDoubleValue());
 
-    auto unqualifiedSource = remove_cv(sourceType);
+    auto unqualifiedSource = traits.remove_cv(sourceType);
     auto format = unqualifiedSource
                       ? ConstFloat::formatFor(unqualifiedSource->kind())
                       : std::nullopt;
@@ -2478,22 +2519,39 @@ auto TypeTraits::is_narrowing_list_element(ExpressionAST* expr,
           needsWideParse
               ? literal->literal->longDoubleValue()
               : static_cast<long double>(literal->literal->floatValue());
-      return !fitsFloating(
+      return floatingNarrowing(
           ConstFloat::fromValue(*format, parsed).toLongDouble());
     }
   }
 
-  auto value = ASTInterpreter{unit_}.evaluate(source);
-  if (!value) return true;
+  auto value = ASTInterpreter{traits.unit()}.evaluate(source);
+  if (!value) return genericNarrowing();
 
   if (auto intValue = std::get_if<ConstInt>(&*value))
-    return !fitsInteger(*intValue);
+    return integerNarrowing(*intValue);
   if (auto floatValue = std::get_if<ConstFloat>(&*value))
-    return !fitsFloating(floatValue->toLongDouble());
+    return floatingNarrowing(floatValue->toLongDouble());
   if (auto longDoubleValue = std::get_if<long double>(&*value))
-    return !fitsFloating(*longDoubleValue);
+    return floatingNarrowing(*longDoubleValue);
 
-  return true;
+  return genericNarrowing();
+}
+
+}  // namespace
+
+auto TypeTraits::narrowing_list_element(ExpressionAST* expression,
+                                        const Type* targetType) const
+    -> std::optional<ListElementNarrowing> {
+  ListElementNarrowing result;
+  if (!classifyListElementNarrowing(*this, expression, targetType, &result))
+    return std::nullopt;
+  return result;
+}
+
+auto TypeTraits::is_narrowing_list_element(ExpressionAST* expression,
+                                           const Type* targetType) const
+    -> bool {
+  return classifyListElementNarrowing(*this, expression, targetType, nullptr);
 }
 
 auto TypeTraits::integer_constant_fits_in_type(std::uint64_t value,
