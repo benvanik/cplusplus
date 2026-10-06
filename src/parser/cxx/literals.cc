@@ -960,12 +960,17 @@ auto FloatLiteral::Components::from(std::string_view text,
   components.literalPart = text.substr(0, pos);
 
   const auto firstChar = literalText.data();
-  if (components.suffix == FloatingPointSuffix::kF16)
+  if (components.suffix == FloatingPointSuffix::kF16) {
     components.value = roundFloat16(std::strtold(firstChar, nullptr));
-  else if (components.suffix == FloatingPointSuffix::kBF16)
+  } else if (components.suffix == FloatingPointSuffix::kBF16) {
     components.value = roundBFloat16(std::strtold(firstChar, nullptr));
-  else
+  } else if (components.suffix == FloatingPointSuffix::kF) {
+    components.value = std::strtof(firstChar, nullptr);
+  } else if (components.suffix == FloatingPointSuffix::kL) {
+    components.value = std::strtold(firstChar, nullptr);
+  } else {
     components.value = std::strtod(firstChar, nullptr);
+  }
 
   components.isFloat = components.suffix == FloatingPointSuffix::kF;
   components.isLongDouble = components.suffix == FloatingPointSuffix::kL;

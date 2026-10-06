@@ -46,14 +46,25 @@ enum class FramePointerKind {
 [[nodiscard]] auto to_string(FramePointerKind kind) -> std::string_view;
 
 struct FloatingPointFormat {
+  // Number of exponent bits in the object representation.
   int exponentBits = 0;
+
+  // Precision in radix-two digits, including the implicit integer bit.
   int significandDigits = 0;
+
+  // Whether the integer bit is stored explicitly in the representation.
   bool explicitIntegerBit = false;
+
+  // Whether the format represents positive and negative infinity.
+  bool supportsInfinity = true;
+
+  // Exceptional maximum finite value, or empty for the ordinary IEEE limit.
+  std::optional<long double> maximumFiniteValue;
 
   [[nodiscard]] auto fractionBits() const -> int;
   [[nodiscard]] auto maxExponent() const -> int;
-  [[nodiscard]] auto representsInteger(std::intmax_t value) const -> bool;
-  [[nodiscard]] auto rangeContains(double value) const -> bool;
+  [[nodiscard]] auto representsInteger(const ConstInt& value) const -> bool;
+  [[nodiscard]] auto conversionDoesNotOverflow(long double value) const -> bool;
   [[nodiscard]] auto representation(double value) const -> ConstInt::UWide;
   [[nodiscard]] auto value(ConstInt::UWide representation) const -> double;
 };

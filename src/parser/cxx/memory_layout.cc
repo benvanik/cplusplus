@@ -47,7 +47,10 @@ struct FloatingPointFormatOf {
 
   [[nodiscard]] auto operator()(const Float8E4M3FNType*) const
       -> std::optional<FloatingPointFormat> {
-    return FloatingPointFormat{.exponentBits = 4, .significandDigits = 4};
+    return FloatingPointFormat{.exponentBits = 4,
+                               .significandDigits = 4,
+                               .supportsInfinity = false,
+                               .maximumFiniteValue = 448.0L};
   }
 
   [[nodiscard]] auto operator()(const Float8E5M2Type*) const
@@ -648,13 +651,16 @@ auto FloatingPointFormat::maxExponent() const -> int {
   return (1 << (exponentBits - 1)) - 1;
 }
 
-auto FloatingPointFormat::representsInteger(std::intmax_t value) const -> bool {
-  if (value == 0) return true;
-  const auto magnitude =
-      value < 0 ? std::uint64_t(-(value + 1)) + 1 : std::uint64_t(value);
-  const int width = std::bit_width(magnitude);
-  const int significant = width - std::countr_zero(magnitude);
+auto FloatingPointFormat::representsInteger(const ConstInt& value) const
+    -> bool {
+  if (value.isZero()) return true;
+  const auto magnitude = value.magnitude();
+  const int width = value.width() - value.countLeadingZeros();
+  const int significant = width - value.countTrailingZeros();
   if (significant > significandDigits) return false;
+  if (maximumFiniteValue) {
+    return static_cast<long double>(magnitude) <= *maximumFiniteValue;
+  }
   return width - 1 <= maxExponent();
 }
 
@@ -713,11 +719,14 @@ auto FloatingPointFormat::value(ConstInt::UWide representation) const
                            exponent - (significandDigits - 1));
 }
 
-auto FloatingPointFormat::rangeContains(double value) const -> bool {
-  if (!std::isfinite(value)) return true;
-  const auto largest =
-      std::ldexp(2.0 - std::ldexp(1.0, 1 - significandDigits), maxExponent());
-  return std::fabs(value) <= largest;
+auto FloatingPointFormat::conversionDoesNotOverflow(long double value) const
+    -> bool {
+  if (std::isnan(value)) return true;
+  if (std::isinf(value)) return supportsInfinity;
+  if (maximumFiniteValue) return std::fabs(value) <= *maximumFiniteValue;
+  const auto overflowThreshold =
+      std::ldexp(2.0L - std::ldexp(1.0L, -significandDigits), maxExponent());
+  return std::fabs(value) < overflowThreshold;
 }
 
 auto MemoryLayout::triple() const -> const std::string& { return triple_; }

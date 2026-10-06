@@ -102,8 +102,7 @@ struct Vectors {
 };
 constexpr Vectors values{{3, 5, 7, 9},
                          {1.5f, 2.5f},
-                         {_Float16(1), _Float16(2), _Float16(3), _Float16(4),
-                          _Float16(5), _Float16(6), _Float16(7), _Float16(8)}};
+                         {1, 2, 3, 4, 5, 6, 7, 8}};
 static_assert(values.integers[2] == 7);
 static_assert(values.scales[1] == 2.5f);
 static_assert(values.halves[7] == 8);
