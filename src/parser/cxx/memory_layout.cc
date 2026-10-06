@@ -651,6 +651,12 @@ auto FloatingPointFormat::maxExponent() const -> int {
   return (1 << (exponentBits - 1)) - 1;
 }
 
+auto FloatingPointFormat::maximumFiniteMagnitude() const -> long double {
+  if (maximumFiniteValue) return *maximumFiniteValue;
+  return std::ldexp(2.0L - std::ldexp(1.0L, 1 - significandDigits),
+                    maxExponent());
+}
+
 auto FloatingPointFormat::representsInteger(const ConstInt& value) const
     -> bool {
   if (value.isZero()) return true;
@@ -658,9 +664,8 @@ auto FloatingPointFormat::representsInteger(const ConstInt& value) const
   const int width = value.width() - value.countLeadingZeros();
   const int significant = width - value.countTrailingZeros();
   if (significant > significandDigits) return false;
-  if (maximumFiniteValue) {
-    return static_cast<long double>(magnitude) <= *maximumFiniteValue;
-  }
+  if (maximumFiniteValue)
+    return static_cast<long double>(magnitude) <= maximumFiniteMagnitude();
   return width - 1 <= maxExponent();
 }
 
@@ -723,7 +728,7 @@ auto FloatingPointFormat::conversionDoesNotOverflow(long double value) const
     -> bool {
   if (std::isnan(value)) return true;
   if (std::isinf(value)) return supportsInfinity;
-  if (maximumFiniteValue) return std::fabs(value) <= *maximumFiniteValue;
+  if (maximumFiniteValue) return std::fabs(value) <= maximumFiniteMagnitude();
   const auto overflowThreshold =
       std::ldexp(2.0L - std::ldexp(1.0L, -significandDigits), maxExponent());
   return std::fabs(value) < overflowThreshold;

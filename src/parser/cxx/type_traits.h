@@ -29,7 +29,10 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace cxx {
@@ -42,6 +45,36 @@ class OverloadSetType;
 class Symbol;
 class TranslationUnit;
 class Type;
+
+struct ListElementNarrowing {
+  struct IntegerOutOfRange {
+    // Evaluated integer outside the destination integral range.
+    ConstInt value;
+  };
+
+  struct IntegerNotExactlyRepresentable {
+    // Evaluated integer that the destination floating format cannot preserve.
+    ConstInt value;
+  };
+
+  struct FloatingPointOverflow {
+    // Evaluated floating value outside the destination format's range.
+    long double value;
+  };
+
+  using Cause =
+      std::variant<std::monostate, IntegerOutOfRange,
+                   IntegerNotExactlyRepresentable, FloatingPointOverflow>;
+
+  // Source type used to classify the list element conversion.
+  const Type* sourceType;
+
+  // Unqualified destination type used to test representability.
+  const Type* targetType;
+
+  // Semantic cause, including the source value for value-dependent failures.
+  Cause cause;
+};
 
 struct OverloadSetOperand {
   const OverloadSetType* type = nullptr;
@@ -185,9 +218,15 @@ class TypeTraits {
   [[nodiscard]] auto is_char_type(const Type* type) const -> bool;
   [[nodiscard]] auto is_narrowing_conversion(const Type* from,
                                              const Type* to) const -> bool;
+  [[nodiscard]] auto narrowing_list_element(ExpressionAST* expr,
+                                            const Type* targetType) const
+      -> std::optional<ListElementNarrowing>;
   [[nodiscard]] auto is_narrowing_list_element(ExpressionAST* expr,
                                                const Type* targetType) const
       -> bool;
+  [[nodiscard]] auto describe_narrowing_list_element(
+      const ListElementNarrowing& narrowing, std::string_view context) const
+      -> std::string;
   [[nodiscard]] auto integer_constant_fits_in_type(std::uint64_t value,
                                                    const Type* targetType) const
       -> bool;

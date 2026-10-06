@@ -1885,9 +1885,7 @@ void TypeChecker::Visitor::diagnoseNarrowingListElement(
   InitContext ctx{check};
 
   for (auto it = bracedInitList->expressionList; it; it = it->next) {
-    if (!traits.is_narrowing_list_element(it->value, elementType)) continue;
-    cxx::diagnoseNarrowingListElement(ctx, it->value, elementType);
-    return;
+    if (cxx::diagnoseNarrowingListElement(ctx, it->value, elementType)) return;
   }
 }
 

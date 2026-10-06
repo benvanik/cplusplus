@@ -343,7 +343,7 @@ struct ElementInitChecker {
                                          initializationKind)) {
       ctx.error(expr->firstSourceLocation(), std::move(errorMessage));
     } else if (isListInitialization(initializationKind)) {
-      diagnoseNarrowingListElement(ctx, source, targetType);
+      (void)diagnoseNarrowingListElement(ctx, source, targetType);
     }
   }
 
@@ -1842,7 +1842,7 @@ void ListInitChecker::enumerationFromScalar(const Type* type,
     return;
   }
 
-  diagnoseNarrowingListElement(ctx, source, underlyingType);
+  (void)diagnoseNarrowingListElement(ctx, source, underlyingType);
 
   auto cast = ImplicitCastExpressionAST::create(ctx.unit->arena());
   cast->expression = expr;
@@ -2187,7 +2187,8 @@ void ClassInitChecker::checkNarrowingArguments(
   std::size_t index = 0;
   for (auto argument : args) {
     if (index >= parameters.size()) break;
-    diagnoseNarrowingListElement(ctx, argument, parameters[index]->type());
+    (void)diagnoseNarrowingListElement(ctx, argument,
+                                       parameters[index]->type());
     ++index;
   }
 }
@@ -3192,17 +3193,18 @@ auto planAggregateInitialization(TranslationUnit* unit,
   return builder.build(aggregateType, bracedInitList);
 }
 
-void diagnoseNarrowingListElement(InitContext& ctx, ExpressionAST* element,
-                                  const Type* targetType) {
-  if (!ctx.isCxx()) return;
-  if (!element || !element->type) return;
-  if (!ctx.traits.is_narrowing_list_element(element, targetType)) return;
+auto diagnoseNarrowingListElement(InitContext& ctx, ExpressionAST* element,
+                                  const Type* targetType) -> bool {
+  if (!ctx.isCxx()) return false;
+  if (!element || !element->type) return false;
 
-  auto source = stripImplicitCasts(element);
+  auto narrowing = ctx.traits.narrowing_list_element(element, targetType);
+  if (!narrowing) return false;
+
   ctx.error(element->firstSourceLocation(),
-            std::format("narrowing conversion from '{}' to '{}' in "
-                        "braced-init-list",
-                        to_string(source->type), to_string(targetType)));
+            ctx.traits.describe_narrowing_list_element(*narrowing,
+                                                       "in braced-init-list"));
+  return true;
 }
 
 auto initialize(InitContext& ctx, const InitializedEntity& entity,

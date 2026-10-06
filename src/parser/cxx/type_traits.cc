@@ -43,6 +43,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <format>
 #include <optional>
 #include <unordered_set>
 
@@ -2061,45 +2062,129 @@ auto listElementSource(ExpressionAST* expr) -> ExpressionAST* {
 
 }  // namespace
 
-auto TypeTraits::is_narrowing_list_element(ExpressionAST* expr,
-                                           const Type* targetType) const
-    -> bool {
-  if (!expr) return false;
+auto TypeTraits::narrowing_list_element(ExpressionAST* expr,
+                                        const Type* targetType) const
+    -> std::optional<ListElementNarrowing> {
+  if (!expr) return std::nullopt;
 
   auto source = listElementSource(expr);
-  if (!source) return false;
-  if (isDependent(unit_, source)) return false;
+  if (!source) return std::nullopt;
+  if (isDependent(unit_, source)) return std::nullopt;
 
   auto sourceType = source->type ? source->type : expr->type;
-  if (!is_narrowing_conversion(sourceType, targetType)) return false;
+  if (!is_narrowing_conversion(sourceType, targetType)) return std::nullopt;
 
   targetType = remove_cv(targetType);
 
-  auto fitsInteger = [&](const ConstInt& value) {
+  auto genericNarrowing = [&] {
+    return ListElementNarrowing{
+        .sourceType = sourceType,
+        .targetType = targetType,
+        .cause = std::monostate{},
+    };
+  };
+
+  if (is_floating_point(sourceType) && is_integral(targetType))
+    return genericNarrowing();
+
+  auto integerNarrowing =
+      [&](const ConstInt& value) -> std::optional<ListElementNarrowing> {
     if (is_integral(targetType)) {
-      return converted_integral_constant(targetType, value).has_value();
+      if (converted_integral_constant(targetType, value)) return std::nullopt;
+      return ListElementNarrowing{
+          .sourceType = sourceType,
+          .targetType = targetType,
+          .cause = ListElementNarrowing::IntegerOutOfRange{value},
+      };
     }
 
     auto format = control()->memoryLayout()->floatingPointFormat(targetType);
-    return format && format->representsInteger(value);
+    if (format && format->representsInteger(value)) return std::nullopt;
+    return ListElementNarrowing{
+        .sourceType = sourceType,
+        .targetType = targetType,
+        .cause = ListElementNarrowing::IntegerNotExactlyRepresentable{value},
+    };
   };
 
-  auto fitsFloating = [&](long double value) {
+  auto floatingNarrowing =
+      [&](long double value) -> std::optional<ListElementNarrowing> {
     auto format = control()->memoryLayout()->floatingPointFormat(targetType);
-    return format && format->conversionDoesNotOverflow(value);
+    if (format && format->conversionDoesNotOverflow(value)) return std::nullopt;
+    return ListElementNarrowing{
+        .sourceType = sourceType,
+        .targetType = targetType,
+        .cause = ListElementNarrowing::FloatingPointOverflow{value},
+    };
   };
 
   auto value = ASTInterpreter{unit_}.evaluate(source);
-  if (!value) return true;
+  if (!value) return genericNarrowing();
 
   if (auto intValue = std::get_if<ConstInt>(&*value))
-    return !fitsInteger(*intValue);
+    return integerNarrowing(*intValue);
   if (auto floatValue = std::get_if<ConstFloat>(&*value))
-    return !fitsFloating(floatValue->toLongDouble());
+    return floatingNarrowing(floatValue->toLongDouble());
   if (auto longDoubleValue = std::get_if<long double>(&*value))
-    return !fitsFloating(*longDoubleValue);
+    return floatingNarrowing(*longDoubleValue);
 
-  return true;
+  return genericNarrowing();
+}
+
+auto TypeTraits::is_narrowing_list_element(ExpressionAST* expr,
+                                           const Type* targetType) const
+    -> bool {
+  return narrowing_list_element(expr, targetType).has_value();
+}
+
+auto TypeTraits::describe_narrowing_list_element(
+    const ListElementNarrowing& narrowing, std::string_view context) const
+    -> std::string {
+  auto message = std::format("narrowing conversion from '{}' to '{}' {}",
+                             to_string(narrowing.sourceType),
+                             to_string(narrowing.targetType), context);
+
+  if (std::holds_alternative<std::monostate>(narrowing.cause)) return message;
+
+  if (auto cause = std::get_if<ListElementNarrowing::IntegerOutOfRange>(
+          &narrowing.cause)) {
+    return std::format("{}: integer constant {} is outside the range of '{}'",
+                       message, cause->value.toString(),
+                       to_string(narrowing.targetType));
+  }
+
+  if (auto cause =
+          std::get_if<ListElementNarrowing::IntegerNotExactlyRepresentable>(
+              &narrowing.cause)) {
+    return std::format(
+        "{}: integer constant {} is not exactly representable by '{}'", message,
+        cause->value.toString(), to_string(narrowing.targetType));
+  }
+
+  const auto floating =
+      std::get<ListElementNarrowing::FloatingPointOverflow>(narrowing.cause)
+          .value;
+  if (std::isinf(floating)) {
+    return std::format("{}: {}infinity is not representable by '{}'", message,
+                       std::signbit(floating) ? "negative " : "",
+                       to_string(narrowing.targetType));
+  }
+
+  const auto format =
+      *control()->memoryLayout()->floatingPointFormat(narrowing.targetType);
+  if (!format.supportsInfinity) {
+    return std::format(
+        "{}: constant value {} is outside the finite range of '{}'; maximum "
+        "magnitude is {}",
+        message, floating, to_string(narrowing.targetType),
+        format.maximumFiniteMagnitude());
+  }
+
+  return std::format(
+      "{}: constant value {} rounds to infinity in '{}'; maximum finite value "
+      "is {}",
+      message, floating, to_string(narrowing.targetType),
+      format.maximumFiniteMagnitude());
 }
 
 auto TypeTraits::integer_constant_fits_in_type(std::uint64_t value,

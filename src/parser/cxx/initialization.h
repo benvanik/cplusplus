@@ -284,8 +284,9 @@ struct InitializationResult {
                               ExpressionAST*& initializer)
     -> InitializationResult;
 
-void diagnoseNarrowingListElement(InitContext& ctx, ExpressionAST* element,
-                                  const Type* targetType);
+[[nodiscard]] auto diagnoseNarrowingListElement(InitContext& ctx,
+                                                ExpressionAST* element,
+                                                const Type* targetType) -> bool;
 
 void diagnoseConversionFailure(InitContext& ctx,
                                const InitializedEntity& entity,

@@ -1447,11 +1447,10 @@ auto Substitution::convertNonTypeArgument(NonTypeArgumentValue& argument,
   auto converted = expression;
   if (!conversions.convertImplicitly(converted, targetType)) return false;
 
-  if (traits.is_narrowing_list_element(expression, targetType)) {
+  if (auto narrowing = traits.narrowing_list_element(expression, targetType)) {
     error(expression->firstSourceLocation(),
-          std::format("narrowing conversion from '{}' to '{}' in converted "
-                      "constant expression",
-                      to_string(expression->type), to_string(targetType)));
+          traits.describe_narrowing_list_element(
+              *narrowing, "in converted constant expression"));
     return false;
   }
 
