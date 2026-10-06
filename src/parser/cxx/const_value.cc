@@ -24,8 +24,11 @@
 #include <cxx/types.h>
 
 #include <algorithm>
-#include <compare>
+#include <array>
+#include <bit>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace cxx {
 
@@ -144,6 +147,31 @@ auto ConstObject::operator==(const ConstObject& other) const -> bool {
 
 namespace {
 
+[[nodiscard]] auto equivalentLongDouble(long double lhs, long double rhs)
+    -> bool {
+  if (lhs == rhs) {
+    return lhs != 0 || std::signbit(lhs) == std::signbit(rhs);
+  }
+  if (!std::isnan(lhs) || !std::isnan(rhs)) return false;
+
+  const auto lhsBits =
+      std::bit_cast<std::array<unsigned char, sizeof(long double)>>(lhs);
+  const auto rhsBits =
+      std::bit_cast<std::array<unsigned char, sizeof(long double)>>(rhs);
+
+  // The x87 ABI stores an 80-bit value in a padded 16-byte object. Padding is
+  // not part of floating identity and may be indeterminate after a value copy.
+  if constexpr (std::numeric_limits<long double>::digits == 64 &&
+                std::numeric_limits<long double>::max_exponent == 16384 &&
+                sizeof(long double) == 16 &&
+                std::endian::native == std::endian::little) {
+    return std::ranges::equal(lhsBits.begin(), lhsBits.begin() + 10,
+                              rhsBits.begin(), rhsBits.begin() + 10);
+  }
+
+  return lhsBits == rhsBits;
+}
+
 struct EquivalentValues {
   const ConstValue& rhs;
 
@@ -164,7 +192,7 @@ struct EquivalentValues {
 
   [[nodiscard]] auto operator()(long double lhs) const -> bool {
     auto value = other<long double>();
-    return value && std::strong_order(lhs, *value) == 0;
+    return value && equivalentLongDouble(lhs, *value);
   }
 
   [[nodiscard]] auto operator()(

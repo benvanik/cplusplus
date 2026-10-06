@@ -359,6 +359,11 @@ TEST(Control, structural_template_argument_keys) {
   std::vector<TemplateArgument> secondNan{ConstValue{nan}};
   EXPECT_EQ(control->getTemplateId(name, firstNan),
             control->getTemplateId(name, secondNan));
+  auto otherNan = static_cast<long double>(
+      std::bit_cast<double>(std::uint64_t{0x7ff8000000000002}));
+  EXPECT_TRUE(equivalent_values(ConstValue{nan}, ConstValue{nan}));
+  EXPECT_FALSE(equivalent_values(ConstValue{nan}, ConstValue{otherNan}));
+  EXPECT_FALSE(equivalent_values(ConstValue{0.0L}, ConstValue{-0.0L}));
 
   auto primary = control->newClassSymbol(nullptr, {});
   auto positiveInstance = control->newClassSymbol(nullptr, {});
