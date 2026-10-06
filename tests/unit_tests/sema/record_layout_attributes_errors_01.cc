@@ -77,3 +77,29 @@ struct [[gnu::aligned(-8)]] NegativeAlignment { char value; };
 
 // expected-error@+1 {{requested alignment is not a positive power of 2}}
 struct [[gnu::aligned(3)]] NonPowerAlignment { char value; };
+
+struct PackedBase { unsigned value; };
+
+// expected-error@+1 {{packed base classes and virtual members are not supported}}
+struct [[gnu::packed]] PackedDerived : PackedBase { unsigned char tag; };
+
+// expected-error@+1 {{packed base classes and virtual members are not supported}}
+struct [[gnu::packed]] PackedVirtual {
+  virtual void call();
+};
+
+// expected-error@+1 {{record layout exceeds the supported size range}}
+struct OversizedMember {
+  unsigned char values[1ull << 31];
+};
+
+// expected-error@+1 {{record layout exceeds the supported size range}}
+struct [[gnu::aligned(1 << 30)]] OversizedTailPadding {
+  unsigned char values[(1 << 30) + 1];
+};
+
+// expected-error@+1 {{record layout exceeds the supported size range}}
+struct OversizedAlignedMember {
+  unsigned char tag;
+  unsigned value [[gnu::aligned(1 << 30)]];
+};
