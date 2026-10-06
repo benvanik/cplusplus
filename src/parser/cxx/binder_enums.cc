@@ -32,7 +32,6 @@
 
 #include <array>
 #include <cstdint>
-#include <limits>
 #include <optional>
 #include <span>
 
@@ -70,7 +69,7 @@ struct TypedEnumeratorValue {
   }
 
   auto value = previous.toUWide();
-  if (value == std::numeric_limits<ConstInt::UWide>::max()) return std::nullopt;
+  if (value == ~ConstInt::UWide{0}) return std::nullopt;
   return ConstInt::make(static_cast<ConstInt::Wide>(value + 1),
                         ConstInt::maxWidth, false);
 }

@@ -1,5 +1,6 @@
 // RUN: %cxx -verify -fsyntax-only %s
 // RUN: %cxx -toolchain macos -verify -fsyntax-only %s
+// RUN: %cxx -toolchain windows -verify -fsyntax-only %s
 
 enum class BadByte : unsigned char {
   bad_byte = 256,  // expected-error {{enumerator value is not representable in the underlying type}}
@@ -37,6 +38,11 @@ enum ScopedInitializer {
 enum TooLarge {
   maximum = 0xffffffffffffffffULL,
   overflow,  // expected-error {{no integral type can represent the incremented enumerator value}}
+};
+
+enum ExtendedTooLarge {
+  extended_maximum = ~static_cast<unsigned __int128>(0),
+  extended_overflow,  // expected-error {{no integral type can represent the incremented enumerator value}}
 };
 
 enum TooWide {  // expected-error {{no integral type can represent all enumerator values}}
