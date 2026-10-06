@@ -1,5 +1,6 @@
 // RUN: %cxx -verify -fsyntax-only %s
 // RUN: %cxx -toolchain macos -verify -fsyntax-only %s
+// RUN: %cxx -toolchain windows -verify -fsyntax-only %s
 
 enum class BadByte : unsigned char {
   bad_byte = 256,  // expected-error {{enumerator value is not representable in the underlying type}}

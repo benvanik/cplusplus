@@ -298,7 +298,12 @@ class ConstInt {
   }
 
   [[nodiscard]] auto minSignedValue() const -> Wide {
-    if (width_ >= maxWidth) return std::numeric_limits<Wide>::min();
+    if (width_ >= maxWidth) {
+      // Host libraries need not specialize numeric_limits for compiler integer
+      // extensions such as __int128.
+      const auto halfRange = Wide{1} << (maxWidth - 2);
+      return -halfRange - halfRange;
+    }
     return -(Wide{1} << (width_ - 1));
   }
 

@@ -31,6 +31,7 @@ add_executable(test_api
     test_arena.cc
     test_condition_declarations.cc
     test_bit_cast.cc
+    test_const_int.cc
     test_control.cc
     test_declaration_analysis.cc
     test_dependent_types.cc

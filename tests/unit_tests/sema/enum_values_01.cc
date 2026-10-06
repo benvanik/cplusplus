@@ -1,5 +1,6 @@
 // RUN: %cxx -verify -fsyntax-only -fvalidate-ast %s
 // RUN: %cxx -toolchain macos -verify -fsyntax-only -fvalidate-ast %s
+// RUN: %cxx -toolchain windows -verify -fsyntax-only -fvalidate-ast %s
 
 enum Empty {};
 enum Small { zero, one };
