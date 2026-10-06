@@ -2438,48 +2438,60 @@ auto TypeTraits::is_narrowing_list_element(ExpressionAST* expr,
 
   targetType = remove_cv(targetType);
 
-  auto fitsInteger = [&](std::intmax_t value) {
+  auto fitsInteger = [&](const ConstInt& value) {
     if (is_integral(targetType)) {
-      if (value >= 0) {
-        return integer_constant_fits_in_type(static_cast<std::uint64_t>(value),
-                                             targetType);
-      }
-      if (!is_signed(targetType)) return false;
-      auto targetSize = control()->memoryLayout()->sizeOf(targetType);
-      if (!targetSize) return false;
-      const auto magnitude = std::uint64_t{1} << (*targetSize * 8 - 1);
-      return static_cast<std::uint64_t>(-(value + 1)) < magnitude;
+      return converted_integral_constant(targetType, value).has_value();
     }
 
     auto format = control()->memoryLayout()->floatingPointFormat(targetType);
     return format && format->representsInteger(value);
   };
 
-  auto fitsFloating = [&](double value) {
+  auto fitsFloating = [&](long double value) {
     auto format = control()->memoryLayout()->floatingPointFormat(targetType);
-    return format && format->rangeContains(value);
+    return format && format->conversionDoesNotOverflow(value);
   };
 
-  if (auto intLiteral = ast_cast<IntLiteralExpressionAST>(source)) {
-    if (!intLiteral->literal) return true;
-    return !fitsInteger(
-        static_cast<std::intmax_t>(intLiteral->literal->integerValue()));
+  if (auto literal = ast_cast<IntLiteralExpressionAST>(source);
+      literal && literal->literal && !literal->literalOperatorCall) {
+    const auto raw = static_cast<ConstInt::Wide>(
+        static_cast<ConstInt::UWide>(literal->literal->integerValue()));
+    auto value = integral_constant(sourceType, raw);
+    return !value || !fitsInteger(*value);
   }
 
-  if (auto floatLiteral = ast_cast<FloatLiteralExpressionAST>(source)) {
-    if (!floatLiteral->literal) return true;
-    return !fitsFloating(floatLiteral->literal->floatValue());
+  if (auto literal = ast_cast<FloatLiteralExpressionAST>(source);
+      literal && literal->literal && !literal->literalOperatorCall) {
+    const auto components = literal->literal->components();
+    if (components.isLongDouble)
+      return !fitsFloating(literal->literal->longDoubleValue());
+
+    auto unqualifiedSource = remove_cv(sourceType);
+    auto format = unqualifiedSource
+                      ? ConstFloat::formatFor(unqualifiedSource->kind())
+                      : std::nullopt;
+    if (format) {
+      using Suffix = FloatLiteral::Components::FloatingPointSuffix;
+      const bool needsWideParse = components.suffix == Suffix::kF16 ||
+                                  components.suffix == Suffix::kBF16;
+      const auto parsed =
+          needsWideParse
+              ? literal->literal->longDoubleValue()
+              : static_cast<long double>(literal->literal->floatValue());
+      return !fitsFloating(
+          ConstFloat::fromValue(*format, parsed).toLongDouble());
+    }
   }
 
   auto value = ASTInterpreter{unit_}.evaluate(source);
   if (!value) return true;
 
   if (auto intValue = std::get_if<ConstInt>(&*value))
-    return !fitsInteger(intValue->toIntMax());
+    return !fitsInteger(*intValue);
   if (auto floatValue = std::get_if<ConstFloat>(&*value))
-    return !fitsFloating(floatValue->toDouble());
+    return !fitsFloating(floatValue->toLongDouble());
   if (auto longDoubleValue = std::get_if<long double>(&*value))
-    return !fitsFloating(static_cast<double>(*longDoubleValue));
+    return !fitsFloating(*longDoubleValue);
 
   return true;
 }

@@ -78,8 +78,8 @@ struct FloatingPointFormat {
   [[nodiscard]] auto fractionBits() const -> int;
   [[nodiscard]] auto exponentBias() const -> int;
   [[nodiscard]] auto maxExponent() const -> int;
-  [[nodiscard]] auto representsInteger(std::intmax_t value) const -> bool;
-  [[nodiscard]] auto rangeContains(double value) const -> bool;
+  [[nodiscard]] auto representsInteger(const ConstInt& value) const -> bool;
+  [[nodiscard]] auto conversionDoesNotOverflow(long double value) const -> bool;
   [[nodiscard]] auto representation(float value) const -> ConstInt::UWide;
   [[nodiscard]] auto representation(double value) const -> ConstInt::UWide;
   [[nodiscard]] auto representation(long double value) const -> ConstInt::UWide;

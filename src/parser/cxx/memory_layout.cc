@@ -743,18 +743,27 @@ auto FloatingPointFormat::maxExponent() const -> int {
          (specialValueEncoding == SpecialValueEncoding::kFiniteOnly);
 }
 
-auto FloatingPointFormat::representsInteger(std::intmax_t value) const -> bool {
-  if (value == 0) return true;
-  const auto magnitude =
-      value < 0 ? std::uint64_t(-(value + 1)) + 1 : std::uint64_t(value);
-  const int width = std::bit_width(magnitude);
-  const int significant = width - std::countr_zero(magnitude);
-  if (significant > significandDigits) return false;
-  if (width - 1 > maxExponent()) return false;
-  return rangeContains(static_cast<double>(magnitude));
+namespace {
+[[nodiscard]] auto wideBitWidth(ConstInt::UWide value) -> int {
+#if defined(__SIZEOF_INT128__)
+  const auto high =
+      static_cast<ConstInt::UNarrow>(value >> ConstInt::narrowWidth);
+  if (high) return ConstInt::narrowWidth + std::bit_width(high);
+#endif
+  return std::bit_width(static_cast<ConstInt::UNarrow>(value));
 }
 
-namespace {
+[[nodiscard]] auto wideCountTrailingZeros(ConstInt::UWide value) -> int {
+  const auto low = static_cast<ConstInt::UNarrow>(value);
+  if (low) return std::countr_zero(low);
+#if defined(__SIZEOF_INT128__)
+  const auto high =
+      static_cast<ConstInt::UNarrow>(value >> ConstInt::narrowWidth);
+  return ConstInt::narrowWidth + std::countr_zero(high);
+#endif
+  return ConstInt::maxWidth;
+}
+
 [[nodiscard]] auto maximumFiniteSignificand(const FloatingPointFormat& format)
     -> ConstInt::UWide {
   const auto integerBit = ConstInt::UWide(1) << (format.significandDigits - 1);
@@ -840,6 +849,23 @@ template <typename Float>
 }
 }  // namespace
 
+auto FloatingPointFormat::representsInteger(const ConstInt& value) const
+    -> bool {
+  if (value.isZero()) return true;
+  const auto magnitude = value.magnitude();
+  const int width = wideBitWidth(magnitude);
+  const int significant = width - wideCountTrailingZeros(magnitude);
+  if (significant > significandDigits) return false;
+
+  const int exponent = width - 1;
+  if (exponent < maxExponent()) return true;
+  if (exponent > maxExponent()) return false;
+
+  const int shift = exponent - (significandDigits - 1);
+  const auto significand = shift < 0 ? magnitude << -shift : magnitude >> shift;
+  return significand <= maximumFiniteSignificand(*this);
+}
+
 auto FloatingPointFormat::representation(float value) const -> ConstInt::UWide {
   return floatingRepresentation(value, *this);
 }
@@ -889,12 +915,22 @@ auto FloatingPointFormat::value(ConstInt::UWide representation) const
                            exponent - (significandDigits - 1));
 }
 
-auto FloatingPointFormat::rangeContains(double value) const -> bool {
+auto FloatingPointFormat::conversionDoesNotOverflow(long double value) const
+    -> bool {
   if (std::isnan(value)) return true;
-  if (std::isinf(value))
-    return specialValueEncoding == SpecialValueEncoding::kIEEE;
-  const auto largest = this->value(maximumFiniteRepresentation(*this));
-  return std::fabs(value) <= largest;
+  const bool finiteOnly =
+      specialValueEncoding == SpecialValueEncoding::kFiniteOnly;
+  if (std::isinf(value)) return !finiteOnly;
+
+  const auto significand =
+      static_cast<long double>(maximumFiniteSignificand(*this));
+  const auto maximumFinite =
+      std::ldexp(significand, maxExponent() - (significandDigits - 1));
+  if (finiteOnly) return std::fabs(value) <= maximumFinite;
+
+  const auto overflowThreshold =
+      std::ldexp(2.0L - std::ldexp(1.0L, -significandDigits), maxExponent());
+  return std::fabs(value) < overflowThreshold;
 }
 
 auto MemoryLayout::triple() const -> const std::string& { return triple_; }

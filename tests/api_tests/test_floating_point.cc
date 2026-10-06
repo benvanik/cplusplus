@@ -39,8 +39,7 @@ const FloatingPointFormat kFloat8E4M3FN{
         FloatingPointFormat::SpecialValueEncoding::kFiniteOnly};
 const FloatingPointFormat kFloat8E5M2{.exponentBits = 5,
                                       .significandDigits = 3};
-const FloatingPointFormat kBinary32{.exponentBits = 8,
-                                    .significandDigits = 24};
+const FloatingPointFormat kBinary32{.exponentBits = 8, .significandDigits = 24};
 const FloatingPointFormat kBinary64{.exponentBits = 11,
                                     .significandDigits = 53};
 
@@ -139,6 +138,12 @@ TEST(FloatingPointFormat, Binary16Overflow) {
   EXPECT_EQ(65504.0f, roundBinary16(65519.0L));
   EXPECT_EQ(std::numeric_limits<float>::infinity(), roundBinary16(65520.0L));
   EXPECT_EQ(-std::numeric_limits<float>::infinity(), roundBinary16(-65520.0L));
+
+  EXPECT_TRUE(kBinary16.conversionDoesNotOverflow(65519.0L));
+  EXPECT_TRUE(kBinary16.conversionDoesNotOverflow(-65519.0L));
+  EXPECT_FALSE(kBinary16.conversionDoesNotOverflow(65520.0L));
+  EXPECT_TRUE(kBinary16.conversionDoesNotOverflow(
+      std::numeric_limits<long double>::infinity()));
 }
 
 TEST(FloatingPointFormat, Binary16FiniteBoundaries) {
@@ -197,6 +202,10 @@ TEST(FloatingPointFormat, BFloat16Overflow) {
             roundToBFloat16(kThreshold));
   EXPECT_EQ(-std::numeric_limits<float>::infinity(),
             roundToBFloat16(-kThreshold));
+
+  EXPECT_TRUE(kBFloat16.conversionDoesNotOverflow(
+      std::nextafter(kThreshold, static_cast<long double>(kMaximum))));
+  EXPECT_FALSE(kBFloat16.conversionDoesNotOverflow(kThreshold));
 }
 
 TEST(FloatingPointFormat, BFloat16FiniteBoundaries) {
@@ -224,27 +233,30 @@ TEST(FloatingPointFormat, Float8E4M3FNSpecialValues) {
             float8E4M3FNBits(std::numeric_limits<long double>::infinity()));
   EXPECT_EQ(0xfe,
             float8E4M3FNBits(-std::numeric_limits<long double>::infinity()));
-  EXPECT_EQ(0x7f, float8E4M3FNBits(
-                      std::numeric_limits<long double>::quiet_NaN()));
+  EXPECT_EQ(0x7f,
+            float8E4M3FNBits(std::numeric_limits<long double>::quiet_NaN()));
 
   EXPECT_EQ(0.0f, roundE4M3FN(0.0L));
   EXPECT_FALSE(std::signbit(roundE4M3FN(0.0L)));
   EXPECT_EQ(0.0f, roundE4M3FN(-0.0L));
   EXPECT_TRUE(std::signbit(roundE4M3FN(-0.0L)));
 
-  EXPECT_EQ(448.0f,
-            roundE4M3FN(std::numeric_limits<long double>::infinity()));
+  EXPECT_EQ(448.0f, roundE4M3FN(std::numeric_limits<long double>::infinity()));
   EXPECT_EQ(-448.0f,
             roundE4M3FN(-std::numeric_limits<long double>::infinity()));
-  EXPECT_TRUE(std::isnan(
-      roundE4M3FN(std::numeric_limits<long double>::quiet_NaN())));
+  EXPECT_TRUE(
+      std::isnan(roundE4M3FN(std::numeric_limits<long double>::quiet_NaN())));
 
-  EXPECT_TRUE(kFloat8E4M3FN.rangeContains(448.0));
-  EXPECT_FALSE(kFloat8E4M3FN.rangeContains(449.0));
-  EXPECT_FALSE(kFloat8E4M3FN.rangeContains(
-      std::numeric_limits<double>::infinity()));
+  EXPECT_TRUE(kFloat8E4M3FN.conversionDoesNotOverflow(448.0L));
+  EXPECT_FALSE(kFloat8E4M3FN.conversionDoesNotOverflow(449.0L));
+  EXPECT_FALSE(kFloat8E4M3FN.conversionDoesNotOverflow(
+      std::numeric_limits<long double>::infinity()));
+  EXPECT_TRUE(kFloat8E4M3FN.conversionDoesNotOverflow(
+      std::numeric_limits<long double>::quiet_NaN()));
   EXPECT_TRUE(kFloat8E4M3FN.representsInteger(448));
+  EXPECT_TRUE(kFloat8E4M3FN.representsInteger(-448));
   EXPECT_FALSE(kFloat8E4M3FN.representsInteger(480));
+  EXPECT_FALSE(kFloat8E4M3FN.representsInteger(-480));
 }
 
 TEST(FloatingPointFormat, Float8E4M3FNValues) {
@@ -283,8 +295,7 @@ TEST(FloatingPointFormat, Float8E4M3FNFiniteBoundaries) {
 TEST(FloatingPointFormat, Float8E5M2SpecialValues) {
   EXPECT_EQ(0x00, float8E5M2Bits(0.0L));
   EXPECT_EQ(0x80, float8E5M2Bits(-0.0L));
-  EXPECT_EQ(0x7c,
-            float8E5M2Bits(std::numeric_limits<long double>::infinity()));
+  EXPECT_EQ(0x7c, float8E5M2Bits(std::numeric_limits<long double>::infinity()));
   EXPECT_EQ(0xfc,
             float8E5M2Bits(-std::numeric_limits<long double>::infinity()));
 
@@ -297,8 +308,8 @@ TEST(FloatingPointFormat, Float8E5M2SpecialValues) {
             roundE5M2(std::numeric_limits<long double>::infinity()));
   EXPECT_EQ(-std::numeric_limits<float>::infinity(),
             roundE5M2(-std::numeric_limits<long double>::infinity()));
-  EXPECT_TRUE(std::isnan(
-      roundE5M2(std::numeric_limits<long double>::quiet_NaN())));
+  EXPECT_TRUE(
+      std::isnan(roundE5M2(std::numeric_limits<long double>::quiet_NaN())));
 }
 
 TEST(FloatingPointFormat, Float8E5M2Values) {
@@ -313,10 +324,28 @@ TEST(FloatingPointFormat, Float8E5M2Values) {
   EXPECT_EQ(0x1p-14f, roundE5M2(0x1.cp-15L));
 
   EXPECT_EQ(57344.0f, roundE5M2(61439.0L));
-  EXPECT_EQ(std::numeric_limits<float>::infinity(),
-            roundE5M2(61440.0L));
-  EXPECT_EQ(-std::numeric_limits<float>::infinity(),
-            roundE5M2(-61440.0L));
+  EXPECT_EQ(std::numeric_limits<float>::infinity(), roundE5M2(61440.0L));
+  EXPECT_EQ(-std::numeric_limits<float>::infinity(), roundE5M2(-61440.0L));
+
+  EXPECT_TRUE(kFloat8E5M2.conversionDoesNotOverflow(61439.0L));
+  EXPECT_FALSE(kFloat8E5M2.conversionDoesNotOverflow(61440.0L));
+  EXPECT_TRUE(kFloat8E5M2.conversionDoesNotOverflow(
+      std::numeric_limits<long double>::infinity()));
+}
+
+TEST(FloatingPointFormat, WideIntegerRepresentability) {
+#if defined(__SIZEOF_INT128__)
+  const auto exact = ConstInt::make(
+      static_cast<ConstInt::Wide>(ConstInt::UWide{1} << 100), 128, false);
+  const auto inexact = ConstInt::make(
+      static_cast<ConstInt::Wide>((ConstInt::UWide{1} << 100) + 1), 128, false);
+  ASSERT_TRUE(exact);
+  ASSERT_TRUE(inexact);
+  EXPECT_TRUE(kBinary32.representsInteger(*exact));
+  EXPECT_TRUE(kBinary64.representsInteger(*exact));
+  EXPECT_FALSE(kBinary32.representsInteger(*inexact));
+  EXPECT_FALSE(kBinary64.representsInteger(*inexact));
+#endif
 }
 
 TEST(FloatingPointFormat, Float8E5M2FiniteBoundaries) {
