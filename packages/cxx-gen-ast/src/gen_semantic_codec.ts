@@ -884,6 +884,17 @@ function fieldWrites(fields: FieldPlan[], self: string): string[] {
   return lines;
 }
 
+function archiveRejectionWrites(entity: EntityPlan, self: string): string[] {
+  const lines: string[] = [];
+  for (const rejection of entity.archiveRejections) {
+    lines.push(`  if (${substitute(rejection.when, self, "")}) {`);
+    lines.push(`    reportError(${JSON.stringify(rejection.message)});`);
+    lines.push(`    return;`);
+    lines.push(`  }`);
+  }
+  return lines;
+}
+
 function encodeFactoryEntity(entity: EntityPlan, domain: string): string {
   const lines: string[] = [];
   const names = new Names();
@@ -892,6 +903,8 @@ function encodeFactoryEntity(entity: EntityPlan, domain: string): string {
   lines.push(
     `    ByteWriter& out, [[maybe_unused]] const ${entity.cpp}* self) {`,
   );
+
+  lines.push(...archiveRejectionWrites(entity, "self"));
 
   for (const parameter of entity.factory?.parameters ?? []) {
     if (parameter.read === "{}" || parameter.read === "nullptr") continue;
@@ -916,6 +929,7 @@ function encodeFieldEntity(entity: EntityPlan, domain: string): string {
 
   lines.push(`void SemanticEncoder::write${domain}${entity.short}(`);
   lines.push(`    ByteWriter& out, [[maybe_unused]] ${entity.cpp}* self) {`);
+  lines.push(...archiveRejectionWrites(entity, "self"));
   if (entity.base)
     lines.push(`  write${domain}${entity.base.short}(out, self);`);
   lines.push(...fieldWrites(entity.fields, "self"));
@@ -932,6 +946,7 @@ function encodeStructEntity(entity: EntityPlan): string {
   lines.push(
     `    ByteWriter& out, [[maybe_unused]] const ${entity.cpp}* self) {`,
   );
+  lines.push(...archiveRejectionWrites(entity, "self"));
   if (entity.base)
     lines.push(`  write${codecName(entity.base.name)}(out, self);`);
   lines.push(...fieldWrites(entity.fields, "self"));

@@ -345,8 +345,16 @@ class ASTInterpreter {
   [[nodiscard]] auto lookupLocalSlot(const Symbol* sym) -> ConstValue*;
 
   void setLocal(const Symbol* sym, ConstValue value);
+  void setAutomaticLocal(const Symbol* sym, ConstValue value);
 
+  class AutomaticScope;
   struct Frame;
+  [[nodiscard]] auto automaticAddress(AutomaticScope& scope, Symbol* symbol,
+                                      ConstValue* slot)
+      -> std::shared_ptr<ConstAddress>;
+  void retireAutomaticStorage(AutomaticScope& scope);
+  [[nodiscard]] auto localAddress(Frame& frame, Symbol* symbol)
+      -> std::shared_ptr<ConstAddress>;
   enum class CallResultKind { kValue, kLValue, kAddress };
   struct CallResult {
     std::optional<ConstValue> value;
@@ -360,8 +368,24 @@ class ASTInterpreter {
     std::shared_ptr<ConstAddress> address;
   };
 
+  [[nodiscard]] auto evaluateCallWithReceiver(FunctionSymbol* function,
+                                              std::vector<ConstValue> arguments,
+                                              Receiver receiver)
+      -> std::optional<ConstValue>;
+
   [[nodiscard]] auto evaluateCallExpression(CallExpressionAST* ast,
                                             CallResultKind kind) -> CallResult;
+
+  [[nodiscard]] auto evaluateUnaryOperatorCall(FunctionSymbol* function,
+                                               ExpressionAST* operand,
+                                               CallResultKind kind)
+      -> CallResult;
+
+  [[nodiscard]] auto evaluateAssignmentOperatorCall(FunctionSymbol* function,
+                                                    ExpressionAST* target,
+                                                    ExpressionAST* argument,
+                                                    CallResultKind kind)
+      -> CallResult;
 
   [[nodiscard]] auto executeFunction(FunctionSymbol* function, Frame frame,
                                      CallResultKind kind,
@@ -385,7 +409,15 @@ class ASTInterpreter {
                                         std::vector<ConstValue> args)
       -> ConstValue*;
 
-  void bindReference(const Symbol* sym, ConstValue* target);
+  [[nodiscard]] auto evaluateCallAddress(FunctionSymbol* func,
+                                         std::vector<ConstValue> args)
+      -> std::optional<ConstValue>;
+
+  [[nodiscard]] auto bindReference(const Symbol* sym, ConstValue address)
+      -> bool;
+
+  [[nodiscard]] auto bindReferenceAddress(Frame& frame, const Symbol* reference,
+                                          ConstValue address) -> bool;
 
   [[nodiscard]] auto bindReferenceTo(Frame& frame, Symbol* reference,
                                      ExpressionAST* initializer) -> bool;
@@ -400,9 +432,7 @@ class ASTInterpreter {
 
   void interpretStructuredBinding(StructuredBindingDeclarationAST* ast);
 
-  [[nodiscard]] auto beginAutomaticScope() const -> std::size_t;
-  void registerAutomaticObject(VariableSymbol* variable);
-  [[nodiscard]] auto endAutomaticScope(std::size_t mark) -> bool;
+  void registerAutomaticObject(Symbol* symbol);
   [[nodiscard]] auto destroyValue(const Type* type, ConstValue& value) -> bool;
 
   [[nodiscard]] auto initializeDefaultedObject(
@@ -643,18 +673,51 @@ class ASTInterpreter {
     Frame(const Frame&) = delete;
     auto operator=(const Frame&) -> Frame& = delete;
 
+    struct Local {
+      Local(ConstValue initial, AutomaticScope* declaringScope = nullptr)
+          : value(std::move(initial)), declaringScope(declaringScope) {}
+
+      // Value owned by this invocation and declaration incarnation.
+      ConstValue value;
+      // Borrowed runtime scope that owns this declaration's lifetime.
+      AutomaticScope* declaringScope = nullptr;
+    };
     // Values owned by this invocation, including readable constant referents.
-    std::unordered_map<const Symbol*, ConstValue> locals;
+    std::unordered_map<const Symbol*, Local> locals;
     // Slots borrowed from existing storage for reference bindings.
     std::unordered_map<const Symbol*, ConstValue*> refs;
     // Reference identities, including referents without a readable value.
     // Every binding shadows the same parameter in an outer recursive call.
     std::unordered_map<const Symbol*, ConstValue> referenceAddresses;
     // Local objects whose lifetimes end with this invocation.
-    std::vector<VariableSymbol*> automaticObjects;
+    std::vector<Symbol*> automaticObjects;
+  };
+
+  // Stack-resident runtime lifetime region. Storage identities are allocated
+  // only when an automatic local's address is formed.
+  class AutomaticScope {
+   public:
+    explicit AutomaticScope(ASTInterpreter& interp);
+    ~AutomaticScope();
+
+    AutomaticScope(const AutomaticScope&) = delete;
+    auto operator=(const AutomaticScope&) -> AutomaticScope& = delete;
+
+    void end();
+
+   private:
+    friend class ASTInterpreter;
+
+    ASTInterpreter& interp_;
+    AutomaticScope* parent_ = nullptr;
+    std::size_t frameIndex_ = 0;
+    std::size_t automaticObjectMark_ = 0;
+    std::shared_ptr<ConstStorage> storageHead_;
+    bool active_ = false;
   };
   std::deque<Frame> frames_;
   std::vector<Frame> retiredFrames_;
+  AutomaticScope* currentAutomaticScope_ = nullptr;
 
   class EvaluationScope {
    public:

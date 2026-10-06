@@ -110,26 +110,75 @@ ConstAddress::ConstAddress(Symbol* symbol, std::intmax_t offset)
     : symbol_(symbol ? symbol->canonical() : nullptr), offset_(offset) {}
 
 ConstAddress::ConstAddress(std::shared_ptr<ConstAddress> parent, Symbol* symbol)
-    : symbol_(symbol->canonical()), parent_(std::move(parent)) {}
+    : symbol_(symbol->canonical()), origin_(std::move(parent)) {}
+
+auto ConstAddress::parent() const -> const std::shared_ptr<ConstAddress>& {
+  static const std::shared_ptr<ConstAddress> empty;
+  auto parent = std::get_if<std::shared_ptr<ConstAddress>>(&origin_);
+  return parent ? *parent : empty;
+}
+
+auto ConstAddress::owner() const -> const std::shared_ptr<ConstObject>& {
+  static const std::shared_ptr<ConstObject> empty;
+  auto owner = std::get_if<std::shared_ptr<ConstObject>>(&origin_);
+  return owner ? *owner : empty;
+}
+
+auto ConstAddress::storage() const -> const std::shared_ptr<ConstStorage>& {
+  static const std::shared_ptr<ConstStorage> empty;
+  auto storage = std::get_if<std::shared_ptr<ConstStorage>>(&origin_);
+  return storage ? *storage : empty;
+}
+
+auto ConstAddress::stringLiteral() const -> const StringLiteral* {
+  auto string = std::get_if<const StringLiteral*>(&origin_);
+  return string ? *string : nullptr;
+}
+
+auto ConstAddress::typeInfoFor() const -> const Type* {
+  auto type = std::get_if<const Type*>(&origin_);
+  return type ? *type : nullptr;
+}
+
+void ConstAddress::setParent(std::shared_ptr<ConstAddress> parent) {
+  if (parent) origin_ = std::move(parent);
+}
+
+void ConstAddress::setOwner(std::shared_ptr<ConstObject> owner) {
+  if (owner) origin_ = std::move(owner);
+}
+
+void ConstAddress::setStorage(std::shared_ptr<ConstStorage> storage) {
+  if (storage) origin_ = std::move(storage);
+}
+
+void ConstAddress::setStringLiteral(const StringLiteral* string) {
+  if (string) origin_ = string;
+}
+
+void ConstAddress::setTypeInfoFor(const Type* type) {
+  if (type) origin_ = type;
+}
 
 auto ConstAddress::rootSymbol() const -> Symbol* {
-  auto address = this;
-  while (address->parent_) address = address->parent_.get();
-  return address->owner_ ? nullptr : address->symbol_;
+  return parent() ? parent()->rootSymbol()
+         : std::holds_alternative<std::monostate>(origin_) ? symbol_
+                                                           : nullptr;
 }
 
 auto ConstAddress::sameTarget(const ConstAddress& other) const -> bool {
   auto left = this;
   auto right = &other;
   for (;;) {
-    if (left->symbol_ != right->symbol_ || left->owner_ != right->owner_ ||
-        left->string_ != right->string_ ||
-        left->typeInfoFor_ != right->typeInfoFor_)
+    if (left->symbol_ != right->symbol_ || left->owner() != right->owner() ||
+        left->storage() != right->storage() ||
+        left->stringLiteral() != right->stringLiteral() ||
+        left->typeInfoFor() != right->typeInfoFor())
       return false;
-    if (left->parent_ == right->parent_) return true;
-    if (!left->parent_ || !right->parent_) return false;
-    left = left->parent_.get();
-    right = right->parent_.get();
+    if (left->parent() == right->parent()) return true;
+    if (!left->parent() || !right->parent()) return false;
+    left = left->parent().get();
+    right = right->parent().get();
     if (left->offset_ != right->offset_) return false;
   }
 }

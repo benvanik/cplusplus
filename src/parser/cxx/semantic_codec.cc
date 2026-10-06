@@ -6488,17 +6488,21 @@ void SemanticEncoder::writecxxConstObjectMember(
 
 void SemanticEncoder::writecxxConstAddress(
     ByteWriter& out, [[maybe_unused]] const cxx::ConstAddress* self) {
-  // ::cxx::ConstAddress::symbol_
+  if (self->storage() != nullptr) {
+    reportError("constant address refers to automatic invocation storage");
+    return;
+  }
+  // ::cxx::ConstAddress::symbol
   out.varU32(static_cast<std::uint32_t>(symbolRef(self->symbol())));
-  // ::cxx::ConstAddress::parent_
+  // ::cxx::ConstAddress::parent
   out.varU32(static_cast<std::uint32_t>(constRef(self->parent())));
-  // ::cxx::ConstAddress::owner_
+  // ::cxx::ConstAddress::owner
   out.varU32(static_cast<std::uint32_t>(constRef(self->owner())));
-  // ::cxx::ConstAddress::string_
+  // ::cxx::ConstAddress::stringLiteral
   writeLiteral(out, self->stringLiteral());
-  // ::cxx::ConstAddress::typeInfoFor_
+  // ::cxx::ConstAddress::typeInfoFor
   out.varU32(static_cast<std::uint32_t>(typeRef(self->typeInfoFor())));
-  // ::cxx::ConstAddress::offset_
+  // ::cxx::ConstAddress::offset
   out.varI64(static_cast<std::int64_t>(self->offset()));
 }
 
@@ -16301,26 +16305,26 @@ void SemanticDecoder::readcxxConstObjectMember(
 
 void SemanticDecoder::readcxxConstAddress(
     [[maybe_unused]] ByteReader& in, [[maybe_unused]] cxx::ConstAddress* self) {
-  // ::cxx::ConstAddress::symbol_
+  // ::cxx::ConstAddress::symbol
   cxx::Symbol* value1 = symbolAt(SymbolRef{in.varU32()});
   self->setSymbol(std::move(value1));
-  // ::cxx::ConstAddress::parent_
+  // ::cxx::ConstAddress::parent
   std::shared_ptr<cxx::ConstAddress> value2 =
       std::static_pointer_cast<cxx::ConstAddress>(
           constantAt(ConstRef{in.varU32()}));
   self->setParent(std::move(value2));
-  // ::cxx::ConstAddress::owner_
+  // ::cxx::ConstAddress::owner
   std::shared_ptr<cxx::ConstObject> value3 =
       std::static_pointer_cast<cxx::ConstObject>(
           constantAt(ConstRef{in.varU32()}));
   self->setOwner(std::move(value3));
-  // ::cxx::ConstAddress::string_
+  // ::cxx::ConstAddress::stringLiteral
   const cxx::StringLiteral* value4 = readStringLiteral(in);
   self->setStringLiteral(std::move(value4));
-  // ::cxx::ConstAddress::typeInfoFor_
+  // ::cxx::ConstAddress::typeInfoFor
   const cxx::Type* value5 = typeAt(TypeRef{in.varU32()});
   self->setTypeInfoFor(std::move(value5));
-  // ::cxx::ConstAddress::offset_
+  // ::cxx::ConstAddress::offset
   long long value6 = static_cast<long long>(in.varI64());
   self->setOffset(std::move(value6));
 }

@@ -25,14 +25,27 @@ test("persisted field plans retain their binding rationale", () => {
   }
 });
 
-test("constant address parents are persisted with their rationale", () => {
-  const fields = reportsFor("::cxx::ConstAddress", "parent_");
-  assert.equal(fields.length, 1);
-  assert.equal(fields[0].cls, "P");
-  assert.equal(
-    fields[0].why,
-    "subobject identity includes the immutable containing address",
+test("constant addresses persist their logical origin", () => {
+  const address = plan.structs.find(
+    (entity) => entity.name === "::cxx::ConstAddress",
   );
+  assert.ok(address);
+  assert.deepEqual(
+    address.fields.map((field) => field.name),
+    ["symbol", "parent", "owner", "stringLiteral", "typeInfoFor", "offset"],
+  );
+  assert.deepEqual(address.archiveRejections, [
+    {
+      when: "$->storage() != nullptr",
+      message: "constant address refers to automatic invocation storage",
+    },
+  ]);
+
+  for (const name of ["symbol_", "origin_", "offset_"]) {
+    const fields = reportsFor("::cxx::ConstAddress", name);
+    assert.equal(fields.length, 1);
+    assert.equal(fields[0].cls, "R");
+  }
 });
 
 test("selected subobject paths are persisted with their rationale", () => {

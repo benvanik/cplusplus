@@ -770,7 +770,7 @@ struct ASTInterpreter::ExpressionVisitor {
       -> ExpressionResult;
 
   [[nodiscard]] auto evaluateOperatorCall(
-      FunctionSymbol* function, ExpressionResult operand,
+      FunctionSymbol* function, ExpressionAST* operand,
       std::optional<ExpressionResult> extraArgument = std::nullopt)
       -> ExpressionResult;
 
@@ -1092,12 +1092,43 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
   }
 
   if (auto unary = ast_cast<UnaryExpressionAST>(ast)) {
+    if (unary->symbol) {
+      auto value = evaluateUnaryOperatorCall(unary->symbol, unary->expression,
+                                             CallResultKind::kAddress)
+                       .value;
+      auto address =
+          value ? std::get_if<std::shared_ptr<ConstAddress>>(&*value) : nullptr;
+      return address && *address ? addressSlot(**address, 0, unary->type)
+                                 : nullptr;
+    }
     if (unary->op != TokenKind::T_STAR) return nullptr;
     auto ptrVal = expression(unary->expression);
     if (!ptrVal.has_value()) return nullptr;
     auto addr = std::get_if<std::shared_ptr<ConstAddress>>(&*ptrVal);
     if (!addr || !*addr) return nullptr;
     return addressSlot(**addr, 0, unary->type);
+  }
+
+  FunctionSymbol* assignmentFunction = nullptr;
+  ExpressionAST* assignmentTarget = nullptr;
+  ExpressionAST* assignmentArgument = nullptr;
+  if (auto assignment = ast_cast<AssignmentExpressionAST>(ast)) {
+    assignmentFunction = assignment->symbol;
+    assignmentTarget = assignment->leftExpression;
+    assignmentArgument = assignment->rightExpression;
+  } else if (auto assignment = ast_cast<CompoundAssignmentExpressionAST>(ast)) {
+    assignmentFunction = assignment->symbol;
+    assignmentTarget = assignment->targetExpression;
+    assignmentArgument = assignment->rightExpression;
+  }
+  if (assignmentFunction) {
+    auto value = evaluateAssignmentOperatorCall(
+                     assignmentFunction, assignmentTarget, assignmentArgument,
+                     CallResultKind::kAddress)
+                     .value;
+    auto address =
+        value ? std::get_if<std::shared_ptr<ConstAddress>>(&*value) : nullptr;
+    return address && *address ? addressSlot(**address, 0, ast->type) : nullptr;
   }
 
   if (auto cond = ast_cast<ConditionalExpressionAST>(ast)) {
@@ -1108,8 +1139,12 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
     return lvalue(*b ? cond->iftrueExpression : cond->iffalseExpression);
   }
 
-  if (auto call = ast_cast<CallExpressionAST>(ast))
-    return evaluateCallExpression(call, CallResultKind::kLValue).lvalue;
+  if (auto call = ast_cast<CallExpressionAST>(ast)) {
+    auto value = evaluateCallExpression(call, CallResultKind::kAddress).value;
+    auto address =
+        value ? std::get_if<std::shared_ptr<ConstAddress>>(&*value) : nullptr;
+    return address && *address ? addressSlot(**address, 0, ast->type) : nullptr;
+  }
 
   return nullptr;
 }
@@ -1123,6 +1158,11 @@ auto ASTInterpreter::loadAddress(const ConstAddress& address,
 
   if (auto str = address.stringLiteral())
     return stringLiteralElement(str, index);
+
+  if (address.denotesWholeOwner()) {
+    if (index != 0) return std::nullopt;
+    return ConstValue{address.owner()};
+  }
 
   auto sym = address.symbol();
   if (!sym) return std::nullopt;
@@ -1143,6 +1183,10 @@ auto ASTInterpreter::loadAddress(const ConstAddress& address,
       storage = member.value;
       break;
     }
+  } else if (address.storage()) {
+    auto slot = address.storage()->slot();
+    if (!slot) return std::nullopt;
+    storage = *slot;
   } else if (address.owner()) {
     if (auto fv = address.owner()->subobject(sym)) storage = *fv;
   } else if (auto slot = lookupLocalSlot(sym)) {
@@ -1234,6 +1278,8 @@ auto ASTInterpreter::addressSlot(const ConstAddress& address,
       slot = &member.value;
       break;
     }
+  } else if (address.storage()) {
+    slot = address.storage()->slot();
   } else {
     slot = address.owner() ? subobjectSlot(address.owner(), sym)
                            : lookupLocalSlot(sym);
@@ -1405,6 +1451,14 @@ auto ASTInterpreter::implicitObjectFor(Symbol* member)
 auto ASTInterpreter::receiverFor(ExpressionAST* base, TokenKind accessOp)
     -> Receiver {
   Receiver receiver;
+  // A materialized temporary owns its value instead of referring to a named
+  // storage slot. Evaluate its construction once and retain that object.
+  if (auto materialized = ast_cast<ImplicitCastExpressionAST>(base);
+      materialized &&
+      materialized->castKind ==
+          ImplicitCastKind::kTemporaryMaterializationConversion) {
+    base = materialized->expression;
+  }
   const bool arrow = accessOp == TokenKind::T_MINUS_GREATER;
   auto value =
       arrow || !is_glvalue(base) ? expression(base) : addressOfLvalue(base);
@@ -1422,21 +1476,16 @@ auto ASTInterpreter::receiverFor(ExpressionAST* base, TokenKind accessOp)
   }
   if (auto object = std::get_if<std::shared_ptr<ConstObject>>(&*value)) {
     receiver.object = *object;
+    if (receiver.object && !is_glvalue(base)) {
+      receiver.address =
+          std::make_shared<ConstAddress>(receiver.object, nullptr);
+    }
   }
   return receiver;
 }
 
 auto ASTInterpreter::memberReceiver(MemberExpressionAST* ast) -> Receiver {
-  auto base = ast->baseExpression;
-  // A materialized temporary owns its value instead of referring to a named
-  // storage slot. Evaluate its construction once and retain that object.
-  if (auto materialized = ast_cast<ImplicitCastExpressionAST>(base);
-      materialized &&
-      materialized->castKind ==
-          ImplicitCastKind::kTemporaryMaterializationConversion) {
-    base = materialized->expression;
-  }
-  return applySubobjectPath(receiverFor(base, ast->accessOp),
+  return applySubobjectPath(receiverFor(ast->baseExpression, ast->accessOp),
                             ast->subobjectPath);
 }
 
@@ -1495,14 +1544,16 @@ auto ASTInterpreter::addressOfField(const Receiver& receiver,
 
   std::shared_ptr<ConstAddress> address;
   if (receiver.address) {
-    // A member selection requires a live receiver element, not one-past-end.
-    auto symbol = receiver.address->symbol();
-    if (!symbol) return std::nullopt;
-    auto array = unqualified_cast<BoundedArrayType>(symbol->type());
-    const auto extent = array ? array->size() : std::uint64_t{1};
-    if (receiver.address->offset() < 0 ||
-        static_cast<std::uintmax_t>(receiver.address->offset()) >= extent) {
-      return std::nullopt;
+    if (!receiver.address->denotesWholeOwner()) {
+      // A member selection requires a live receiver element, not one-past-end.
+      auto symbol = receiver.address->symbol();
+      if (!symbol) return std::nullopt;
+      auto array = unqualified_cast<BoundedArrayType>(symbol->type());
+      const auto extent = array ? array->size() : std::uint64_t{1};
+      if (receiver.address->offset() < 0 ||
+          static_cast<std::uintmax_t>(receiver.address->offset()) >= extent) {
+        return std::nullopt;
+      }
     }
     address = std::make_shared<ConstAddress>(receiver.address, field);
   } else if (receiver.object) {
@@ -1633,12 +1684,15 @@ auto ASTInterpreter::typeInfoAddress(const Type* type)
 
 auto ASTInterpreter::variableAddress(Symbol* variable)
     -> std::optional<ConstValue> {
+  for (auto frame = frames_.rbegin(); frame != frames_.rend(); ++frame) {
+    if (traits.is_reference(variable->type())) {
+      auto address = frame->referenceAddresses.find(variable);
+      if (address != frame->referenceAddresses.end()) return address->second;
+    }
+    if (frame->locals.contains(variable)) return localAddress(*frame, variable);
+  }
   if (!traits.is_reference(variable->type()))
     return std::make_shared<ConstAddress>(variable);
-  for (auto frame = frames_.rbegin(); frame != frames_.rend(); ++frame) {
-    auto address = frame->referenceAddresses.find(variable);
-    if (address != frame->referenceAddresses.end()) return address->second;
-  }
   if (auto declared = symbol_cast<VariableSymbol>(variable)) {
     if (declared->constValue()) return declared->constValue();
   }
@@ -1766,13 +1820,35 @@ auto ASTInterpreter::addressOfLvalue(ExpressionAST* ast)
     return result;
   }
 
+  if (auto unary = ast_cast<UnaryExpressionAST>(ast); unary && unary->symbol) {
+    return evaluateUnaryOperatorCall(unary->symbol, unary->expression,
+                                     CallResultKind::kAddress)
+        .value;
+  }
+
   if (auto unary = ast_cast<UnaryExpressionAST>(ast);
-      unary && unary->op == TokenKind::T_STAR && !unary->symbol) {
+      unary && unary->op == TokenKind::T_STAR) {
     auto value = expression(unary->expression);
     if (!value ||
         !std::holds_alternative<std::shared_ptr<ConstAddress>>(*value))
       return std::nullopt;
     return value;
+  }
+
+  if (auto assignment = ast_cast<AssignmentExpressionAST>(ast);
+      assignment && assignment->symbol) {
+    return evaluateAssignmentOperatorCall(
+               assignment->symbol, assignment->leftExpression,
+               assignment->rightExpression, CallResultKind::kAddress)
+        .value;
+  }
+
+  if (auto assignment = ast_cast<CompoundAssignmentExpressionAST>(ast);
+      assignment && assignment->symbol) {
+    return evaluateAssignmentOperatorCall(
+               assignment->symbol, assignment->targetExpression,
+               assignment->rightExpression, CallResultKind::kAddress)
+        .value;
   }
 
   if (auto conditional = ast_cast<ConditionalExpressionAST>(ast)) {
@@ -2239,6 +2315,44 @@ auto ASTInterpreter::evaluateCallExpression(CallExpressionAST* ast,
   return executeFunction(function, std::move(frame), kind, std::move(receiver));
 }
 
+auto ASTInterpreter::evaluateUnaryOperatorCall(FunctionSymbol* function,
+                                               ExpressionAST* operand,
+                                               CallResultKind kind)
+    -> CallResult {
+  if (!function || !function->isConstexpr()) return {};
+
+  Frame frame;
+  Receiver receiver;
+  if (function->isImplicitObjectMemberFunction()) {
+    receiver = receiverFor(operand, TokenKind::T_DOT);
+    if (!receiver.object && !receiver.address) return {};
+  } else {
+    std::vector<ExpressionAST*> arguments{operand};
+    if (!bindParametersFromExprs(frame, function, arguments)) return {};
+  }
+  return executeFunction(function, std::move(frame), kind, std::move(receiver));
+}
+
+auto ASTInterpreter::evaluateAssignmentOperatorCall(FunctionSymbol* function,
+                                                    ExpressionAST* target,
+                                                    ExpressionAST* argument,
+                                                    CallResultKind kind)
+    -> CallResult {
+  if (!function || !function->isConstexpr() ||
+      !function->isImplicitObjectMemberFunction())
+    return {};
+
+  Frame frame;
+  auto parameters = definingDeclarationOf(function)->parameters();
+  if (parameters.size() != 1 ||
+      !bindOneParameter(frame, parameters.front(), argument))
+    return {};
+
+  auto receiver = receiverFor(target, TokenKind::T_DOT);
+  if (!receiver.object && !receiver.address) return {};
+  return executeFunction(function, std::move(frame), kind, std::move(receiver));
+}
+
 auto ASTInterpreter::ExpressionVisitor::operator()(CallExpressionAST* ast)
     -> ExpressionResult {
   return interp.evaluateCallExpression(ast, CallResultKind::kValue).value;
@@ -2379,8 +2493,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(PostIncrExpressionAST* ast)
   if (!type) return std::nullopt;
 
   if (ast->symbol) {
-    return evaluateOperatorCall(ast->symbol,
-                                interp.expression(ast->baseExpression),
+    return evaluateOperatorCall(ast->symbol, ast->baseExpression,
                                 ExpressionResult{std::intmax_t{0}});
   }
 
@@ -2519,10 +2632,8 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
 }
 
 auto ASTInterpreter::ExpressionVisitor::evaluateOperatorCall(
-    FunctionSymbol* function, ExpressionResult operand,
+    FunctionSymbol* function, ExpressionAST* operand,
     std::optional<ExpressionResult> extraArgument) -> ExpressionResult {
-  if (!operand.has_value()) return std::nullopt;
-
   std::vector<ConstValue> arguments;
   if (extraArgument) {
     if (!extraArgument->has_value()) return std::nullopt;
@@ -2530,24 +2641,31 @@ auto ASTInterpreter::ExpressionVisitor::evaluateOperatorCall(
   }
 
   if (function->isImplicitObjectMemberFunction()) {
-    auto object = std::get_if<std::shared_ptr<ConstObject>>(&*operand);
-    if (!object || !*object) return std::nullopt;
-    return interp.evaluateCall(function, std::move(arguments), *object);
+    auto receiver = interp.receiverFor(operand, TokenKind::T_DOT);
+    if (!receiver.object && !receiver.address) return std::nullopt;
+    return interp.evaluateCallWithReceiver(function, std::move(arguments),
+                                           std::move(receiver));
   }
 
-  arguments.insert(arguments.begin(), std::move(*operand));
+  auto value = interp.expression(operand);
+  if (!value) return std::nullopt;
+  arguments.insert(arguments.begin(), std::move(*value));
   return interp.evaluateCall(function, std::move(arguments));
 }
 
 auto ASTInterpreter::ExpressionVisitor::operator()(UnaryExpressionAST* ast)
     -> ExpressionResult {
+  if (ast->symbol)
+    return interp
+        .evaluateUnaryOperatorCall(ast->symbol, ast->expression,
+                                   CallResultKind::kValue)
+        .value;
+
   // Builtin address formation evaluates its operand as an lvalue. Evaluating
   // it as a value first would duplicate side effects in the operand.
-  auto expressionResult = ast->op == TokenKind::T_AMP && !ast->symbol
+  auto expressionResult = ast->op == TokenKind::T_AMP
                               ? ExpressionResult{std::nullopt}
                               : interp.expression(ast->expression);
-
-  if (ast->symbol) return evaluateOperatorCall(ast->symbol, expressionResult);
 
   switch (ast->op) {
     case TokenKind::T_PLUS_PLUS:
@@ -3137,19 +3255,21 @@ auto ASTInterpreter::ExpressionVisitor::operator()(BinaryExpressionAST* ast)
       break;
   }
 
+  if (ast->symbol && ast->symbol->isImplicitObjectMemberFunction()) {
+    auto receiver = interp.receiverFor(ast->leftExpression, TokenKind::T_DOT);
+    if (!receiver.object && !receiver.address) return std::nullopt;
+    auto right = evaluate(ast->rightExpression);
+    if (!right) return std::nullopt;
+    return interp.evaluateCallWithReceiver(ast->symbol, {std::move(*right)},
+                                           std::move(receiver));
+  }
+
   auto left = evaluate(ast->leftExpression);
   if (!left.has_value()) return std::nullopt;
-
   auto right = evaluate(ast->rightExpression);
   if (!right.has_value()) return std::nullopt;
 
   if (ast->symbol) {
-    if (ast->symbol->isImplicitObjectMemberFunction()) {
-      auto object = std::get_if<std::shared_ptr<ConstObject>>(&*left);
-      if (!object || !*object) return std::nullopt;
-      return interp.evaluateCall(ast->symbol, {std::move(*right)}, *object);
-    }
-
     return interp.evaluateCall(ast->symbol,
                                {std::move(*left), std::move(*right)});
   }
@@ -3239,13 +3359,15 @@ auto ASTInterpreter::ExpressionVisitor::operator()(ThrowExpressionAST* ast)
 
 auto ASTInterpreter::ExpressionVisitor::operator()(AssignmentExpressionAST* ast)
     -> ExpressionResult {
+  if (ast->symbol)
+    return interp
+        .evaluateAssignmentOperatorCall(ast->symbol, ast->leftExpression,
+                                        ast->rightExpression,
+                                        CallResultKind::kValue)
+        .value;
+
   auto rightExpressionResult = interp.expression(ast->rightExpression);
   if (!rightExpressionResult.has_value()) return std::nullopt;
-
-  if (ast->symbol)
-    return evaluateOperatorCall(ast->symbol,
-                                interp.expression(ast->leftExpression),
-                                rightExpressionResult);
 
   auto slot = interp.lvalue(ast->leftExpression);
   if (!slot) return std::nullopt;
@@ -3266,11 +3388,12 @@ auto ASTInterpreter::ExpressionVisitor::operator()(RightExpressionAST* ast)
 
 auto ASTInterpreter::ExpressionVisitor::operator()(
     CompoundAssignmentExpressionAST* ast) -> ExpressionResult {
-  if (ast->symbol) {
-    auto right = interp.expression(ast->rightExpression);
-    return evaluateOperatorCall(
-        ast->symbol, interp.expression(ast->targetExpression), right);
-  }
+  if (ast->symbol)
+    return interp
+        .evaluateAssignmentOperatorCall(ast->symbol, ast->targetExpression,
+                                        ast->rightExpression,
+                                        CallResultKind::kValue)
+        .value;
   TokenKind binOp = TokenKind::T_EOF_SYMBOL;
   switch (ast->op) {
     case TokenKind::T_PLUS_EQUAL:

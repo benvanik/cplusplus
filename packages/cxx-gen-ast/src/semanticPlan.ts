@@ -22,10 +22,13 @@ import {
   type ModelClass,
   type ModelIndex,
   type ModelType,
+  unqualified,
 } from "./parseModel.ts";
 import {
+  type ArchiveRejection,
   type ExtraField,
   type FieldClass,
+  archiveRejectionsOf,
   bindingOf,
   extraFieldsOf,
 } from "./semanticClassification.ts";
@@ -64,6 +67,8 @@ export interface EntityPlan {
   tag?: string | undefined;
   /** The entity holding the leading fields of this record, when it has one. */
   base?: { name: string; short: string } | undefined;
+  /** Runtime-only states that cannot cross the archive boundary. */
+  archiveRejections: ArchiveRejection[];
   fields: FieldPlan[];
   /** Constructor parameters, for entities rebuilt through a factory. */
   factory?: FactoryPlan | undefined;
@@ -229,6 +234,7 @@ export class PlanBuilder {
       short: entry.unqualifiedName,
       cpp: normalizeClassName(entry.name),
       tag,
+      archiveRejections: archiveRejectionsOf(entry.name),
       fields: [],
     };
 
@@ -334,8 +340,16 @@ export class PlanBuilder {
     let wire: Wire;
     let cppType: string;
     try {
-      wire = this.mapper.wireOf(returnType, context);
-      cppType = this.mapper.cppTypeOf(returnType);
+      let valueType = returnType;
+      if (
+        valueType.kind === "lvalue-reference" ||
+        valueType.kind === "rvalue-reference"
+      ) {
+        valueType = valueType.element;
+      }
+      valueType = unqualified(valueType);
+      wire = this.mapper.wireOf(valueType, context);
+      cppType = this.mapper.cppTypeOf(valueType);
     } catch (error) {
       this.diagnostics.push((error as Error).message);
       return undefined;

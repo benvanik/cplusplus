@@ -217,6 +217,25 @@ void expectConvertVectorExpression(AST* ast) {
 
 }  // namespace
 
+TEST(PrecompiledHeader, RejectsAutomaticInvocationStorage) {
+  Prefix prefix{"constexpr unsigned value = 9;"};
+
+  auto variable = symbol_cast<VariableSymbol>(
+      findMember(prefix.unit()->globalScope(), "value"));
+  ASSERT_TRUE(variable);
+
+  ConstValue slot{ConstInt{std::intmax_t{9}}};
+  auto storage = std::make_shared<ConstStorage>(&slot);
+  auto address = std::make_shared<ConstAddress>(variable);
+  address->setStorage(std::move(storage));
+  variable->setConstValue(ConstValue{std::move(address)});
+
+  EXPECT_TRUE(prefix.emit().empty());
+  ASSERT_EQ(prefix.errors().size(), 1u);
+  EXPECT_EQ(prefix.errors().front(),
+            "constant address refers to automatic invocation storage");
+}
+
 TEST(PrecompiledHeader, RestoresTheGlobalScope) {
   Prefix prefix{R"(
 struct Point {

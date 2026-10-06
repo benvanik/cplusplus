@@ -259,6 +259,12 @@ auto isFullyInitialized(const ConstValue& value) -> bool {
     }
   }
 
+  if (auto address = std::get_if<std::shared_ptr<ConstAddress>>(&value)) {
+    for (auto current = *address; current; current = current->parent()) {
+      if (current->storage() && !current->storage()->slot()) return false;
+    }
+  }
+
   if (auto complexValue = std::get_if<std::shared_ptr<ConstComplex>>(&value)) {
     if (!*complexValue) return false;
     if (!isFullyInitialized((*complexValue)->real())) return false;
@@ -518,7 +524,7 @@ auto ASTInterpreter::lookupLocalSlot(const Symbol* sym) -> ConstValue* {
     auto ref = it->refs.find(sym);
     if (ref != it->refs.end()) return ref->second;
     auto found = it->locals.find(sym);
-    if (found != it->locals.end()) return &found->second;
+    if (found != it->locals.end()) return &found->second.value;
     if (it->referenceAddresses.contains(sym)) return nullptr;
   }
   return nullptr;
@@ -543,26 +549,13 @@ auto ASTInterpreter::bindReferenceTo(Frame& frame, Symbol* reference,
     if (!value) return false;
     auto storage = std::make_shared<ConstObject>(
         traits.remove_reference(reference->type()));
-    auto slot = storage->addMember(reference, cloneValue(*value));
-    frame.refs.insert_or_assign(reference, slot);
-    frame.referenceAddresses.insert_or_assign(
-        reference, std::make_shared<ConstAddress>(storage, reference));
-    return true;
+    storage->addMember(reference, cloneValue(*value));
+    return bindReferenceAddress(
+        frame, reference, std::make_shared<ConstAddress>(storage, reference));
   }
 
   if (auto value = addressOfLvalue(initializer)) {
-    auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value);
-    if (address && *address) {
-      frame.referenceAddresses.insert_or_assign(reference, *value);
-      if (auto slot = addressSlot(**address, 0, reference->type())) {
-        frame.refs.insert_or_assign(reference, slot);
-        return true;
-      }
-      if (auto referent = loadAddress(**address, 0, reference->type())) {
-        frame.locals.insert_or_assign(reference, std::move(*referent));
-      }
-      return true;
-    }
+    if (bindReferenceAddress(frame, reference, std::move(*value))) return true;
   }
 
   auto slot = lvalue(initializer);
@@ -571,14 +564,77 @@ auto ASTInterpreter::bindReferenceTo(Frame& frame, Symbol* reference,
   return true;
 }
 
-void ASTInterpreter::bindReference(const Symbol* sym, ConstValue* target) {
+auto ASTInterpreter::bindReferenceAddress(Frame& frame, const Symbol* reference,
+                                          ConstValue address) -> bool {
+  auto pointer = std::get_if<std::shared_ptr<ConstAddress>>(&address);
+  if (!pointer || !*pointer) return false;
+
+  auto slot = addressSlot(**pointer, 0, reference->type());
+  auto referent = slot ? std::optional<ConstValue>{}
+                       : loadAddress(**pointer, 0, reference->type());
+  frame.referenceAddresses.insert_or_assign(reference, std::move(address));
+  if (slot)
+    frame.refs.insert_or_assign(reference, slot);
+  else if (referent)
+    frame.locals.insert_or_assign(reference,
+                                  Frame::Local{std::move(*referent)});
+  return true;
+}
+
+auto ASTInterpreter::bindReference(const Symbol* sym, ConstValue address)
+    -> bool {
   if (frames_.empty()) frames_.push_back({});
-  frames_.back().refs.insert_or_assign(sym, target);
+  return bindReferenceAddress(frames_.back(), sym, std::move(address));
 }
 
 void ASTInterpreter::setLocal(const Symbol* sym, ConstValue value) {
   if (frames_.empty()) frames_.push_back({});
-  frames_.back().locals.insert_or_assign(sym, std::move(value));
+  frames_.back().locals.insert_or_assign(sym, Frame::Local{std::move(value)});
+}
+
+void ASTInterpreter::setAutomaticLocal(const Symbol* sym, ConstValue value) {
+  if (frames_.empty()) frames_.push_back({});
+  frames_.back().locals.insert_or_assign(
+      sym, Frame::Local{std::move(value), currentAutomaticScope_});
+}
+
+auto ASTInterpreter::automaticAddress(AutomaticScope& scope, Symbol* symbol,
+                                      ConstValue* slot)
+    -> std::shared_ptr<ConstAddress> {
+  auto storage = std::make_shared<ConstStorage>(slot);
+  storage->automaticNext_ = std::move(scope.storageHead_);
+  scope.storageHead_ = storage;
+  auto address = std::make_shared<ConstAddress>(symbol);
+  address->setStorage(std::move(storage));
+  return address;
+}
+
+void ASTInterpreter::retireAutomaticStorage(AutomaticScope& scope) {
+  while (scope.storageHead_) {
+    auto storage = std::move(scope.storageHead_);
+    scope.storageHead_ = std::move(storage->automaticNext_);
+    storage->slot_ = nullptr;
+  }
+}
+
+auto ASTInterpreter::localAddress(Frame& frame, Symbol* symbol)
+    -> std::shared_ptr<ConstAddress> {
+  auto found = frame.locals.find(symbol);
+  if (found == frame.locals.end()) return {};
+  auto& local = found->second;
+  if (!local.declaringScope) return std::make_shared<ConstAddress>(symbol);
+
+  if (auto cached = frame.referenceAddresses.find(symbol);
+      cached != frame.referenceAddresses.end()) {
+    auto address = std::get_if<std::shared_ptr<ConstAddress>>(&cached->second);
+    if (address && *address && (*address)->storage() &&
+        (*address)->storage()->slot())
+      return *address;
+  }
+
+  auto address = automaticAddress(*local.declaringScope, symbol, &local.value);
+  frame.referenceAddresses.insert_or_assign(symbol, address);
+  return address;
 }
 
 auto ASTInterpreter::definingDeclarationOf(FunctionSymbol* function)
@@ -595,11 +651,7 @@ auto ASTInterpreter::bindParameters(Frame& frame, FunctionSymbol* func,
     if (i < args.size()) {
       auto value = traits.is_reference(params[i]->type()) ? args[i]
                                                           : cloneValue(args[i]);
-      frame.locals.insert_or_assign(params[i], std::move(value));
-      if (traits.is_reference(params[i]->type())) {
-        frame.referenceAddresses.insert_or_assign(
-            params[i], std::make_shared<ConstAddress>(params[i]));
-      }
+      frame.locals.insert_or_assign(params[i], Frame::Local{std::move(value)});
     } else {
       auto defaultArgument =
           ASTRewriter::requireDefaultArgument(unit_, params[i]);
@@ -618,13 +670,14 @@ auto ASTInterpreter::bindOneParameter(Frame& frame, Symbol* paramSymbol,
     return true;
   }
   if (auto value = evaluate(argExpr)) {
-    frame.locals.insert_or_assign(paramSymbol, cloneValue(*value));
+    frame.locals.insert_or_assign(paramSymbol,
+                                  Frame::Local{cloneValue(*value)});
     return true;
   }
 
   auto object = constexprUnknownObject(argExpr);
   if (!object) return false;
-  frame.locals.insert_or_assign(paramSymbol, std::move(object));
+  frame.locals.insert_or_assign(paramSymbol, Frame::Local{std::move(object)});
   return true;
 }
 
@@ -962,33 +1015,49 @@ void ASTInterpreter::retireFrame() {
   frames_.pop_back();
 }
 
-auto ASTInterpreter::beginAutomaticScope() const -> std::size_t {
-  if (frames_.empty()) return 0;
-  return frames_.back().automaticObjects.size();
+ASTInterpreter::AutomaticScope::AutomaticScope(ASTInterpreter& interp)
+    : interp_(interp), parent_(interp.currentAutomaticScope_) {
+  if (interp_.frames_.empty()) return;
+  frameIndex_ = interp_.frames_.size() - 1;
+  automaticObjectMark_ = interp_.frames_[frameIndex_].automaticObjects.size();
+  interp_.currentAutomaticScope_ = this;
+  active_ = true;
 }
 
-void ASTInterpreter::registerAutomaticObject(VariableSymbol* variable) {
-  if (!variable || variable->isStatic()) return;
-  if (frames_.empty()) return;
-  auto type = traits.remove_cv(variable->type());
-  if (!traits.is_class(type) && !traits.is_array(type)) return;
-  frames_.back().automaticObjects.push_back(variable);
-}
+ASTInterpreter::AutomaticScope::~AutomaticScope() { end(); }
 
-auto ASTInterpreter::endAutomaticScope(std::size_t mark) -> bool {
-  if (frames_.empty()) return true;
-  auto& objects = frames_.back().automaticObjects;
-  if (mark > objects.size()) return false;
-  while (objects.size() > mark) {
-    auto variable = objects.back();
-    objects.pop_back();
-    auto value = lookupLocalSlot(variable);
-    if (!value) continue;
-    if (destroyValue(variable->type(), *value)) continue;
-    aborted_ = true;
-    return false;
+void ASTInterpreter::AutomaticScope::end() {
+  if (!active_) return;
+
+  auto& interp = interp_;
+  while (interp.frames_[frameIndex_].automaticObjects.size() >
+         automaticObjectMark_) {
+    auto variable = interp.frames_[frameIndex_].automaticObjects.back();
+    interp.frames_[frameIndex_].automaticObjects.pop_back();
+    auto found = interp.frames_[frameIndex_].locals.find(variable);
+    if (found == interp.frames_[frameIndex_].locals.end() ||
+        interp.destroyValue(variable->type(), found->second.value))
+      continue;
+    interp.aborted_ = true;
+    interp.frames_[frameIndex_].automaticObjects.resize(automaticObjectMark_);
+    break;
   }
-  return true;
+
+  interp.retireAutomaticStorage(*this);
+
+  interp.currentAutomaticScope_ = parent_;
+  active_ = false;
+}
+
+void ASTInterpreter::registerAutomaticObject(Symbol* symbol) {
+  if (!symbol) return;
+  if (auto variable = symbol_cast<VariableSymbol>(symbol);
+      variable && variable->isStatic())
+    return;
+  if (frames_.empty()) return;
+  auto type = traits.remove_cv(symbol->type());
+  if (!traits.is_class(type) && !traits.is_array(type)) return;
+  frames_.back().automaticObjects.push_back(symbol);
 }
 
 auto ASTInterpreter::destroyValue(const Type* type, ConstValue& value) -> bool {
@@ -1057,13 +1126,18 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
                           : nullptr;
   if (!body) return {};
 
+  auto functionType = type_cast<FunctionType>(function->type());
+  const bool readReferenceResult =
+      !constructor && kind == CallResultKind::kValue && functionType &&
+      traits.is_reference(functionType->returnType());
   auto savedValue = std::exchange(returnValue_, std::nullopt);
   auto savedLValue = std::exchange(returnLValue_, nullptr);
   auto savedAddress = std::exchange(returnAddress_, std::nullopt);
   auto savedCaptureLValue =
       std::exchange(captureReturnLValue_, kind == CallResultKind::kLValue);
   auto savedCaptureAddress =
-      std::exchange(captureReturnAddress_, kind == CallResultKind::kAddress);
+      std::exchange(captureReturnAddress_,
+                    kind == CallResultKind::kAddress || readReferenceResult);
   auto savedFunction = std::exchange(currentFunction_, function);
   if (receiver.address && !receiver.object) {
     auto value = loadAddress(*receiver.address, 0);
@@ -1081,6 +1155,18 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
       std::exchange(defaultInitializerContext_, DefaultInitializerContext{});
   ++depth_;
   frames_.push_back(std::move(frame));
+  AutomaticScope functionScope{*this};
+  for (auto& [symbol, local] : frames_.back().locals)
+    local.declaringScope = &functionScope;
+  for (auto parameter : function->parameters()) {
+    auto local = frames_.back().locals.find(parameter);
+    if (local == frames_.back().locals.end()) continue;
+    registerAutomaticObject(parameter);
+    if (traits.is_reference(parameter->type()) &&
+        !frames_.back().referenceAddresses.contains(parameter))
+      frames_.back().referenceAddresses.insert_or_assign(
+          parameter, localAddress(frames_.back(), parameter));
+  }
   if (constructor) {
     for (auto initializer : ListView{body->memInitializerList}) {
       (void)memInitializer(initializer);
@@ -1106,10 +1192,11 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
   if (auto type = type_cast<FunctionType>(function->type());
       type && traits.is_void(type->returnType()) && !returnValue_)
     returnValue_ = ConstValue{ConstInt{std::intmax_t{0}}};
+  functionScope.end();
   CallResult result;
   if (constructor)
     result.value = receiver_.object;
-  else if (kind == CallResultKind::kAddress)
+  else if (kind == CallResultKind::kAddress || readReferenceResult)
     result.value = returnAddress_;
   else if (kind == CallResultKind::kLValue)
     result.lvalue = returnLValue_;
@@ -1130,33 +1217,62 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
   currentConstructorClass_ = savedConstructor;
   defaultInitializerContext_ = savedContext;
   if (aborted_) return {};
+  if (readReferenceResult && result.value) {
+    auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*result.value);
+    result.value = address && *address
+                       ? loadAddress(**address, 0, functionType->returnType())
+                       : std::nullopt;
+  }
   return result;
 }
 
-auto ASTInterpreter::evaluateCall(FunctionSymbol* func,
-                                  std::vector<ConstValue> args,
-                                  std::shared_ptr<ConstObject> thisObject)
+auto ASTInterpreter::evaluateCallWithReceiver(FunctionSymbol* function,
+                                              std::vector<ConstValue> arguments,
+                                              Receiver receiver)
     -> std::optional<ConstValue> {
   EvaluationScope evaluationScope{*this};
   Frame frame;
-  if (!func || !func->isConstexpr() || !bindParameters(frame, func, args))
+  if (!function || !function->isConstexpr() ||
+      !bindParameters(frame, function, arguments))
     return std::nullopt;
-  return executeFunction(func, std::move(frame), CallResultKind::kValue,
-                         thisObject ? Receiver{std::move(thisObject), {}}
-                         : func->isImplicitObjectMemberFunction() ? receiver_
-                                                                  : Receiver{})
+  return executeFunction(function, std::move(frame), CallResultKind::kValue,
+                         std::move(receiver))
       .value;
+}
+
+auto ASTInterpreter::evaluateCall(FunctionSymbol* function,
+                                  std::vector<ConstValue> arguments,
+                                  std::shared_ptr<ConstObject> thisObject)
+    -> std::optional<ConstValue> {
+  Receiver receiver;
+  if (thisObject)
+    receiver.object = std::move(thisObject);
+  else if (function && function->isImplicitObjectMemberFunction())
+    receiver = receiver_;
+  return evaluateCallWithReceiver(function, std::move(arguments),
+                                  std::move(receiver));
 }
 
 auto ASTInterpreter::evaluateCallLValue(FunctionSymbol* func,
                                         std::vector<ConstValue> args)
     -> ConstValue* {
+  auto value = evaluateCallAddress(func, std::move(args));
+  auto address =
+      value ? std::get_if<std::shared_ptr<ConstAddress>>(&*value) : nullptr;
+  auto type = type_cast<FunctionType>(func->type());
+  return address && *address ? addressSlot(**address, 0, type->returnType())
+                             : nullptr;
+}
+
+auto ASTInterpreter::evaluateCallAddress(FunctionSymbol* func,
+                                         std::vector<ConstValue> args)
+    -> std::optional<ConstValue> {
   Frame frame;
   if (!func || !func->isConstexpr() || !bindParameters(frame, func, args))
-    return nullptr;
-  return executeFunction(func, std::move(frame), CallResultKind::kLValue,
+    return std::nullopt;
+  return executeFunction(func, std::move(frame), CallResultKind::kAddress,
                          receiver_)
-      .lvalue;
+      .value;
 }
 
 auto ASTInterpreter::evaluateConstructorFromExprs(

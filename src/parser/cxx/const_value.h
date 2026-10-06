@@ -44,6 +44,7 @@ class ConstComplex;
 class ConstObject;
 class ConstAddress;
 class ConstLabelAddress;
+class ASTInterpreter;
 
 struct DefaultInitializerContext {
   SourceLocation location;
@@ -149,6 +150,22 @@ class Meta {
   std::variant<const Type*, const Symbol*, ConstExpr> value;
 };
 
+// Identity and lifetime of an addressed automatic value. The activation owns
+// the slot; addresses retain this token without extending the slot's lifetime.
+class ConstStorage {
+ public:
+  explicit ConstStorage(ConstValue* slot) : slot_(slot) {}
+  [[nodiscard]] auto slot() const -> ConstValue* { return slot_; }
+
+ private:
+  friend class ASTInterpreter;
+
+  // Borrowed frame slot, null after its source lifetime ends.
+  ConstValue* slot_ = nullptr;
+  // Intrusive ownership retained by the declaring automatic scope.
+  std::shared_ptr<ConstStorage> automaticNext_;
+};
+
 class ConstAddress {
  public:
   ConstAddress() = default;
@@ -157,31 +174,26 @@ class ConstAddress {
   explicit ConstAddress(Symbol* symbol, std::intmax_t offset = 0);
 
   explicit ConstAddress(const StringLiteral* string, std::intmax_t offset = 0)
-      : string_(string), offset_(offset) {}
+      : origin_(string), offset_(offset) {}
 
   ConstAddress(std::shared_ptr<ConstObject> owner, Symbol* symbol,
                std::intmax_t offset = 0)
-      : symbol_(symbol), owner_(std::move(owner)), offset_(offset) {}
+      : symbol_(symbol), origin_(std::move(owner)), offset_(offset) {}
 
   // Subobject addresses retain the containing address that selected them.
   ConstAddress(std::shared_ptr<ConstAddress> parent, Symbol* symbol);
 
-  explicit ConstAddress(const Type* typeInfoFor) : typeInfoFor_(typeInfoFor) {}
+  explicit ConstAddress(const Type* typeInfoFor) : origin_(typeInfoFor) {}
 
   [[nodiscard]] auto symbol() const -> Symbol* { return symbol_; }
-  [[nodiscard]] auto typeInfoFor() const -> const Type* { return typeInfoFor_; }
-  [[nodiscard]] auto owner() const -> const std::shared_ptr<ConstObject>& {
-    return owner_;
-  }
-  [[nodiscard]] auto stringLiteral() const -> const StringLiteral* {
-    return string_;
-  }
+  [[nodiscard]] auto typeInfoFor() const -> const Type*;
+  [[nodiscard]] auto owner() const -> const std::shared_ptr<ConstObject>&;
+  [[nodiscard]] auto storage() const -> const std::shared_ptr<ConstStorage>&;
+  [[nodiscard]] auto stringLiteral() const -> const StringLiteral*;
   [[nodiscard]] auto offset() const -> std::intmax_t { return offset_; }
 
   // Returns the containing storage address for a subobject address.
-  [[nodiscard]] auto parent() const -> const std::shared_ptr<ConstAddress>& {
-    return parent_;
-  }
+  [[nodiscard]] auto parent() const -> const std::shared_ptr<ConstAddress>&;
 
   // Returns the canonical declaration owning this address path.
   [[nodiscard]] auto rootSymbol() const -> Symbol*;
@@ -189,27 +201,25 @@ class ConstAddress {
   [[nodiscard]] auto sameTarget(const ConstAddress& other) const -> bool;
 
   [[nodiscard]] auto denotesWholeOwner() const -> bool {
-    return owner_ && !symbol_;
+    return owner() && !symbol_;
   }
 
   void setSymbol(Symbol* symbol) { symbol_ = symbol; }
-  void setParent(std::shared_ptr<ConstAddress> parent) {
-    parent_ = std::move(parent);
-  }
-  void setOwner(std::shared_ptr<ConstObject> owner) {
-    owner_ = std::move(owner);
-  }
-  void setStringLiteral(const StringLiteral* string) { string_ = string; }
-  void setTypeInfoFor(const Type* type) { typeInfoFor_ = type; }
+  void setParent(std::shared_ptr<ConstAddress> parent);
+  void setOwner(std::shared_ptr<ConstObject> owner);
+  void setStorage(std::shared_ptr<ConstStorage> storage);
+  void setStringLiteral(const StringLiteral* string);
+  void setTypeInfoFor(const Type* type);
   void setOffset(std::intmax_t offset) { offset_ = offset; }
 
  private:
   Symbol* symbol_ = nullptr;
-  // Immutable containing address; pointer arithmetic clones the leaf node.
-  std::shared_ptr<ConstAddress> parent_;
-  std::shared_ptr<ConstObject> owner_;
-  const StringLiteral* string_ = nullptr;
-  const Type* typeInfoFor_ = nullptr;
+  // Mutually exclusive root of this address. Pointer arithmetic clones the
+  // leaf while subobject paths retain their immutable parent address.
+  std::variant<std::monostate, std::shared_ptr<ConstAddress>,
+               std::shared_ptr<ConstObject>, std::shared_ptr<ConstStorage>,
+               const StringLiteral*, const Type*>
+      origin_;
   std::intmax_t offset_ = 0;
 };
 

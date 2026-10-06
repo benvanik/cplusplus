@@ -98,7 +98,8 @@ struct ASTInterpreter::StatementVisitor {
 
   [[nodiscard]] auto forRangeOverList(ForRangeStatementAST* ast,
                                       VariableSymbol* var,
-                                      const ConstValue& rangeVal)
+                                      const ConstValue& rangeVal,
+                                      AutomaticScope& rangeScope)
       -> StatementResult;
   [[nodiscard]] auto forRangeOverPointerIterator(ForRangeStatementAST* ast,
                                                  VariableSymbol* var,
@@ -167,7 +168,7 @@ auto ASTInterpreter::StatementVisitor::operator()(ExpressionStatementAST* ast)
 
 auto ASTInterpreter::StatementVisitor::operator()(CompoundStatementAST* ast)
     -> StatementResult {
-  auto mark = interp.beginAutomaticScope();
+  AutomaticScope scope{interp};
   auto result = StatementResult{};
   for (auto node : ListView{ast->statementList}) {
     result = interp.statement(node);
@@ -175,13 +176,14 @@ auto ASTInterpreter::StatementVisitor::operator()(CompoundStatementAST* ast)
     if (result.flow != ControlFlow::kNormal) break;
   }
 
-  if (!interp.endAutomaticScope(mark)) return {};
+  scope.end();
+  if (interp.aborted()) return {};
   return result;
 }
 
 auto ASTInterpreter::StatementVisitor::operator()(IfStatementAST* ast)
     -> StatementResult {
-  auto mark = interp.beginAutomaticScope();
+  AutomaticScope scope{interp};
   auto result = [&]() -> StatementResult {
     (void)interp.statement(ast->initializer);
     if (interp.aborted()) return {};
@@ -195,7 +197,8 @@ auto ASTInterpreter::StatementVisitor::operator()(IfStatementAST* ast)
     return interp.statement(*condition ? ast->statement : ast->elseStatement);
   }();
 
-  if (!interp.endAutomaticScope(mark)) return {};
+  scope.end();
+  if (interp.aborted()) return {};
   return result;
 }
 
@@ -211,7 +214,7 @@ auto ASTInterpreter::StatementVisitor::operator()(ConstevalIfStatementAST* ast)
 
 auto ASTInterpreter::StatementVisitor::operator()(SwitchStatementAST* ast)
     -> StatementResult {
-  auto mark = interp.beginAutomaticScope();
+  AutomaticScope scope{interp};
   auto switchResult = [&]() -> StatementResult {
     (void)interp.statement(ast->initializer);
     if (interp.aborted()) return {};
@@ -252,7 +255,8 @@ auto ASTInterpreter::StatementVisitor::operator()(SwitchStatementAST* ast)
     return {};
   }();
 
-  if (!interp.endAutomaticScope(mark)) return {};
+  scope.end();
+  if (interp.aborted()) return {};
   return switchResult;
 }
 
@@ -275,7 +279,9 @@ auto ASTInterpreter::StatementVisitor::operator()(DoStatementAST* ast)
   for (;;) {
     if (!interp.tick()) return {};
 
+    AutomaticScope iterationScope{interp};
     auto result = interp.statement(ast->statement);
+    iterationScope.end();
     if (interp.aborted()) return {};
     if (result.flow == ControlFlow::kBreak) break;
     if (result.flow == ControlFlow::kReturn) return result;
@@ -312,9 +318,10 @@ auto ASTInterpreter::StatementVisitor::loopIteration(ExpressionAST* condition,
                                                      StatementAST* statement,
                                                      ExpressionAST* expression)
     -> StatementResult {
-  auto mark = interp.beginAutomaticScope();
+  AutomaticScope iterationScope{interp};
   auto result = runLoopIteration(condition, statement, expression);
-  if (!interp.endAutomaticScope(mark)) return {};
+  iterationScope.end();
+  if (interp.aborted()) return {};
   return result;
 }
 
@@ -368,8 +375,8 @@ void ASTInterpreter::StatementVisitor::bindRangeElementBindings(
 }
 
 auto ASTInterpreter::StatementVisitor::forRangeOverList(
-    ForRangeStatementAST* ast, VariableSymbol* var, const ConstValue& rangeVal)
-    -> StatementResult {
+    ForRangeStatementAST* ast, VariableSymbol* var, const ConstValue& rangeVal,
+    AutomaticScope& rangeScope) -> StatementResult {
   auto listPtr = std::get_if<std::shared_ptr<InitializerList>>(&rangeVal);
   if (!listPtr || !*listPtr) return {};
   auto list = *listPtr;
@@ -378,16 +385,19 @@ auto ASTInterpreter::StatementVisitor::forRangeOverList(
 
   for (std::size_t i = 0; i < list->elements.size(); ++i) {
     if (!interp.tick()) return {};
+    AutomaticScope iterationScope{interp};
 
     auto& element = std::get<0>(list->elements[i]);
     if (bindByRef) {
-      interp.bindReference(var, &element);
+      auto address = interp.automaticAddress(rangeScope, var, &element);
+      if (!interp.bindReference(var, std::move(address))) return {};
     } else {
-      interp.setLocal(var, element);
+      interp.setAutomaticLocal(var, element);
     }
     bindRangeElementBindings(ast);
 
     auto result = interp.statement(ast->statement);
+    iterationScope.end();
     if (interp.aborted()) return {};
     if (result.flow == ControlFlow::kBreak) break;
     if (result.flow == ControlFlow::kReturn) return result;
@@ -424,19 +434,21 @@ auto ASTInterpreter::StatementVisitor::forRangeOverPointerIterator(
 
   for (auto off = base; off < (*endAddr)->offset(); ++off) {
     if (!interp.tick()) return {};
+    AutomaticScope iterationScope{interp};
 
     if (bindByRef) {
-      auto slot = interp.addressSlot(**beginAddr, off - base);
-      if (!slot) return {};
-      interp.bindReference(var, slot);
+      auto address = std::make_shared<ConstAddress>(**beginAddr);
+      address->setOffset(off);
+      if (!interp.bindReference(var, std::move(address))) return {};
     } else {
       auto elemVal = interp.loadAddress(**beginAddr, off - base);
       if (!elemVal.has_value()) return {};
-      interp.setLocal(var, *elemVal);
+      interp.setAutomaticLocal(var, *elemVal);
     }
     bindRangeElementBindings(ast);
 
     auto result = interp.statement(ast->statement);
+    iterationScope.end();
     if (interp.aborted()) return {};
     if (result.flow == ControlFlow::kBreak) break;
     if (result.flow == ControlFlow::kReturn) return result;
@@ -496,6 +508,7 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
 
   for (;;) {
     if (!interp.tick()) return {};
+    AutomaticScope iterationScope{interp};
 
     auto neq = ast->notEqualReversed
                    ? callBinary(ast->notEqualFunction, *endObj, *beginObj)
@@ -507,26 +520,31 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
     if (!*keepGoing) break;
 
     if (bindByRef) {
-      ConstValue* slot = nullptr;
+      std::optional<ConstValue> address;
       if (ast->derefFunction->isImplicitObjectMemberFunction()) {
         auto savedThis =
             std::exchange(interp.receiver_, Receiver{*beginObj, {}});
-        slot = interp.evaluateCallLValue(ast->derefFunction, {});
+        address = interp.evaluateCallAddress(ast->derefFunction, {});
         interp.receiver_ = std::move(savedThis);
       } else {
-        slot = interp.evaluateCallLValue(ast->derefFunction,
-                                         {ConstValue{*beginObj}});
+        address = interp.evaluateCallAddress(ast->derefFunction,
+                                             {ConstValue{*beginObj}});
       }
-      if (!slot) return {};
-      interp.bindReference(var, slot);
+      auto pointer = address
+                         ? std::get_if<std::shared_ptr<ConstAddress>>(&*address)
+                         : nullptr;
+      if (!pointer || !*pointer ||
+          !interp.bindReference(var, std::move(*address)))
+        return {};
     } else {
       auto elemVal = callUnary(ast->derefFunction, *beginObj);
       if (!elemVal.has_value()) return {};
-      interp.setLocal(var, *elemVal);
+      interp.setAutomaticLocal(var, *elemVal);
     }
     bindRangeElementBindings(ast);
 
     auto result = interp.statement(ast->statement);
+    iterationScope.end();
     if (interp.aborted()) return {};
     if (result.flow == ControlFlow::kBreak) break;
     if (result.flow != ControlFlow::kReturn) {
@@ -540,7 +558,7 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
 
 auto ASTInterpreter::StatementVisitor::operator()(ForRangeStatementAST* ast)
     -> StatementResult {
-  auto mark = interp.beginAutomaticScope();
+  AutomaticScope scope{interp};
   auto result = [&]() -> StatementResult {
     (void)interp.statement(ast->initializer);
     (void)interp.declaration(ast->rangeDeclaration);
@@ -552,7 +570,7 @@ auto ASTInterpreter::StatementVisitor::operator()(ForRangeStatementAST* ast)
 
       if (rangeVal.has_value()) {
         if (std::get_if<std::shared_ptr<InitializerList>>(&*rangeVal)) {
-          return forRangeOverList(ast, var, *rangeVal);
+          return forRangeOverList(ast, var, *rangeVal, scope);
         }
         if (ast->beginFunction && ast->isPointerIterator) {
           return forRangeOverPointerIterator(ast, var, *rangeVal);
@@ -570,13 +588,14 @@ auto ASTInterpreter::StatementVisitor::operator()(ForRangeStatementAST* ast)
     return {};
   }();
 
-  if (!interp.endAutomaticScope(mark)) return {};
+  scope.end();
+  if (interp.aborted()) return {};
   return result;
 }
 
 auto ASTInterpreter::StatementVisitor::operator()(ForStatementAST* ast)
     -> StatementResult {
-  auto mark = interp.beginAutomaticScope();
+  AutomaticScope scope{interp};
   auto loopResult = [&]() -> StatementResult {
     (void)interp.statement(ast->initializer);
     if (interp.aborted()) return {};
@@ -592,8 +611,8 @@ auto ASTInterpreter::StatementVisitor::operator()(ForStatementAST* ast)
     }
     return {};
   }();
-
-  if (!interp.endAutomaticScope(mark)) return {};
+  scope.end();
+  if (interp.aborted()) return {};
   return loopResult;
 }
 
@@ -666,7 +685,7 @@ auto ASTInterpreter::initializeAutomaticVariable(Symbol* symbol,
   if (var && (traits.is_class(traits.remove_cv(var->type())) ||
               traits.is_vector(traits.remove_cv(var->type()))))
     initVal = cloneValue(*initVal);
-  setLocal(symbol, *initVal);
+  setAutomaticLocal(symbol, *initVal);
   if (var) registerAutomaticObject(var);
   return true;
 }

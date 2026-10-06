@@ -50,6 +50,13 @@ export interface FieldBinding {
 
 export type ClassBindings = Record<string, FieldBinding>;
 
+export interface ArchiveRejection {
+  /** Expression whose truth prevents encoding; `$` is the entity. */
+  when: string;
+  /** Diagnostic reported when the rejected state reaches the archive. */
+  message: string;
+}
+
 /**
  * Only the entities whose wire form does not follow from the accessor
  * convention appear here. Everything else is persisted through
@@ -98,14 +105,17 @@ export const bindings: Record<string, ClassBindings> = {
   },
 
   "::cxx::ConstAddress": {
-    parent_: {
-      cls: "P",
-      why: "subobject identity includes the immutable containing address",
+    symbol_: {
+      cls: "R",
+      why: "encoded through the stable logical address fields",
     },
-    string_: {
-      cls: "P",
-      read: "$->stringLiteral()",
-      write: "$->setStringLiteral($value)",
+    origin_: {
+      cls: "R",
+      why: "tagged runtime representation encoded as stable logical roots",
+    },
+    offset_: {
+      cls: "R",
+      why: "encoded through the stable logical address fields",
     },
   },
 
@@ -403,6 +413,44 @@ export interface ExtraField {
  * than field by field.
  */
 export const extraFields: Record<string, ExtraField[]> = {
+  "::cxx::ConstAddress": [
+    {
+      name: "symbol",
+      from: "symbol",
+      cls: "P",
+      write: "$->setSymbol($value)",
+    },
+    {
+      name: "parent",
+      from: "parent",
+      cls: "P",
+      write: "$->setParent($value)",
+    },
+    {
+      name: "owner",
+      from: "owner",
+      cls: "P",
+      write: "$->setOwner($value)",
+    },
+    {
+      name: "stringLiteral",
+      from: "stringLiteral",
+      cls: "P",
+      write: "$->setStringLiteral($value)",
+    },
+    {
+      name: "typeInfoFor",
+      from: "typeInfoFor",
+      cls: "P",
+      write: "$->setTypeInfoFor($value)",
+    },
+    {
+      name: "offset",
+      from: "offset",
+      cls: "P",
+      write: "$->setOffset($value)",
+    },
+  ],
   "::cxx::MaybeTemplate": [
     {
       name: "templateDeclaration",
@@ -446,4 +494,17 @@ export const extraFields: Record<string, ExtraField[]> = {
 
 export function extraFieldsOf(className: string): ExtraField[] {
   return extraFields[className] ?? [];
+}
+
+const archiveRejections: Record<string, ArchiveRejection[]> = {
+  "::cxx::ConstAddress": [
+    {
+      when: "$->storage() != nullptr",
+      message: "constant address refers to automatic invocation storage",
+    },
+  ],
+};
+
+export function archiveRejectionsOf(className: string): ArchiveRejection[] {
+  return archiveRejections[className] ?? [];
 }
