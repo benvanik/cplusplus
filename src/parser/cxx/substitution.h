@@ -176,6 +176,11 @@ class Substitution {
   [[nodiscard]] auto argumentSymbol(const CollectedArgument& argument) const
       -> Symbol*;
 
+  // Retains the written initializer until the template parameter supplies the
+  // conversion context needed to canonicalize the argument.
+  [[nodiscard]] auto writtenArgumentSymbol(
+      const CollectedArgument& argument) const -> Symbol*;
+
   [[nodiscard]] auto symbolOf(const NonTypeArgumentValue& value) const
       -> Symbol*;
 

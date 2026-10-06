@@ -881,7 +881,7 @@ auto Substitution::writtenTemplateArguments(
   std::vector<TemplateArgument> arguments;
   arguments.reserve(subst.writtenArguments_.size());
   for (const auto& written : subst.writtenArguments_)
-    arguments.push_back(subst.argumentSymbol(written.argument));
+    arguments.push_back(subst.writtenArgumentSymbol(written.argument));
   return arguments;
 }
 
@@ -1071,6 +1071,21 @@ auto Substitution::argumentSymbol(const CollectedArgument& argument) const
     -> Symbol* {
   if (auto symbol = std::get_if<Symbol*>(&argument)) return *symbol;
   return symbolOf(std::get<NonTypeArgumentValue>(argument));
+}
+
+auto Substitution::writtenArgumentSymbol(
+    const CollectedArgument& argument) const -> Symbol* {
+  if (auto symbol = std::get_if<Symbol*>(&argument)) return *symbol;
+
+  const auto& value = std::get<NonTypeArgumentValue>(argument);
+  if (!value.initializer) return symbolOf(value);
+
+  auto symbol = unit_->control()->newVariableSymbol(nullptr, {});
+  symbol->setType(value.type);
+  symbol->setInitializer(value.initializer);
+  symbol->setConstexpr(value.isConstexpr);
+  symbol->setConstValue(value.value);
+  return symbol;
 }
 
 auto Substitution::valueOf(VariableSymbol* variable) const

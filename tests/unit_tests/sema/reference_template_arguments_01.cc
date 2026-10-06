@@ -63,6 +63,8 @@ template <const unsigned&... values>
 constexpr unsigned count() {
   return sizeof...(values);
 }
+static_assert(count<left>() == 1);
+static_assert(count<object>() == 1);
 static_assert(count<left, right, object>() == 3);
 template <const unsigned&... values>
 struct References {};
