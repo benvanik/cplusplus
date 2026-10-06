@@ -202,29 +202,6 @@ struct CompletedEnumerationTypes {
 }  // namespace
 
 void Binder::bind(EnumeratorAST* ast, EnumeratorSymbol* previous) {
-  if (isC()) {
-    std::optional<ConstValue> value;
-    if (ast->expression) {
-      value = ASTInterpreter{unit_, scope()}.evaluate(ast->expression);
-    } else if (!previous) {
-      value = ConstInt{std::intmax_t{0}};
-    } else if (previous->value()) {
-      if (auto integer = std::get_if<ConstInt>(&*previous->value()))
-        value = incrementedValue(*integer);
-    }
-
-    auto enumSymbol = symbol_cast<EnumSymbol>(scope());
-    auto parentScope = enumSymbol->parent();
-    auto symbol =
-        control()->newEnumeratorSymbol(parentScope, ast->identifierLoc);
-    ast->symbol = symbol;
-    symbol->setName(ast->identifier);
-    symbol->setType(scope()->type());
-    symbol->setValue(value);
-    parentScope->addSymbol(symbol);
-    return;
-  }
-
   auto fixedType = fixedUnderlyingType(scope());
   const Type* type = fixedType ? fixedType : control()->getIntType();
   std::optional<ConstValue> value;
@@ -300,7 +277,9 @@ void Binder::bind(EnumeratorAST* ast, EnumeratorSymbol* previous) {
     }
   }
 
-  auto symbol = control()->newEnumeratorSymbol(scope(), ast->identifierLoc);
+  auto owningScope = isC() ? scope()->parent() : scope();
+  auto symbol =
+      control()->newEnumeratorSymbol(owningScope, ast->identifierLoc);
   ast->symbol = symbol;
   symbol->setName(ast->identifier);
   symbol->setType(type);
@@ -309,7 +288,9 @@ void Binder::bind(EnumeratorAST* ast, EnumeratorSymbol* previous) {
     symbol->setAccessSpecifier(enclosingEnum->accessSpecifier());
   if (auto enclosingEnum = symbol_cast<ScopedEnumSymbol>(scope()))
     symbol->setAccessSpecifier(enclosingEnum->accessSpecifier());
-  scope()->addSymbol(symbol);
+  owningScope->addSymbol(symbol);
+
+  if (isC()) return;
 
   if (auto enumSymbol = symbol_cast<EnumSymbol>(scope())) {
     auto parentScope = enumSymbol->parent();
@@ -323,18 +304,16 @@ void Binder::bind(EnumeratorAST* ast, EnumeratorSymbol* previous) {
 }
 
 void Binder::complete(EnumSpecifierAST* ast) {
-  if (isCxx()) {
-    auto unscoped = symbol_cast<EnumSymbol>(ast->symbol);
-    if (unscoped && !unscoped->hasFixedUnderlyingType()) {
-      const auto completed = completedEnumerationTypes(control(), traits, ast,
-                                                       unscoped->isPacked());
-      if (completed.underlyingType && completed.promotionType) {
-        unscoped->setUnderlyingType(completed.underlyingType);
-        unscoped->setPromotionType(completed.promotionType);
-      } else if (completed.valuesResolved) {
-        error(ast->enumLoc,
-              "no integral type can represent all enumerator values");
-      }
+  auto unscoped = symbol_cast<EnumSymbol>(ast->symbol);
+  if (unscoped && !unscoped->hasFixedUnderlyingType()) {
+    const auto completed = completedEnumerationTypes(control(), traits, ast,
+                                                     unscoped->isPacked());
+    if (completed.underlyingType && completed.promotionType) {
+      unscoped->setUnderlyingType(completed.underlyingType);
+      unscoped->setPromotionType(completed.promotionType);
+    } else if (completed.valuesResolved) {
+      error(ast->enumLoc,
+            "no integral type can represent all enumerator values");
     }
   }
 
