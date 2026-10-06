@@ -2,34 +2,34 @@
 
 namespace union_requires_initializer {
 union Choice { unsigned first; unsigned second; };
-// expected-error@+1 {{requires a const-default-constructible type}}
+// expected-error@+1 {{default-initialization of an object of const-qualified type 'const ::union_requires_initializer::Choice' that is not const-default-constructible}}
 constexpr Choice value;
 }  // namespace union_requires_initializer
 
 namespace nested_union_requires_initializer {
 union Choice { unsigned first; unsigned second; };
 struct Configuration { Choice choice; };
-// expected-error@+1 {{requires a const-default-constructible type}}
+// expected-error@+1 {{default-initialization of an object of const-qualified type 'const ::nested_union_requires_initializer::Configuration' that is not const-default-constructible}}
 constexpr Configuration value;
 }  // namespace nested_union_requires_initializer
 
 namespace defaulted_union_requires_initializer {
 union Choice { unsigned first; unsigned second; constexpr Choice() = default; };
-// expected-error@+1 {{requires a const-default-constructible type}}
+// expected-error@+1 {{default-initialization of an object of const-qualified type 'const ::defaulted_union_requires_initializer::Choice' that is not const-default-constructible}}
 constexpr Choice value;
 }  // namespace defaulted_union_requires_initializer
 
 namespace array_of_unions {
 union Choice { unsigned first; unsigned second; };
 struct Configuration { Choice choices[2]; };
-// expected-error@+1 {{requires a const-default-constructible type}}
+// expected-error@+1 {{default-initialization of an object of const-qualified type 'const ::array_of_unions::Configuration' that is not const-default-constructible}}
 constexpr Configuration value;
 }  // namespace array_of_unions
 
 namespace uninitialized_base {
 struct Base { unsigned value; };
 struct Derived : Base {};
-// expected-error@+1 {{requires a const-default-constructible type}}
+// expected-error@+1 {{default-initialization of an object of const-qualified type 'const ::uninitialized_base::Derived' that is not const-default-constructible}}
 constexpr Derived value;
 }  // namespace uninitialized_base
 
@@ -75,7 +75,7 @@ namespace const_automatic_union {
 // Const automatic storage has the same declaration requirement.
 union Choice { unsigned first; unsigned second; };
 static void invalid() {
-  // expected-error@+1 {{requires a const-default-constructible type}}
+  // expected-error@+1 {{default-initialization of an object of const-qualified type 'const ::const_automatic_union::Choice' that is not const-default-constructible}}
   const Choice value;
 }
 }  // namespace const_automatic_union
