@@ -82,3 +82,32 @@ struct [[gnu::aligned(-8)]] NegativeAlignment { char value; };
 
 // expected-error@+1 {{requested alignment is not a power of 2}}
 struct [[gnu::aligned(3)]] NonPowerAlignment { char value; };
+
+// expected-error@+1 {{record layout exceeds the supported size range}}
+struct OversizedMember {
+  unsigned char values[1ull << 31];
+};
+
+// expected-error@+1 {{record layout exceeds the supported size range}}
+struct [[gnu::aligned(1 << 30)]] OversizedTailPadding {
+  unsigned char values[(1 << 30) + 1];
+};
+
+// expected-error@+1 {{record layout exceeds the supported size range}}
+struct OversizedAlignedMember {
+  unsigned char tag;
+  unsigned value [[gnu::aligned(1 << 30)]];
+};
+
+// expected-error@+1 {{bit-field width exceeds the supported layout range}}
+struct OversizedBitFieldWidth {
+  unsigned value : 1ull << 32;
+};
+
+// expected-error@+1 {{record layout exceeds the supported size range}}
+struct OversizedBitFieldSequence {
+  unsigned first : 0xffffffffull;
+  unsigned second : 0xffffffffull;
+  unsigned third : 0xffffffffull;
+  unsigned fourth : 0xffffffffull;
+};

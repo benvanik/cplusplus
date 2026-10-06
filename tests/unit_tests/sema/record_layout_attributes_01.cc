@@ -76,6 +76,26 @@ static_assert(sizeof(TrailingAttributes) == 16);
 static_assert(alignof(TrailingAttributes) == 16);
 static_assert(__builtin_offsetof(TrailingAttributes, value) == 1);
 
+struct PackedBase {
+  unsigned value;
+};
+
+struct [[gnu::packed]] PackedDerived : PackedBase {
+  unsigned char tag;
+};
+
+static_assert(sizeof(PackedDerived) == 8);
+static_assert(alignof(PackedDerived) == 4);
+static_assert(__builtin_offsetof(PackedDerived, tag) == 4);
+
+struct [[gnu::packed]] PackedVirtual {
+  virtual void call();
+  unsigned char tag;
+};
+
+static_assert(sizeof(PackedVirtual) == 5);
+static_assert(alignof(PackedVirtual) == 1);
+
 template <typename T>
 struct __attribute__((packed)) ForwardPackedTemplate;
 

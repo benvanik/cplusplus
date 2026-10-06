@@ -36,6 +36,7 @@
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <ranges>
@@ -45,6 +46,12 @@
 #include <vector>
 
 namespace cxx {
+constexpr auto kMaximumRecordSize =
+    static_cast<std::uint64_t>(std::numeric_limits<int>::max());
+constexpr auto kMaximumRecordBits = kMaximumRecordSize * 8;
+constexpr auto kMaximumBitFieldWidth =
+    static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max());
+
 [[nodiscard]] static auto virtualBasesInInheritanceGraphOrder(
     ClassSymbol* classSymbol) -> std::vector<ClassSymbol*> {
   struct InheritanceFrame {
@@ -102,7 +109,7 @@ struct [[nodiscard]] Binder::BuildRecordLayout {
   const MemoryLayout* memoryLayout;
   std::unique_ptr<ClassLayout> layout;
 
-  int calculatedSize = 0;
+  std::uint64_t calculatedSize = 0;
   int calculatedAlignment = 1;
   std::uint64_t runningSizeof = 0;
   std::uint64_t emptyComponentEnd = 0;
@@ -110,7 +117,7 @@ struct [[nodiscard]] Binder::BuildRecordLayout {
   std::uint32_t currentIndex = 0;
 
   std::uint64_t nextBitPos = 0;
-  int runStartByte = 0;
+  std::uint64_t runStartByte = 0;
   std::uint32_t runIndex = 0;
   bool inBitfieldRun = false;
   std::vector<FieldSymbol*> runFields;
@@ -193,8 +200,9 @@ struct [[nodiscard]] Binder::BuildRecordLayout {
   void propagateAnonymousFields();
   void copyFieldInfos(const ClassLayout* ownerLayout, std::uint64_t ownerOffset,
                       std::uint32_t containingIndex);
-  void finalize();
-  [[nodiscard]] auto excessWidthContainer(int bitWidth) const -> const Type*;
+  [[nodiscard]] auto excessWidthContainer(std::uint64_t bitWidth) const
+      -> const Type*;
+  auto finalize() -> std::expected<bool, std::string>;
   void buildVTableLayout();
 };
 
@@ -226,9 +234,7 @@ auto Binder::BuildRecordLayout::operator()()
   layoutVirtualBases();
 
   propagateBaseFields();
-  finalize();
-
-  return true;
+  return finalize();
 }
 
 auto Binder::BuildRecordLayout::validate() -> std::expected<bool, std::string> {
@@ -620,7 +626,7 @@ auto Binder::BuildRecordLayout::allocateBaseSubobject(ClassSymbol* base,
   }
   baseAlignment = packAlignment(baseAlignment);
 
-  const auto baseSizeInBytes = static_cast<int>(baseNonVirtualSize(base));
+  const auto baseSizeInBytes = baseNonVirtualSize(base);
   const bool isEmpty = baseLayout && baseLayout->isAbiEmpty();
 
   const auto baseOffset = classSubobjectOffset(
@@ -644,8 +650,7 @@ auto Binder::BuildRecordLayout::allocateBaseSubobject(ClassSymbol* base,
       recordEmptyComponent(baseOffset, emptySize);
     }
   } else {
-    calculatedSize = std::max(calculatedSize,
-                              static_cast<int>(baseOffset) + baseSizeInBytes);
+    calculatedSize = std::max(calculatedSize, baseOffset + baseSizeInBytes);
     emittedEnd = std::max(emittedEnd, baseOffset + baseSizeInBytes);
   }
 
@@ -802,10 +807,15 @@ auto Binder::BuildRecordLayout::layoutBitfield(FieldSymbol* field)
     -> std::expected<bool, std::string> {
   const bool isUnion = classSymbol->isUnion();
 
-  int bitWidth = 0;
+  std::uint64_t bitWidth = 0;
   if (auto& bfw = field->bitFieldWidth()) {
     if (auto iv = std::get_if<ConstInt>(&*bfw)) {
-      bitWidth = static_cast<int>(iv->toIntMax());
+      if (iv->isNegative()) return true;
+      if (iv->toUWide() > kMaximumBitFieldWidth) {
+        return std::unexpected(
+            "bit-field width exceeds the supported layout range");
+      }
+      bitWidth = static_cast<std::uint64_t>(iv->toUWide());
     }
   }
 
@@ -817,7 +827,7 @@ auto Binder::BuildRecordLayout::layoutBitfield(FieldSymbol* field)
   auto fieldAlign = field->effectiveAlignment();
   auto fieldSizeBytes =
       static_cast<int>(memoryLayout->sizeOf(field->type()).value_or(0));
-  auto fieldSizeBits = fieldSizeBytes * 8;
+  auto fieldSizeBits = static_cast<std::uint64_t>(fieldSizeBytes) * 8;
 
   const bool hasExcessWidth = fieldSizeBits > 0 && bitWidth > fieldSizeBits;
   auto valueBits = bitWidth;
@@ -840,11 +850,12 @@ auto Binder::BuildRecordLayout::layoutBitfield(FieldSymbol* field)
     fieldInfo.offset = 0;
     fieldInfo.index = 0;
     fieldInfo.bitOffset = 0;
-    fieldInfo.bitWidth = valueBits;
-    fieldInfo.allocUnitSizeBytes = (bitWidth + 7) / 8;
+    fieldInfo.bitWidth = static_cast<std::uint32_t>(valueBits);
+    const auto fieldSizeForUnion = (bitWidth + 7) / 8;
+    fieldInfo.allocUnitSizeBytes =
+        static_cast<std::uint32_t>(fieldSizeForUnion);
     layout->setFieldInfo(field, fieldInfo);
 
-    auto fieldSizeForUnion = (bitWidth + 7) / 8;
     calculatedSize = std::max(calculatedSize, fieldSizeForUnion);
     calculatedAlignment = std::max(calculatedAlignment, aggregateAlign);
     return true;
@@ -852,7 +863,8 @@ auto Binder::BuildRecordLayout::layoutBitfield(FieldSymbol* field)
 
   if (hasExcessWidth) {
     closeBitfieldRun();
-    nextBitPos = align_to(nextBitPos, fieldAlign * 8);
+    nextBitPos =
+        align_to(nextBitPos, static_cast<std::uint64_t>(fieldAlign) * 8);
     calculatedSize = nextBitPos / 8;
   } else {
     // An explicit alignment begins a new allocation unit. The boundary follows
@@ -862,7 +874,8 @@ auto Binder::BuildRecordLayout::layoutBitfield(FieldSymbol* field)
     if (field->explicitAlignment()) {
       closeBitfieldRun();
       auto boundary = packAlignment(field->explicitAlignment());
-      nextBitPos = align_to(nextBitPos, boundary * 8);
+      nextBitPos =
+          align_to(nextBitPos, static_cast<std::uint64_t>(boundary) * 8);
       calculatedSize = nextBitPos / 8;
     }
 
@@ -880,25 +893,31 @@ auto Binder::BuildRecordLayout::layoutBitfield(FieldSymbol* field)
   }
 
   if (!inBitfieldRun) {
+    if (calculatedSize > kMaximumRecordSize) {
+      return std::unexpected("record layout exceeds the supported size range");
+    }
     runStartByte = calculatedSize;
-    nextBitPos = static_cast<std::uint64_t>(runStartByte) * 8;
-    padTo(static_cast<std::uint64_t>(runStartByte));
+    nextBitPos = runStartByte * 8;
+    padTo(runStartByte);
     runIndex = currentIndex;
     inBitfieldRun = true;
     runFields.clear();
   }
 
-  auto bitOffsetInRun =
-      nextBitPos - static_cast<std::uint64_t>(runStartByte) * 8;
+  const auto bitOffsetInRun = nextBitPos - runStartByte * 8;
+  if (bitOffsetInRun > kMaximumRecordSize || nextBitPos > kMaximumRecordBits ||
+      bitWidth > kMaximumRecordBits - nextBitPos) {
+    return std::unexpected("record layout exceeds the supported size range");
+  }
 
-  field->setLocalOffset(runStartByte);
-  field->setBitFieldOffset(bitOffsetInRun);
+  field->setLocalOffset(static_cast<int>(runStartByte));
+  field->setBitFieldOffset(static_cast<int>(bitOffsetInRun));
 
   ClassLayout::MemberInfo fieldInfo;
   fieldInfo.offset = runStartByte;
   fieldInfo.index = runIndex;
-  fieldInfo.bitOffset = bitOffsetInRun;
-  fieldInfo.bitWidth = valueBits;
+  fieldInfo.bitOffset = static_cast<std::uint32_t>(bitOffsetInRun);
+  fieldInfo.bitWidth = static_cast<std::uint32_t>(valueBits);
   layout->setFieldInfo(field, fieldInfo);
 
   runFields.push_back(field);
@@ -908,8 +927,8 @@ auto Binder::BuildRecordLayout::layoutBitfield(FieldSymbol* field)
   return true;
 }
 
-auto Binder::BuildRecordLayout::excessWidthContainer(int bitWidth) const
-    -> const Type* {
+auto Binder::BuildRecordLayout::excessWidthContainer(
+    std::uint64_t bitWidth) const -> const Type* {
   auto control = binder.control();
   const Type* candidates[] = {
       control->getSignedCharType(),  control->getShortIntType(),
@@ -919,7 +938,7 @@ auto Binder::BuildRecordLayout::excessWidthContainer(int bitWidth) const
   std::size_t containerSize = 0;
   for (auto candidate : candidates) {
     auto size = memoryLayout->sizeOf(candidate);
-    if (!size || *size * 8 > static_cast<std::size_t>(bitWidth)) continue;
+    if (!size || *size * 8 > bitWidth) continue;
     if (*size <= containerSize) continue;
     container = candidate;
     containerSize = *size;
@@ -936,7 +955,8 @@ void Binder::BuildRecordLayout::layoutZeroWidthBitfield(FieldSymbol* field) {
   if (classSymbol->isUnion()) return;
   if (!memoryLayout->sizeOf(field->type()).value_or(0)) return;
 
-  nextBitPos = align_to(nextBitPos, field->alignment() * 8);
+  nextBitPos =
+      align_to(nextBitPos, static_cast<std::uint64_t>(field->alignment()) * 8);
   calculatedSize = (nextBitPos + 7) / 8;
 }
 
@@ -963,7 +983,32 @@ auto Binder::BuildRecordLayout::layoutRegularField(FieldSymbol* field)
                     to_diag_string(field->type(), field->name())));
   }
 
+  if (size.value() > kMaximumRecordSize) {
+    return std::unexpected("record layout exceeds the supported size range");
+  }
+
   const auto fieldOffset = regularFieldOffset(field, isEmptyDataMember);
+  if (fieldOffset > kMaximumRecordSize) {
+    return std::unexpected("record layout exceeds the supported size range");
+  }
+
+  std::uint64_t allocatedExtent = 0;
+  std::uint64_t emittedExtent = 0;
+  if (!isEmptyDataMember) {
+    allocatedExtent = static_cast<std::uint64_t>(size.value());
+    emittedExtent = allocatedExtent;
+
+    if (field->isNoUniqueAddress() &&
+        unqualified_cast<ClassType>(field->type())) {
+      emittedExtent = binder.traits.non_virtual_size(field->type());
+      allocatedExtent =
+          std::max(emittedExtent, binder.traits.data_size(field->type()));
+    }
+    if (allocatedExtent > kMaximumRecordSize - fieldOffset) {
+      return std::unexpected("record layout exceeds the supported size range");
+    }
+  }
+
   field->setLocalOffset(static_cast<int>(fieldOffset));
 
   if (!isEmptyDataMember) padTo(fieldOffset);
@@ -974,18 +1019,7 @@ auto Binder::BuildRecordLayout::layoutRegularField(FieldSymbol* field)
   layout->setFieldInfo(field, fieldInfo);
 
   if (!isEmptyDataMember) {
-    auto allocatedExtent = static_cast<std::uint64_t>(size.value());
-    auto emittedExtent = allocatedExtent;
-
-    if (field->isNoUniqueAddress() &&
-        unqualified_cast<ClassType>(field->type())) {
-      emittedExtent = binder.traits.non_virtual_size(field->type());
-      allocatedExtent =
-          std::max(emittedExtent, binder.traits.data_size(field->type()));
-    }
-
-    calculatedSize = std::max(calculatedSize,
-                              static_cast<int>(fieldOffset + allocatedExtent));
+    calculatedSize = std::max(calculatedSize, fieldOffset + allocatedExtent);
     if (!isUnion)
       emittedEnd = std::max(emittedEnd, fieldOffset + emittedExtent);
   }
@@ -1123,7 +1157,7 @@ void Binder::BuildRecordLayout::padTo(std::uint64_t offset) {
   emittedEnd = offset;
 }
 
-void Binder::BuildRecordLayout::finalize() {
+auto Binder::BuildRecordLayout::finalize() -> std::expected<bool, std::string> {
   if (auto requested = classSymbol->explicitAlignment()) {
     if (requested < calculatedAlignment) {
       binder.error(classSymbol->location(),
@@ -1139,18 +1173,23 @@ void Binder::BuildRecordLayout::finalize() {
   calculatedAlignment =
       std::max(calculatedAlignment, classSymbol->minimumAlignment());
 
-  const auto dataSize = static_cast<std::uint64_t>(calculatedSize);
+  const auto dataSize = calculatedSize;
 
-  calculatedSize = std::max(calculatedSize, static_cast<int>(runningSizeof));
+  calculatedSize = std::max(calculatedSize, runningSizeof);
 
   if (calculatedSize == 0 && !binder.isC()) calculatedSize = 1;
 
-  calculatedSize = align_to(calculatedSize, calculatedAlignment);
+  calculatedSize =
+      align_to(calculatedSize, static_cast<std::uint64_t>(calculatedAlignment));
+
+  if (calculatedSize > kMaximumRecordSize) {
+    return std::unexpected("record layout exceeds the supported size range");
+  }
 
   padTo(static_cast<std::uint64_t>(calculatedSize));
 
   classSymbol->setAlignment(calculatedAlignment);
-  classSymbol->setSizeInBytes(calculatedSize);
+  classSymbol->setSizeInBytes(static_cast<int>(calculatedSize));
 
   layout->setSize(calculatedSize);
   layout->setAlignment(calculatedAlignment);
@@ -1160,6 +1199,7 @@ void Binder::BuildRecordLayout::finalize() {
   classSymbol->setLayout(std::move(layout));
 
   buildVTableLayout();
+  return true;
 }
 
 void Binder::BuildRecordLayout::buildVTableLayout() {
