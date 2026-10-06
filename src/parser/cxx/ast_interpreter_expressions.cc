@@ -130,6 +130,16 @@ namespace {
   return typeAlignment;
 }
 
+[[nodiscard]] auto isConstantReadableStaticField(const TypeTraits& traits,
+                                                  FieldSymbol* field) -> bool {
+  if (!field) return false;
+  if (field->isConstexpr()) return true;
+
+  auto qualified = type_cast<QualType>(field->type());
+  return qualified && qualified->isConst() && !qualified->isVolatile() &&
+         traits.is_integral_or_enum(qualified->elementType());
+}
+
 }  // namespace
 
 auto ASTInterpreter::sameObjectOperand(ExpressionAST* ast) -> ExpressionAST* {
@@ -891,9 +901,10 @@ auto ASTInterpreter::evaluateStaticField(FieldSymbol* field)
   }
 
   if (auto definition = symbol_cast<VariableSymbol>(field->definition())) {
-    if (isDeclaredConstant(definition) && definition->constValue())
+    if (isUsableInConstantExpressions(traits, definition))
       return cloneValue(*definition->constValue());
   }
+  if (!isConstantReadableStaticField(traits, field)) return std::nullopt;
   if (field->constValue()) return cloneValue(*field->constValue());
 
   fieldsUnderEvaluation_.push_back(field);

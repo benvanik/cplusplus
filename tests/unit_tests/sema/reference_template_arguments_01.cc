@@ -122,6 +122,21 @@ struct StaticTable {
   static constexpr unsigned value = 5;
 };
 static_assert(__is_same(Ref<StaticTable::value>, Ref<StaticTable::value>));
+
+const float floatingObject = 1.5f;
+template <const float& value>
+constexpr float readFloating() {
+  return value;
+}
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(readFloating<floatingObject>() == 1.5f);
+
+struct FloatingSettings {
+  inline static const float scale = 1.5f;
+};
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(readFloating<FloatingSettings::scale>() == 1.5f);
+
 extern const unsigned declared;
 constexpr unsigned declared = 5;
 static_assert(*(&declared) == 5);

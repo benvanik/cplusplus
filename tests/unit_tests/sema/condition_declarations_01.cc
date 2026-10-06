@@ -71,6 +71,24 @@ constexpr int constexpr_if_condition() {
   return 0;
 }
 
+int mutable_constexpr_if_condition() {
+  // expected-error@+1 {{condition of 'if constexpr' is not a constant expression}}
+  if constexpr (int value = 7) return value;
+  return 0;
+}
+
+int floating_constexpr_if_condition() {
+  // expected-error@+1 {{condition of 'if constexpr' is not a constant expression}}
+  if constexpr (const float value = 1.0f) return 1;
+  return 0;
+}
+
+int volatile_constexpr_if_condition() {
+  // expected-error@+1 {{condition of 'if constexpr' is not a constant expression}}
+  if constexpr (const volatile int value = 1) return 1;
+  return 0;
+}
+
 static_assert(if_condition() == 3);
 static_assert(switch_condition() == 2);
 static_assert(while_condition() == 6);

@@ -45,6 +45,7 @@
 namespace cxx {
 class SymbolChainView;
 class TranslationUnit;
+class TypeTraits;
 
 struct InstantiationError {
   SourceLocation location;
@@ -2269,5 +2270,6 @@ inline auto symbol_cast(Symbol* symbol) -> ScopeSymbol* {
 
 [[nodiscard]] auto isDeclaredConstant(Symbol* symbol) -> bool;
 
-[[nodiscard]] auto isUsableInConstantExpressions(Symbol* symbol) -> bool;
+[[nodiscard]] auto isUsableInConstantExpressions(const TypeTraits& traits,
+                                                  Symbol* symbol) -> bool;
 }  // namespace cxx

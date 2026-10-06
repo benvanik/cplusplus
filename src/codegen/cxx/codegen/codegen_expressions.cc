@@ -2880,7 +2880,7 @@ auto Codegen::ExpressionVisitor::outerFunctionConstant(
   auto variable = symbol_cast<VariableSymbol>(id->symbol);
   if (!variable || variable->isStatic()) return nullptr;
   if (!variable->constValue().has_value()) return nullptr;
-  if (!isUsableInConstantExpressions(variable)) return nullptr;
+  if (!isUsableInConstantExpressions(gen.traits, variable)) return nullptr;
   if (variable->enclosingFunction() == gen.currentFunctionSymbol_)
     return nullptr;
 

@@ -3452,9 +3452,15 @@ auto isDeclaredConstant(Symbol* symbol) -> bool {
   return false;
 }
 
-auto isUsableInConstantExpressions(Symbol* symbol) -> bool {
+auto isUsableInConstantExpressions(const TypeTraits& traits, Symbol* symbol)
+    -> bool {
   auto var = symbol_cast<VariableSymbol>(symbol);
   if (!var || !var->constValue().has_value()) return false;
-  return isDeclaredConstant(var);
+  if (traits.is_volatile(var->type())) return false;
+  if (var->isConstexpr()) return true;
+
+  auto qualified = type_cast<QualType>(var->type());
+  return qualified && qualified->isConst() && !qualified->isVolatile() &&
+         traits.is_integral_or_enum(qualified->elementType());
 }
 }  // namespace cxx

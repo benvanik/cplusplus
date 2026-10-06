@@ -8818,6 +8818,20 @@ void TypeChecker::check_if_statement(IfStatementAST* ast) {
       ast->constexprValue.has_value() || isDependent(unit_, ast->condition))
     return;
 
+  auto* sourceCondition = ast->condition;
+  while (auto* conversion =
+             ast_cast<ImplicitCastExpressionAST>(sourceCondition)) {
+    sourceCondition = conversion->expression;
+  }
+  if (auto* declaration =
+          ast_cast<ConditionExpressionAST>(sourceCondition);
+      declaration && !isUsableInConstantExpressions(unit_->typeTraits(),
+                                                     declaration->symbol)) {
+    error(ast->condition->firstSourceLocation(),
+          "condition of 'if constexpr' is not a constant expression");
+    return;
+  }
+
   ASTInterpreter interpreter{unit_, scope_};
   if (auto value = interpreter.evaluate(ast->condition))
     ast->constexprValue = interpreter.toBool(*value);

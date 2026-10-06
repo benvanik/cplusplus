@@ -1872,6 +1872,9 @@ struct ThisUseFinder : ASTVisitor {
 }
 
 struct OdrUsedLocalFinder : ASTVisitor {
+  explicit OdrUsedLocalFinder(TranslationUnit* unit) : traits(unit) {}
+
+  TypeTraits traits;
   std::vector<IdExpressionAST*> uses;
 
   void visit(IdExpressionAST* ast) override {
@@ -1882,7 +1885,7 @@ struct OdrUsedLocalFinder : ASTVisitor {
   void visit(ImplicitCastExpressionAST* ast) override {
     if (ast->castKind == ImplicitCastKind::kLValueToRValueConversion) {
       auto id = ast_cast<IdExpressionAST>(ast->expression);
-      if (id && isUsableInConstantExpressions(id->symbol)) return;
+      if (id && isUsableInConstantExpressions(traits, id->symbol)) return;
     }
     ASTVisitor::visit(ast);
   }
@@ -2172,7 +2175,7 @@ void Binder::addImplicitCaptures(LambdaExpressionAST* ast,
   const auto hasCaptureDefault = ast->captureDefault != TokenKind::T_EOF_SYMBOL;
   const auto byReference = ast->captureDefault != TokenKind::T_EQUAL;
 
-  OdrUsedLocalFinder finder;
+  OdrUsedLocalFinder finder{unit_};
   finder.accept(ast->statement);
 
   std::vector<const Identifier*> explicitlyCaptured;
