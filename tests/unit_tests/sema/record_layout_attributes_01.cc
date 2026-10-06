@@ -39,6 +39,23 @@ struct __attribute__((aligned(8), aligned(32))) RepeatedAligned {
 static_assert(sizeof(RepeatedAligned) == 32);
 static_assert(alignof(RepeatedAligned) == 32);
 
+struct [[gnu::aligned]] DefaultAligned {
+  char value;
+};
+
+struct [[gnu::aligned()]] EmptyDefaultAligned {
+  char value;
+};
+
+static_assert(alignof(DefaultAligned) > alignof(char));
+static_assert(alignof(EmptyDefaultAligned) == alignof(DefaultAligned));
+
+struct StaticAlignedMember {
+  static unsigned value [[gnu::aligned(16)]];
+};
+
+static_assert(__alignof__(StaticAlignedMember::value) == 16);
+
 struct [[gnu::packed, gnu::aligned(8)]] CxxForwardAttributes;
 
 struct CxxForwardAttributes {

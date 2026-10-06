@@ -1441,6 +1441,7 @@ void Binder::checkVirtualFunctionRequiresClause(
 }
 
 void Binder::bind(TypeExceptionDeclarationAST* ast, const Decl& decl) {
+  applyDeclarationAttributes(nullptr, ast->attributeList, ast->declarator);
   if (explicitAlignment(ast->attributeList, ast->firstSourceLocation())) {
     error(ast->firstSourceLocation(),
           "'alignas' attribute cannot be applied to an exception declaration");
@@ -1499,6 +1500,9 @@ void Binder::rebindParameterType(ParameterDeclarationAST* ast,
 
 void Binder::bind(ParameterDeclarationAST* ast, const Decl& decl,
                   bool inTemplateParameters) {
+  if (inTemplateParameters) {
+    applyDeclarationAttributes(nullptr, ast->attributeList, ast->declarator);
+  }
   auto parameterObjectType = this->parameterObjectType(ast, decl.specs.type());
 
   ast->type = unqualified_type(parameterObjectType);
@@ -2415,10 +2419,40 @@ void Binder::applyFunctionDefinitionKind(FunctionSymbol* functionSymbol,
   if (isFirstDeclaration) functionSymbol->setConstexpr(true);
 }
 
+void Binder::validatePackedAttributes(
+    Symbol* symbol, List<AttributeSpecifierAST*>* attributes) {
+  for (auto attribute :
+       findAttributes(unit_, attributes, AttributeKind::kPacked)) {
+    if (attribute.argumentClause) {
+      error(attribute.location, "'packed' attribute takes no arguments");
+      continue;
+    }
+
+    auto field = symbol_cast<FieldSymbol>(symbol);
+    const bool validEntity = symbol_cast<ClassSymbol>(symbol) ||
+                             symbol_cast<EnumSymbol>(symbol) ||
+                             symbol_cast<ScopedEnumSymbol>(symbol) ||
+                             (field && !field->isStatic());
+    if (!validEntity) {
+      error(attribute.location,
+            "'packed' attribute requires a record, enumeration, or "
+            "non-static data member");
+    }
+  }
+}
+
 void Binder::applyDeclarationAttributes(
     Symbol* symbol, List<AttributeSpecifierAST*>* attributes,
     DeclaratorAST* declarator) {
-  if (!symbol) return;
+  validatePackedAttributes(symbol, attributes);
+  validatePackedAttributes(symbol, declaratorIdAttributes(declarator));
+  validatePackedAttributes(symbol, terminatingAttributes(declarator));
+  if (!symbol) {
+    (void)alignedAttribute(attributes);
+    (void)alignedAttribute(declaratorIdAttributes(declarator));
+    (void)alignedAttribute(terminatingAttributes(declarator));
+    return;
+  }
   if (symbol->isVariable() || symbol->isField() || symbol->isParameter()) {
     if (control()->memoryLayout()->deviceProfile() ==
             DeviceProfile::kVulkan11F32 &&
@@ -2609,6 +2643,10 @@ void Binder::applyWasmFunctionAttributes(FunctionSymbol* function,
 
 void Binder::applyDeclarationAttributes(SimpleDeclarationAST* ast) {
   if (!ast) return;
+
+  if (!ast->initDeclaratorList) {
+    validatePackedAttributes(nullptr, ast->attributeList);
+  }
 
   for (auto initDeclarator : ListView{ast->initDeclaratorList}) {
     applyDeclarationAttributes(initDeclarator->symbol, ast->attributeList,
@@ -3670,6 +3708,7 @@ void Binder::bind(UsingEnumDeclarationAST* ast) {
 }
 
 void Binder::bind(TypeIdAST* ast, const Decl& decl) {
+  applyDeclarationAttributes(nullptr, ast->attributeList, ast->declarator);
   ast->type = getDeclaratorType(unit_, ast->declarator, decl.specs.type());
 }
 
@@ -3976,14 +4015,42 @@ auto Binder::alignedAttribute(List<AttributeSpecifierAST*>* attributeList)
       requested = static_cast<int>(
           control()->memoryLayout()->alignedAttributeAlignment());
     } else {
-      auto expression = clause->expressionList->value;
+      auto arguments = clause->expressionList;
+      if (arguments->next) {
+        error(attribute.location,
+              "'aligned' attribute takes at most one argument");
+        continue;
+      }
+
+      auto expression = arguments->value;
       if (isDependent(unit_, expression)) continue;
 
       ASTInterpreter interp{unit_, scope()};
       auto value = interp.evaluate(expression);
-      requested =
-          value ? validatedAlignment(interp.toInt(*value), attribute.location)
-                : validatedAlignment(std::nullopt, attribute.location);
+      auto integer = value ? std::get_if<ConstInt>(&*value) : nullptr;
+      if (!integer) {
+        error(attribute.location,
+              "'aligned' attribute requires an integer constant");
+        continue;
+      }
+      if (integer->isNegative() || integer->isZero()) {
+        error(attribute.location,
+              "requested alignment is not a power of 2");
+        continue;
+      }
+      const auto integerValue = integer->toUWide();
+      if ((integerValue & (integerValue - 1)) != 0) {
+        error(attribute.location,
+              "requested alignment is not a power of 2");
+        continue;
+      }
+      if (integerValue >
+          static_cast<ConstInt::UWide>(std::numeric_limits<int>::max())) {
+        error(attribute.location,
+              "requested alignment exceeds the supported layout range");
+        continue;
+      }
+      requested = static_cast<int>(integerValue);
     }
 
     if (requested) strictest = std::max(strictest.value_or(0), *requested);

@@ -735,6 +735,9 @@ class Binder {
 
   void applyDeclarationAttributes(SimpleDeclarationAST* ast);
 
+  void validatePackedAttributes(Symbol* symbol,
+                                List<AttributeSpecifierAST*>* attributes);
+
   void inheritDeclarationAttributes(Symbol* symbol, Symbol* pattern);
 
   void applyAttributeMap(Symbol* symbol, AttributeMap collected);

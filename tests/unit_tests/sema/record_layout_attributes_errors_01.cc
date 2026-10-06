@@ -36,3 +36,49 @@ static_assert(alignof(LateRepeated) == 4);
 struct __attribute__((aligned(2147483648LL))) ExcessiveAlignment {
   char value;
 };
+
+// expected-error@+1 {{'packed' attribute takes no arguments}}
+struct __attribute__((packed(1))) PackedArgument { int value; };
+
+// expected-error@+1 {{'packed' attribute requires a record, enumeration, or non-static data member}}
+typedef unsigned PackedAlias __attribute__((packed));
+
+// expected-error@+1 {{'packed' attribute requires a record, enumeration, or non-static data member}}
+using PackedUsing = unsigned __attribute__((packed));
+
+// expected-error@+1 {{'aligned' attribute requires an integer constant}}
+using FloatingAlignedUsing = unsigned __attribute__((aligned(8.0)));
+
+// expected-error@+1 {{'packed' attribute requires a record, enumeration, or non-static data member}}
+unsigned packedVariable __attribute__((packed));
+
+// expected-error@+1 {{'packed' attribute requires a record, enumeration, or non-static data member}}
+void packedParameter(unsigned value __attribute__((packed)));
+
+void packedCatch() {
+  try {
+  }
+  // expected-error@+1 {{'packed' attribute requires a record, enumeration, or non-static data member}}
+  catch (__attribute__((packed)) unsigned value) {
+  }
+}
+
+struct PackedMemberPlacement {
+  // expected-error@+1 {{'packed' attribute requires a record, enumeration, or non-static data member}}
+  [[gnu::packed]] static unsigned value;
+};
+
+// expected-error@+1 {{'aligned' attribute takes at most one argument}}
+struct [[gnu::aligned(8, 16)]] MultipleAlignments { char value; };
+
+// expected-error@+1 {{'aligned' attribute requires an integer constant}}
+struct [[gnu::aligned(8.0)]] FloatingAlignment { char value; };
+
+// expected-error@+1 {{requested alignment is not a power of 2}}
+struct [[gnu::aligned(0)]] ZeroAlignment { char value; };
+
+// expected-error@+1 {{requested alignment is not a power of 2}}
+struct [[gnu::aligned(-8)]] NegativeAlignment { char value; };
+
+// expected-error@+1 {{requested alignment is not a power of 2}}
+struct [[gnu::aligned(3)]] NonPowerAlignment { char value; };
