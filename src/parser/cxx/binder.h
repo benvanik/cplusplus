@@ -629,6 +629,11 @@ class Binder {
 
   void applyDeclarationAttributes(SimpleDeclarationAST* ast);
 
+  void validateLayoutAttributes(Symbol* symbol,
+                                List<AttributeSpecifierAST*>* attributes);
+
+  void validateDeclaratorLayoutAttributes(Symbol* symbol, const Decl& decl);
+
   void inheritDeclarationAttributes(Symbol* symbol, Symbol* pattern);
 
   void applyAttributeMap(Symbol* symbol, AttributeMap collected);

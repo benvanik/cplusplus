@@ -1077,6 +1077,7 @@ void Binder::checkTrailingRequiresClauseIsTemplated(
 }
 
 void Binder::bind(TypeExceptionDeclarationAST* ast, const Decl& decl) {
+  validateDeclaratorLayoutAttributes(nullptr, decl);
   if (explicitAlignment(ast->attributeList, ast->firstSourceLocation())) {
     error(ast->firstSourceLocation(),
           "'alignas' attribute cannot be applied to an exception declaration");
@@ -1128,6 +1129,7 @@ void Binder::rebindParameterType(ParameterDeclarationAST* ast,
 
 void Binder::bind(ParameterDeclarationAST* ast, const Decl& decl,
                   bool inTemplateParameters) {
+  validateDeclaratorLayoutAttributes(nullptr, decl);
   auto parameterObjectType = this->parameterObjectType(ast, decl.specs.type());
 
   ast->type = unqualified_type(parameterObjectType);
@@ -1952,6 +1954,9 @@ void Binder::applyFunctionDefinitionKind(FunctionSymbol* functionSymbol,
 void Binder::applyDeclarationAttributes(
     Symbol* symbol, List<AttributeSpecifierAST*>* attributes,
     DeclaratorAST* declarator) {
+  validateLayoutAttributes(symbol, attributes);
+  validateLayoutAttributes(symbol, declaratorIdAttributes(declarator));
+  validateLayoutAttributes(symbol, terminatingAttributes(declarator));
   if (!symbol) return;
   auto entityAttributes =
       collectAttributes(unit_, declaratorIdAttributes(declarator));
@@ -2060,6 +2065,10 @@ void Binder::applyWasmFunctionAttributes(FunctionSymbol* function,
 
 void Binder::applyDeclarationAttributes(SimpleDeclarationAST* ast) {
   if (!ast) return;
+
+  if (!ast->initDeclaratorList) {
+    validateLayoutAttributes(nullptr, ast->attributeList);
+  }
 
   for (auto initDeclarator : ListView{ast->initDeclaratorList}) {
     applyDeclarationAttributes(initDeclarator->symbol, ast->attributeList,
@@ -2933,6 +2942,7 @@ void Binder::bind(UsingEnumDeclarationAST* ast) {
 }
 
 void Binder::bind(TypeIdAST* ast, const Decl& decl) {
+  validateDeclaratorLayoutAttributes(nullptr, decl);
   ast->type = getDeclaratorType(unit_, ast->declarator, decl.specs.type());
 }
 
@@ -3323,19 +3333,45 @@ auto Binder::alignedAttribute(List<AttributeSpecifierAST*>* attributeList)
       unit_, attributeList, kAlignedSpellings, [&](AttributeRef attribute) {
         std::optional<int> requested;
         auto clause = attribute.argumentClause;
-        if (!clause || !clause->expressionList) {
+        if (!clause) {
           requested = static_cast<int>(
               control()->memoryLayout()->alignedAttributeAlignment());
         } else {
-          auto expression = clause->expressionList->value;
+          auto arguments = clause->expressionList;
+          if (!arguments || arguments->next) {
+            error(attribute.location,
+                  "'aligned' attribute requires one argument");
+            return true;
+          }
+          auto expression = arguments->value;
           if (isDependent(unit_, expression)) return true;
 
           ASTInterpreter interp{unit_};
           auto value = interp.evaluate(expression);
-          requested =
-              value
-                  ? validatedAlignment(interp.toInt(*value), attribute.location)
-                  : validatedAlignment(std::nullopt, attribute.location);
+          auto integer = value ? std::get_if<ConstInt>(&*value) : nullptr;
+          if (!integer) {
+            error(attribute.location,
+                  "'aligned' attribute requires an integer constant");
+            return true;
+          }
+          if (integer->isNegative() || integer->isZero()) {
+            error(attribute.location,
+                  "requested alignment is not a positive power of 2");
+            return true;
+          }
+          const auto integerValue = integer->toUWide();
+          if ((integerValue & (integerValue - 1)) != 0) {
+            error(attribute.location,
+                  "requested alignment is not a positive power of 2");
+            return true;
+          }
+          if (integerValue >
+              static_cast<ConstInt::UWide>(std::numeric_limits<int>::max())) {
+            error(attribute.location,
+                  "requested alignment exceeds the supported layout range");
+            return true;
+          }
+          requested = static_cast<int>(integerValue);
         }
 
         if (requested) strictest = std::max(strictest.value_or(0), *requested);

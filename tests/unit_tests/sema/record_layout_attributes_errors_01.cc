@@ -36,3 +36,44 @@ static_assert(alignof(LateRepeated) == 4);
 struct __attribute__((aligned(2147483648LL))) ExcessiveAlignment {
   char value;
 };
+
+// expected-error@+1 {{'packed' attribute takes no arguments}}
+struct __attribute__((packed(1))) PackedArgument { int value; };
+
+// expected-error@+1 {{'packed' attribute requires a record, enumeration, or non-static data member}}
+typedef unsigned PackedAlias __attribute__((packed));
+
+// expected-error@+1 {{'packed' attribute requires a record, enumeration, or non-static data member}}
+unsigned packedVariable __attribute__((packed));
+
+// expected-error@+1 {{'packed' attribute requires a record, enumeration, or non-static data member}}
+void packedParameter(unsigned value __attribute__((packed)));
+
+struct PackedMemberPlacement {
+  // expected-error@+1 {{'packed' attribute requires a record, enumeration, or non-static data member}}
+  [[gnu::packed]] static unsigned value;
+};
+
+// expected-error@+1 {{'aligned' attribute requires a record, non-static data member, or variable}}
+typedef unsigned AlignedAlias __attribute__((aligned(16)));
+
+// GNU aligned without parentheses requests the target's preferred alignment.
+struct [[gnu::aligned]] DefaultAligned { char value; };
+
+// expected-error@+1 {{'aligned' attribute requires one argument}}
+struct [[gnu::aligned()]] MissingAlignment { char value; };
+
+// expected-error@+1 {{'aligned' attribute requires one argument}}
+struct [[gnu::aligned(8, 16)]] MultipleAlignments { char value; };
+
+// expected-error@+1 {{'aligned' attribute requires an integer constant}}
+struct [[gnu::aligned(8.0)]] FloatingAlignment { char value; };
+
+// expected-error@+1 {{requested alignment is not a positive power of 2}}
+struct [[gnu::aligned(0)]] ZeroAlignment { char value; };
+
+// expected-error@+1 {{requested alignment is not a positive power of 2}}
+struct [[gnu::aligned(-8)]] NegativeAlignment { char value; };
+
+// expected-error@+1 {{requested alignment is not a positive power of 2}}
+struct [[gnu::aligned(3)]] NonPowerAlignment { char value; };
