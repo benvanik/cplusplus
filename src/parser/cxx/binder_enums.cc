@@ -102,56 +102,86 @@ struct TypedEnumeratorValue {
   return firstRepresentingType(traits, candidates, value);
 }
 
+[[nodiscard]] auto widenedCEnumeratorValue(Control* control,
+                                           const TypeTraits& traits,
+                                           const Type* previousType,
+                                           const ConstInt& value)
+    -> std::optional<TypedEnumeratorValue> {
+  const auto representation = traits.integral_representation(previousType);
+  if (!representation) return std::nullopt;
+
+  if (representation->isSigned) {
+    const std::array<const Type*, 3> candidates = {
+        control->getIntType(), control->getLongIntType(),
+        control->getLongLongIntType()};
+    return firstRepresentingType(traits, candidates, value);
+  }
+
+  const std::array<const Type*, 3> candidates = {
+      control->getUnsignedIntType(), control->getUnsignedLongIntType(),
+      control->getUnsignedLongLongIntType()};
+  return firstRepresentingType(traits, candidates, value);
+}
+
+struct EnumerationValueRange {
+  // Smallest resolved enumerator value, or no value for an empty enumeration.
+  std::optional<ConstInt> minimum;
+  // Largest resolved enumerator value, or no value for an empty enumeration.
+  std::optional<ConstInt> maximum;
+};
+
 struct CompletedEnumerationTypes {
   // Integer type used for object representation.
   const Type* underlyingType = nullptr;
-  // Range-based arithmetic promotion.
+  // Integer type produced by arithmetic promotion.
   const Type* promotionType = nullptr;
+  // Type assigned to the enumeration constants after completion.
+  const Type* memberType = nullptr;
   // Whether every enumerator has a resolved integral value.
   bool valuesResolved = false;
 };
 
-[[nodiscard]] auto enumerationHasNegativeValue(EnumSpecifierAST* ast)
-    -> std::optional<bool> {
-  bool hasNegativeValue = false;
+[[nodiscard]] auto enumerationValueRange(EnumSpecifierAST* ast)
+    -> std::optional<EnumerationValueRange> {
+  EnumerationValueRange range;
   for (auto enumerator : ListView{ast->enumeratorList}) {
     if (!enumerator->symbol || !enumerator->symbol->value())
       return std::nullopt;
     auto value = std::get_if<ConstInt>(&*enumerator->symbol->value());
     if (!value) return std::nullopt;
-    hasNegativeValue |= value->isNegative();
+    if (!range.minimum || *value < *range.minimum) range.minimum = *value;
+    if (!range.maximum || *value > *range.maximum) range.maximum = *value;
   }
-  return hasNegativeValue;
+  return range;
 }
 
-[[nodiscard]] auto firstTypeRepresentingEnumerators(
-    const TypeTraits& traits, EnumSpecifierAST* ast,
+[[nodiscard]] auto firstTypeRepresentingRange(
+    const TypeTraits& traits, const EnumerationValueRange& range,
     std::span<const Type* const> candidates) -> const Type* {
   for (auto type : candidates) {
-    bool representsAllValues = true;
-    for (auto enumerator : ListView{ast->enumeratorList}) {
-      auto value = std::get_if<ConstInt>(&*enumerator->symbol->value());
-      if (!convertedEnumeratorValue(traits, type, *value)) {
-        representsAllValues = false;
-        break;
-      }
-    }
-    if (representsAllValues) return type;
+    if (range.minimum &&
+        !convertedEnumeratorValue(traits, type, *range.minimum))
+      continue;
+    if (range.maximum &&
+        !convertedEnumeratorValue(traits, type, *range.maximum))
+      continue;
+    return type;
   }
   return nullptr;
 }
 
 [[nodiscard]] auto completedEnumerationTypes(Control* control,
                                              const TypeTraits& traits,
-                                             EnumSpecifierAST* ast, bool packed)
+                                             EnumSpecifierAST* ast,
+                                             EnumSymbol* symbol, bool isC)
     -> CompletedEnumerationTypes {
-  auto hasNegativeValue = enumerationHasNegativeValue(ast);
-  if (!hasNegativeValue.has_value()) return {};
+  auto range = enumerationValueRange(ast);
+  if (!range) return {};
 
   const Type* underlyingType = nullptr;
-  if (!ast->enumeratorList && !packed) {
+  if (!ast->enumeratorList && !symbol->isPacked()) {
     underlyingType = control->getIntType();
-  } else if (packed) {
+  } else if (symbol->isPacked()) {
     const std::array<const Type*, 5> signedCandidates = {
         control->getSignedCharType(),  control->getShortIntType(),
         control->getIntType(),         control->getLongIntType(),
@@ -165,9 +195,10 @@ struct CompletedEnumerationTypes {
         control->getUnsignedLongLongIntType(),
     };
     const auto candidates =
-        *hasNegativeValue ? std::span<const Type* const>{signedCandidates}
-                          : std::span<const Type* const>{unsignedCandidates};
-    underlyingType = firstTypeRepresentingEnumerators(traits, ast, candidates);
+        range->minimum && range->minimum->isNegative()
+            ? std::span<const Type* const>{signedCandidates}
+            : std::span<const Type* const>{unsignedCandidates};
+    underlyingType = firstTypeRepresentingRange(traits, *range, candidates);
   } else {
     const std::array<const Type*, 3> signedCandidates = {
         control->getIntType(),
@@ -180,19 +211,40 @@ struct CompletedEnumerationTypes {
         control->getUnsignedLongLongIntType(),
     };
     const auto candidates =
-        *hasNegativeValue ? std::span<const Type* const>{signedCandidates}
-                          : std::span<const Type* const>{unsignedCandidates};
-    underlyingType = firstTypeRepresentingEnumerators(traits, ast, candidates);
+        range->minimum && range->minimum->isNegative()
+            ? std::span<const Type* const>{signedCandidates}
+            : std::span<const Type* const>{unsignedCandidates};
+    underlyingType = firstTypeRepresentingRange(traits, *range, candidates);
   }
 
-  const auto promotionCandidates = integralPromotionCandidates(control);
-  auto promotionType =
-      firstTypeRepresentingEnumerators(traits, ast, promotionCandidates);
-  return {underlyingType, promotionType, true};
+  if (!underlyingType) return {.valuesResolved = true};
+
+  const Type* promotionType = nullptr;
+  const Type* memberType = symbol->type();
+  if (isC) {
+    const std::array<const Type*, 2> narrowPromotionCandidates = {
+        control->getIntType(), control->getUnsignedIntType()};
+    const auto underlyingRank = traits.integer_conversion_rank(underlyingType);
+    const auto intRank = traits.integer_conversion_rank(control->getIntType());
+    promotionType = underlyingRank > intRank
+                        ? underlyingType
+                        : firstTypeRepresentingRange(traits, *range,
+                                                     narrowPromotionCandidates);
+
+    const std::array<const Type*, 1> intCandidate = {control->getIntType()};
+    if (firstTypeRepresentingRange(traits, *range, intCandidate))
+      memberType = control->getIntType();
+  } else {
+    const auto promotionCandidates = integralPromotionCandidates(control);
+    promotionType =
+        firstTypeRepresentingRange(traits, *range, promotionCandidates);
+  }
+
+  return {underlyingType, promotionType, memberType, true};
 }
 
-[[nodiscard]] auto provisionalInitializerType(const TypeTraits& traits,
-                                              const Type* expressionType)
+[[nodiscard]] auto cxxProvisionalInitializerType(const TypeTraits& traits,
+                                                 const Type* expressionType)
     -> const Type* {
   auto type = traits.remove_cvref(expressionType);
   if (traits.is_enum(type) && !traits.is_scoped_enum(type))
@@ -202,37 +254,16 @@ struct CompletedEnumerationTypes {
 }  // namespace
 
 void Binder::bind(EnumeratorAST* ast, EnumeratorSymbol* previous) {
-  if (isC()) {
-    std::optional<ConstValue> value;
-    if (ast->expression) {
-      value = ASTInterpreter{unit_, scope()}.evaluate(ast->expression);
-    } else if (!previous) {
-      value = ConstInt{std::intmax_t{0}};
-    } else if (previous->value()) {
-      if (auto integer = std::get_if<ConstInt>(&*previous->value()))
-        value = incrementedValue(*integer);
-    }
-
-    auto enumSymbol = symbol_cast<EnumSymbol>(scope());
-    auto parentScope = enumSymbol->parent();
-    auto symbol =
-        control()->newEnumeratorSymbol(parentScope, ast->identifierLoc);
-    ast->symbol = symbol;
-    symbol->setName(ast->identifier);
-    symbol->setType(scope()->type());
-    symbol->setValue(value);
-    parentScope->addSymbol(symbol);
-    return;
-  }
-
   auto fixedType = fixedUnderlyingType(scope());
-  const Type* type = fixedType ? fixedType : control()->getIntType();
+  const Type* type = fixedType
+                         ? (isC() ? scope()->type() : fixedType)
+                         : static_cast<const Type*>(control()->getIntType());
   std::optional<ConstValue> value;
 
   if (ast->expression) {
     auto expressionType = traits.remove_cvref(ast->expression->type);
-    if (!fixedType && expressionType)
-      type = provisionalInitializerType(traits, expressionType);
+    if (!fixedType && expressionType && isCxx())
+      type = cxxProvisionalInitializerType(traits, expressionType);
 
     const bool expressionDependent = isDependent(unit_, ast->expression);
     if (!expressionDependent &&
@@ -256,6 +287,19 @@ void Binder::bind(EnumeratorAST* ast, EnumeratorSymbol* previous) {
         } else {
           value = *converted;
         }
+      } else if (isC()) {
+        auto intValue =
+            convertedEnumeratorValue(traits, control()->getIntType(), *integer);
+        if (intValue) {
+          type = control()->getIntType();
+          value = *intValue;
+        } else if (expressionType) {
+          type = expressionType;
+          auto converted = convertedEnumeratorValue(traits, type, *integer);
+          value = converted ? ConstValue{*converted} : ConstValue{*integer};
+        } else {
+          value = *integer;
+        }
       } else if (type && !isDependent(unit_, type)) {
         auto converted = convertedEnumeratorValue(traits, type, *integer);
         value = converted ? ConstValue{*converted} : ConstValue{*integer};
@@ -272,24 +316,28 @@ void Binder::bind(EnumeratorAST* ast, EnumeratorSymbol* previous) {
     }
   } else {
     if (!fixedType) type = previous->type();
+    const Type* valueType = fixedType ? fixedType : type;
     auto previousValue = previous->value()
                              ? std::get_if<ConstInt>(&*previous->value())
                              : nullptr;
-    if (previousValue && !isDependent(unit_, type)) {
+    if (previousValue && !isDependent(unit_, valueType)) {
       auto incremented = incrementedValue(*previousValue);
       if (!incremented) {
         error(ast->identifierLoc,
               "no integral type can represent the incremented enumerator "
               "value");
-      } else if (auto converted =
-                     convertedEnumeratorValue(traits, type, *incremented)) {
+      } else if (auto converted = convertedEnumeratorValue(traits, valueType,
+                                                           *incremented)) {
         value = *converted;
       } else if (fixedType) {
         error(ast->identifierLoc,
               "incremented enumerator value is not representable in the "
               "underlying type");
-      } else if (auto widened =
-                     widenedEnumeratorValue(control(), traits, *incremented)) {
+      } else if (auto widened = isC()
+                                    ? widenedCEnumeratorValue(
+                                          control(), traits, type, *incremented)
+                                    : widenedEnumeratorValue(control(), traits,
+                                                             *incremented)) {
         type = widened->type;
         value = widened->value;
       } else {
@@ -300,7 +348,8 @@ void Binder::bind(EnumeratorAST* ast, EnumeratorSymbol* previous) {
     }
   }
 
-  auto symbol = control()->newEnumeratorSymbol(scope(), ast->identifierLoc);
+  auto owningScope = isC() ? scope()->parent() : scope();
+  auto symbol = control()->newEnumeratorSymbol(owningScope, ast->identifierLoc);
   ast->symbol = symbol;
   symbol->setName(ast->identifier);
   symbol->setType(type);
@@ -309,7 +358,9 @@ void Binder::bind(EnumeratorAST* ast, EnumeratorSymbol* previous) {
     symbol->setAccessSpecifier(enclosingEnum->accessSpecifier());
   if (auto enclosingEnum = symbol_cast<ScopedEnumSymbol>(scope()))
     symbol->setAccessSpecifier(enclosingEnum->accessSpecifier());
-  scope()->addSymbol(symbol);
+  owningScope->addSymbol(symbol);
+
+  if (isC()) return;
 
   if (auto enumSymbol = symbol_cast<EnumSymbol>(scope())) {
     auto parentScope = enumSymbol->parent();
@@ -329,24 +380,24 @@ void Binder::complete(EnumSpecifierAST* ast) {
     symbol->setDefined(true);
   }
 
-  if (isCxx()) {
-    auto unscoped = symbol_cast<EnumSymbol>(ast->symbol);
-    if (unscoped && !unscoped->hasFixedUnderlyingType()) {
-      const auto completed = completedEnumerationTypes(control(), traits, ast,
-                                                       unscoped->isPacked());
-      if (completed.underlyingType && completed.promotionType) {
-        unscoped->setUnderlyingType(completed.underlyingType);
-        unscoped->setPromotionType(completed.promotionType);
-      } else if (completed.valuesResolved) {
-        error(ast->enumLoc,
-              "no integral type can represent all enumerator values");
-      }
+  auto unscoped = symbol_cast<EnumSymbol>(ast->symbol);
+  const Type* memberType = ast->symbol ? ast->symbol->type() : nullptr;
+  if (unscoped && !unscoped->hasFixedUnderlyingType()) {
+    const auto completed =
+        completedEnumerationTypes(control(), traits, ast, unscoped, isC());
+    if (completed.underlyingType && completed.promotionType) {
+      unscoped->setUnderlyingType(completed.underlyingType);
+      unscoped->setPromotionType(completed.promotionType);
+      memberType = completed.memberType;
+    } else if (completed.valuesResolved) {
+      error(ast->enumLoc,
+            "no integral type can represent all enumerator values");
     }
   }
 
   if (!ast->symbol) return;
   for (auto enumerator : ListView{ast->enumeratorList}) {
-    if (enumerator->symbol) enumerator->symbol->setType(ast->symbol->type());
+    if (enumerator->symbol) enumerator->symbol->setType(memberType);
   }
 }
 

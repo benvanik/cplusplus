@@ -131,6 +131,9 @@ class TypeTraits {
   [[nodiscard]] auto integral_representation(const Type* type) const
       -> std::optional<IntegralRepresentation>;
 
+  [[nodiscard]] auto integer_conversion_rank(const Type* type) const
+      -> std::pair<int, int>;
+
   [[nodiscard]] auto value_representation(const Type* type) const
       -> std::optional<IntegralRepresentation>;
 
@@ -307,9 +310,6 @@ class TypeTraits {
 
   [[nodiscard]] auto is_floating_point_promotion(const Type* from,
                                                  const Type* to) const -> bool;
-
-  [[nodiscard]] auto integer_conversion_rank(const Type* type) const
-      -> std::pair<int, int>;
 
   [[nodiscard]] auto floating_point_conversion_order(const Type* a,
                                                      const Type* b) const
