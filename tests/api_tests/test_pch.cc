@@ -783,6 +783,108 @@ constexpr const unsigned* external_scale_address = &external.scale;
   EXPECT_EQ(tableOneScale->parent()->offset(), 1);
 }
 
+TEST(PrecompiledHeader, RestoresMaterializedObjectLifetimes) {
+  std::vector<std::uint8_t> data;
+  {
+    Prefix prefix{R"(
+struct Value {
+  unsigned number = 9;
+  const Value* self = this;
+};
+constexpr const Value& reference = Value{};
+constexpr const Value* saved_self = reference.self;
+constexpr const Value (&values)[2] = {};
+constexpr const Value* saved_second = values[1].self;
+static_assert(reference.self == &reference);
+static_assert(saved_self->number == 9);
+static_assert(values[0].self == &values[0]);
+static_assert(values[0].self + 1 == &values[1]);
+static_assert(saved_second == &values[1]);
+)"};
+    data = prefix.emit();
+    ASSERT_TRUE(prefix.errors().empty());
+    ASSERT_FALSE(data.empty());
+  }
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+  {
+    PrecompiledHeaderReader reader{&consumer, keys()};
+    ASSERT_TRUE(reader(data)) << reader.error();
+  }
+
+  auto globalScope = consumer.globalScope();
+  auto value = symbol_cast<ClassSymbol>(findMember(globalScope, "Value"));
+  auto number =
+      value ? symbol_cast<FieldSymbol>(findMember(value, "number")) : nullptr;
+  auto self =
+      value ? symbol_cast<FieldSymbol>(findMember(value, "self")) : nullptr;
+  ASSERT_TRUE(number);
+  ASSERT_TRUE(self);
+
+  auto reference = constantAddress(globalScope, "reference");
+  auto savedSelf = constantAddress(globalScope, "saved_self");
+  auto values = constantAddress(globalScope, "values");
+  auto savedSecond = constantAddress(globalScope, "saved_second");
+  ASSERT_TRUE(reference);
+  ASSERT_TRUE(savedSelf);
+  ASSERT_TRUE(values);
+  ASSERT_TRUE(savedSecond);
+
+  auto lifetime = reference->ownedLifetimeStorage();
+  ASSERT_TRUE(lifetime);
+  auto object = std::get_if<std::shared_ptr<ConstObject>>(&lifetime->value());
+  ASSERT_TRUE(object);
+  ASSERT_TRUE(*object);
+
+  auto numberValue = (*object)->subobject(number);
+  auto selfValue = (*object)->subobject(self);
+  ASSERT_TRUE(numberValue);
+  ASSERT_TRUE(selfValue);
+  auto integer = std::get_if<ConstInt>(numberValue);
+  auto selfAddress = std::get_if<std::shared_ptr<ConstAddress>>(selfValue);
+  ASSERT_TRUE(integer);
+  ASSERT_TRUE(selfAddress);
+  ASSERT_TRUE(*selfAddress);
+  EXPECT_EQ(integer->toUIntMax(), 9u);
+  EXPECT_FALSE((*selfAddress)->ownedLifetimeStorage());
+  EXPECT_EQ((*selfAddress)->borrowedLifetimeStorage(), lifetime);
+  EXPECT_TRUE((*selfAddress)->sameTarget(*reference));
+  EXPECT_TRUE(savedSelf->sameTarget(*reference));
+
+  auto valuesLifetime = values->ownedLifetimeStorage();
+  ASSERT_TRUE(valuesLifetime);
+  auto elements =
+      std::get_if<std::shared_ptr<InitializerList>>(&valuesLifetime->value());
+  ASSERT_TRUE(elements);
+  ASSERT_TRUE(*elements);
+  ASSERT_EQ((*elements)->elements.size(), 2u);
+
+  auto firstObject = std::get_if<std::shared_ptr<ConstObject>>(
+      &std::get<0>((*elements)->elements[0]));
+  auto secondObject = std::get_if<std::shared_ptr<ConstObject>>(
+      &std::get<0>((*elements)->elements[1]));
+  ASSERT_TRUE(firstObject);
+  ASSERT_TRUE(secondObject);
+  ASSERT_TRUE(*firstObject);
+  ASSERT_TRUE(*secondObject);
+  auto firstSelf = std::get_if<std::shared_ptr<ConstAddress>>(
+      (*firstObject)->subobject(self));
+  auto secondSelf = std::get_if<std::shared_ptr<ConstAddress>>(
+      (*secondObject)->subobject(self));
+  ASSERT_TRUE(firstSelf);
+  ASSERT_TRUE(secondSelf);
+  ASSERT_TRUE(*firstSelf);
+  ASSERT_TRUE(*secondSelf);
+  EXPECT_EQ((*firstSelf)->borrowedLifetimeStorage(), valuesLifetime);
+  EXPECT_EQ((*secondSelf)->borrowedLifetimeStorage(), valuesLifetime);
+  EXPECT_EQ((*firstSelf)->offset(), 0);
+  EXPECT_EQ((*secondSelf)->offset(), 1);
+  EXPECT_TRUE((*firstSelf)->sameTarget(*values));
+  EXPECT_TRUE((*secondSelf)->sameTarget(*savedSecond));
+}
+
 TEST(PrecompiledHeader, RestoresSelectedSubobjectPaths) {
   std::vector<std::uint8_t> data;
   {

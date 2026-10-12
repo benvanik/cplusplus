@@ -131,7 +131,7 @@ namespace {
 }
 
 [[nodiscard]] auto isConstantReadableStaticField(const TypeTraits& traits,
-                                                  FieldSymbol* field) -> bool {
+                                                 FieldSymbol* field) -> bool {
   if (!field) return false;
   if (field->isConstexpr()) return true;
 
@@ -1159,6 +1159,31 @@ auto ASTInterpreter::loadAddress(const ConstAddress& address,
   if (auto str = address.stringLiteral())
     return stringLiteralElement(str, index);
 
+  if (auto storage = address.lifetimeStorage()) {
+    auto value = storage->value();
+    if (auto elements = std::get_if<std::shared_ptr<InitializerList>>(&value)) {
+      if (!*elements ||
+          static_cast<std::size_t>(index) >= (*elements)->elements.size())
+        return std::nullopt;
+      return std::get<0>((*elements)->elements[index]);
+    }
+    if (index != 0) return std::nullopt;
+    return value;
+  }
+
+  if (auto storage = address.materializedStorage();
+      storage && !storage->isBound()) {
+    if (auto object = storage->object()) {
+      if (index != 0) return std::nullopt;
+      return ConstValue{std::move(object)};
+    }
+    auto elements = storage->elements();
+    if (!elements ||
+        static_cast<std::size_t>(index) >= elements->elements.size())
+      return std::nullopt;
+    return std::get<0>(elements->elements[index]);
+  }
+
   if (address.denotesWholeOwner()) {
     if (index != 0) return std::nullopt;
     return ConstValue{address.owner()};
@@ -1262,21 +1287,55 @@ auto ASTInterpreter::addressSlot(const ConstAddress& address,
 
   if (address.stringLiteral()) return nullptr;
 
+  if (auto storage = address.lifetimeStorage()) {
+    auto slot = storage->mutableValue();
+    if (auto elements = std::get_if<std::shared_ptr<InitializerList>>(slot)) {
+      if (!*elements ||
+          static_cast<std::size_t>(index) >= (*elements)->elements.size())
+        return nullptr;
+      return &std::get<0>((*elements)->elements[index]);
+    }
+    return index == 0 ? slot : nullptr;
+  }
+
+  if (auto storage = address.materializedStorage();
+      storage && !storage->isBound()) {
+    auto elements = storage->elements();
+    if (!elements ||
+        static_cast<std::size_t>(index) >= elements->elements.size())
+      return nullptr;
+    return &std::get<0>(elements->elements[index]);
+  }
+
   auto sym = address.symbol();
   if (!sym) return nullptr;
 
   ConstValue* slot = nullptr;
   if (address.parent()) {
-    auto parent = addressSlot(*address.parent(), 0);
-    if (!parent) return nullptr;
-    auto object = std::get_if<std::shared_ptr<ConstObject>>(parent);
-    if (!object || !*object) return nullptr;
-    // Parent chains name exact storage steps, so recursive lookup would erase
-    // the identity of repeated base subobjects.
-    for (auto& member : (*object)->mutableMembers()) {
-      if (member.symbol != sym) continue;
-      slot = &member.value;
-      break;
+    if (auto storage = address.parent()->materializedStorage();
+        storage && !storage->isBound()) {
+      auto object = storage->object();
+      if (object) {
+        slot = subobjectSlot(object, sym);
+      } else {
+        auto parent = addressSlot(*address.parent(), 0);
+        if (!parent) return nullptr;
+        auto nested = std::get_if<std::shared_ptr<ConstObject>>(parent);
+        if (!nested || !*nested) return nullptr;
+        slot = subobjectSlot(*nested, sym);
+      }
+    } else {
+      auto parent = addressSlot(*address.parent(), 0);
+      if (!parent) return nullptr;
+      auto object = std::get_if<std::shared_ptr<ConstObject>>(parent);
+      if (!object || !*object) return nullptr;
+      // Parent chains name exact storage steps, so recursive lookup would erase
+      // the identity of repeated base subobjects.
+      for (auto& member : (*object)->mutableMembers()) {
+        if (member.symbol != sym) continue;
+        slot = &member.value;
+        break;
+      }
     }
   } else if (address.storage()) {
     slot = address.storage()->slot();
@@ -1448,6 +1507,11 @@ auto ASTInterpreter::implicitObjectFor(Symbol* member)
   return objectDesignatedByThis();
 }
 
+void ASTInterpreter::retainMaterializedTemporary(
+    std::shared_ptr<ConstObject> object) {
+  if (object) fullExpressionStorage_.emplace_back(std::move(object));
+}
+
 auto ASTInterpreter::receiverFor(ExpressionAST* base, TokenKind accessOp)
     -> Receiver {
   Receiver receiver;
@@ -1477,8 +1541,8 @@ auto ASTInterpreter::receiverFor(ExpressionAST* base, TokenKind accessOp)
   if (auto object = std::get_if<std::shared_ptr<ConstObject>>(&*value)) {
     receiver.object = *object;
     if (receiver.object && !is_glvalue(base)) {
-      receiver.address =
-          std::make_shared<ConstAddress>(receiver.object, nullptr);
+      retainMaterializedTemporary(receiver.object);
+      receiver.address = ConstAddress::materialized(receiver.object);
     }
   }
   return receiver;
@@ -1547,9 +1611,23 @@ auto ASTInterpreter::addressOfField(const Receiver& receiver,
     if (!receiver.address->denotesWholeOwner()) {
       // A member selection requires a live receiver element, not one-past-end.
       auto symbol = receiver.address->symbol();
-      if (!symbol) return std::nullopt;
-      auto array = unqualified_cast<BoundedArrayType>(symbol->type());
-      const auto extent = array ? array->size() : std::uint64_t{1};
+      auto materialized = receiver.address->materializedStorage();
+      auto lifetime = receiver.address->lifetimeStorage();
+      if (!symbol && !materialized && !lifetime) return std::nullopt;
+      auto array =
+          symbol ? unqualified_cast<BoundedArrayType>(symbol->type()) : nullptr;
+      const auto materializedElements =
+          materialized ? materialized->elements() : nullptr;
+      const auto lifetimeElements =
+          lifetime ? std::get_if<std::shared_ptr<InitializerList>>(
+                         &lifetime->value())
+                   : nullptr;
+      const auto extent = array ? array->size()
+                          : materializedElements
+                              ? materializedElements->elements.size()
+                          : lifetimeElements && *lifetimeElements
+                              ? (*lifetimeElements)->elements.size()
+                              : std::uint64_t{1};
       if (receiver.address->offset() < 0 ||
           static_cast<std::uintmax_t>(receiver.address->offset()) >= extent) {
         return std::nullopt;
@@ -1557,7 +1635,7 @@ auto ASTInterpreter::addressOfField(const Receiver& receiver,
     }
     address = std::make_shared<ConstAddress>(receiver.address, field);
   } else if (receiver.object) {
-    address = std::make_shared<ConstAddress>(receiver.object, field);
+    address = ConstAddress::materialized(receiver.object, field);
   } else {
     return std::nullopt;
   }
@@ -1577,6 +1655,7 @@ auto ASTInterpreter::initializationValue(const Type* type,
                                          ExpressionAST* initializer,
                                          ConstValue* storage)
     -> std::optional<ConstValue> {
+  FullExpressionScope fullExpressionScope{*this};
   EvaluationScope evaluationScope{*this};
   if (traits.is_reference(type)) return referenceBinding(initializer);
   Initializer init{initializer};
@@ -1644,14 +1723,24 @@ auto ASTInterpreter::referenceBinding(ExpressionAST* initializer)
     return referenceBinding(defaultInitializer->expression);
   }
 
-  auto arguments = Initializer{initializer}.arguments();
-  if (arguments.size() != 1) return std::nullopt;
+  Initializer init{initializer};
+  auto arguments = init.arguments();
+  auto referent = init.bracedInitList() ? init.clause() : nullptr;
+  if (!referent) {
+    if (arguments.size() != 1) return std::nullopt;
+    referent = arguments.front();
+  }
 
   EvaluationScope evaluationScope{*this};
-  auto address = addressOfLvalue(arguments.front());
+  if (auto temporary = materializedTemporary(referent)) {
+    auto value = evaluate(temporary);
+    if (!value) return std::nullopt;
+    return ConstValue{materializeLifetime(std::move(*value)).owner};
+  }
+  auto address = addressOfLvalue(referent);
   if (!address) return std::nullopt;
-  if (!std::holds_alternative<std::shared_ptr<ConstAddress>>(*address))
-    return std::nullopt;
+  auto pointer = std::get_if<std::shared_ptr<ConstAddress>>(&*address);
+  if (!pointer || !*pointer) return std::nullopt;
   return address;
 }
 
@@ -1946,7 +2035,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(ThisExpressionAST* ast)
   if (interp.receiver_.address) return interp.receiver_.address;
   auto object = interp.objectDesignatedByThis();
   if (!object) return std::nullopt;
-  return ConstValue{std::move(object)};
+  return ConstValue{ConstAddress::materialized(std::move(object))};
 }
 
 auto ASTInterpreter::ExpressionVisitor::operator()(PackIndexExpressionAST* ast)
@@ -2071,6 +2160,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(LambdaExpressionAST* ast)
         captureField->type(), captureField->constructor(), initializer);
     if (!value) return ExpressionResult{std::nullopt};
 
+    interp.attachMaterializedSubobject(closure, captureField, *value);
     closure->addMember(captureField, std::move(*value));
   }
 
@@ -3877,6 +3967,7 @@ auto ASTInterpreter::ExpressionVisitor::aggregateObject(
     if (!value) return std::nullopt;
 
     if (!subobjectDesignators) {
+      interp.attachMaterializedSubobject(object, element, *value);
       object->setMember(element, std::move(*value));
     } else {
       if (!object->subobject(element)) {
@@ -3889,6 +3980,8 @@ auto ASTInterpreter::ExpressionVisitor::aggregateObject(
                                  subobjectDesignators);
       if (!slot) return std::nullopt;
       *slot = std::move(*value);
+      if (auto completed = object->subobject(element))
+        interp.attachMaterializedSubobject(object, element, *completed);
     }
 
     if (classSymbol->isUnion()) break;
@@ -3900,12 +3993,14 @@ auto ASTInterpreter::ExpressionVisitor::aggregateObject(
       auto zero = interp.zeroInitialize(
           unit()->typeTraits().aggregate_element_type(element));
       if (!zero) return std::nullopt;
+      interp.attachMaterializedSubobject(object, element, *zero);
       object->setMember(element, std::move(*zero));
     }
   } else if (object->members().empty() && !elements.empty()) {
     auto zero = interp.zeroInitialize(
         unit()->typeTraits().aggregate_element_type(elements.front()));
     if (!zero) return std::nullopt;
+    interp.attachMaterializedSubobject(object, elements.front(), *zero);
     object->addMember(elements.front(), std::move(*zero));
   }
 
@@ -3949,18 +4044,34 @@ auto ASTInterpreter::ExpressionVisitor::arrayValue(BracedInitListAST* ast,
                          subobjectDesignators);
       if (!slot) return std::nullopt;
       *slot = std::move(*value);
+      interp.attachMaterializedElement(
+          list, elementIndex, std::get<0>(list->elements[elementIndex]));
     }
     ++elementIndex;
   }
 
   if (auto element = ast->implicitElement) {
-    auto value = interp.initialValue(elementType, element->initializer());
-    if (!value) return std::nullopt;
+    const auto elementShape = interp.traits.remove_cv(elementType);
+    const bool constructEachElement = interp.traits.is_class(elementShape) ||
+                                      interp.traits.is_array(elementShape);
+    std::optional<ConstValue> prototype;
+    if (!constructEachElement) {
+      prototype = interp.initialValue(elementType, element->initializer());
+      if (!prototype) return std::nullopt;
+    }
 
     for (auto range :
          implicitlyInitializedElements(unit(), ast, type->size())) {
-      for (auto index = range.begin; index < range.end; ++index)
-        std::get<0>(list->elements[index]) = interp.cloneValue(*value);
+      for (auto index = range.begin; index < range.end; ++index) {
+        auto value =
+            constructEachElement
+                ? interp.initialValue(elementType, element->initializer())
+                : std::optional<ConstValue>{interp.cloneValue(*prototype)};
+        if (!value) return std::nullopt;
+        std::get<0>(list->elements[index]) = std::move(*value);
+        interp.attachMaterializedElement(list, index,
+                                         std::get<0>(list->elements[index]));
+      }
     }
   }
 

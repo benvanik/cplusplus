@@ -42,6 +42,8 @@ class Meta;
 class InitializerList;
 class ConstComplex;
 class ConstObject;
+class ConstMaterializedStorage;
+class ConstLifetimeStorage;
 class ConstAddress;
 class ConstLabelAddress;
 class ASTInterpreter;
@@ -64,7 +66,24 @@ using ConstValue =
 
 class InitializerList {
  public:
+  InitializerList() = default;
+
+  explicit InitializerList(
+      std::vector<std::tuple<ConstValue, const Type*>> initialElements)
+      : elements(std::move(initialElements)) {}
+
   std::vector<std::tuple<ConstValue, const Type*>> elements;
+
+  [[nodiscard]] auto storage() const
+      -> std::shared_ptr<ConstMaterializedStorage>;
+
+  void setStorage(std::weak_ptr<ConstMaterializedStorage> storage) {
+    storage_ = std::move(storage);
+  }
+
+ private:
+  // Lazily created identity for an addressed element or descendant.
+  std::weak_ptr<ConstMaterializedStorage> storage_;
 };
 
 class ConstComplex {
@@ -134,10 +153,19 @@ class ConstObject {
 
   [[nodiscard]] auto operator==(const ConstObject& other) const -> bool;
 
+  [[nodiscard]] auto storage() const
+      -> std::shared_ptr<ConstMaterializedStorage>;
+
+  void setStorage(std::weak_ptr<ConstMaterializedStorage> storage) {
+    storage_ = std::move(storage);
+  }
+
  private:
   const Type* type_ = nullptr;
   std::deque<Member> members_;
   bool constexprUnknown_ = false;
+  // Lazily created identity for addresses formed during materialization.
+  std::weak_ptr<ConstMaterializedStorage> storage_;
 };
 
 class Meta {
@@ -166,6 +194,71 @@ class ConstStorage {
   std::shared_ptr<ConstStorage> automaticNext_;
 };
 
+// Value whose storage duration is owned independently of its pointer values.
+// Owning and borrowing addresses share this identity so references can extend
+// a temporary without letting a self-pointer retain its own value graph.
+class ConstLifetimeStorage {
+ public:
+  ConstLifetimeStorage() = default;
+
+  explicit ConstLifetimeStorage(ConstValue value) : value_(std::move(value)) {}
+
+  [[nodiscard]] auto value() const -> const ConstValue& { return value_; }
+  [[nodiscard]] auto mutableValue() -> ConstValue* { return &value_; }
+  void setValue(ConstValue value) { value_ = std::move(value); }
+
+ private:
+  // Value whose lifetime is controlled by the owning address.
+  ConstValue value_;
+};
+
+// Identity of an addressed materialized aggregate. Addresses retain this token
+// without owning the value. Once the value reaches its C++ destination the
+// token forwards to that storage address, preserving subobject and array
+// provenance without rewriting pointers already stored in the value.
+class ConstMaterializedStorage {
+ public:
+  explicit ConstMaterializedStorage(std::weak_ptr<ConstObject> object)
+      : value_(std::move(object)) {}
+
+  explicit ConstMaterializedStorage(std::weak_ptr<InitializerList> elements)
+      : value_(std::move(elements)) {}
+
+  [[nodiscard]] auto object() const -> std::shared_ptr<ConstObject> {
+    auto object = std::get_if<std::weak_ptr<ConstObject>>(&value_);
+    return object ? object->lock() : nullptr;
+  }
+
+  [[nodiscard]] auto elements() const -> std::shared_ptr<InitializerList> {
+    auto elements = std::get_if<std::weak_ptr<InitializerList>>(&value_);
+    return elements ? elements->lock() : nullptr;
+  }
+
+  [[nodiscard]] auto address() const -> std::shared_ptr<ConstAddress>;
+
+  [[nodiscard]] auto isBound() const -> bool {
+    return !std::holds_alternative<std::monostate>(address_);
+  }
+
+  [[nodiscard]] auto hasExpiredAddress() const -> bool {
+    auto address = std::get_if<std::weak_ptr<ConstAddress>>(&address_);
+    return address && address->expired();
+  }
+
+  void bind(std::shared_ptr<ConstAddress> address);
+  void bindBorrowed(std::weak_ptr<ConstAddress> address);
+
+ private:
+  // Readable aggregate while this identity has not reached a destination.
+  std::variant<std::weak_ptr<ConstObject>, std::weak_ptr<InitializerList>>
+      value_;
+  // Final storage. Lifetime-owning roots are borrowed so the materialized
+  // value cannot retain its own owner.
+  std::variant<std::monostate, std::shared_ptr<ConstAddress>,
+               std::weak_ptr<ConstAddress>>
+      address_;
+};
+
 class ConstAddress {
  public:
   ConstAddress() = default;
@@ -177,20 +270,45 @@ class ConstAddress {
       : origin_(string), offset_(offset) {}
 
   ConstAddress(std::shared_ptr<ConstObject> owner, Symbol* symbol,
-               std::intmax_t offset = 0)
-      : symbol_(symbol), origin_(std::move(owner)), offset_(offset) {}
+               std::intmax_t offset = 0);
+
+  [[nodiscard]] static auto materialized(std::shared_ptr<ConstObject> object,
+                                         Symbol* symbol = nullptr,
+                                         std::intmax_t offset = 0)
+      -> std::shared_ptr<ConstAddress>;
+
+  [[nodiscard]] static auto materialized(
+      std::shared_ptr<ConstMaterializedStorage> storage,
+      std::intmax_t offset = 0) -> std::shared_ptr<ConstAddress>;
+
+  [[nodiscard]] static auto owningLifetime(
+      std::shared_ptr<ConstLifetimeStorage> storage, std::intmax_t offset = 0)
+      -> std::shared_ptr<ConstAddress>;
+
+  [[nodiscard]] static auto borrowedLifetime(
+      const std::shared_ptr<ConstLifetimeStorage>& storage,
+      std::intmax_t offset = 0) -> std::shared_ptr<ConstAddress>;
 
   // Subobject addresses retain the containing address that selected them.
   ConstAddress(std::shared_ptr<ConstAddress> parent, Symbol* symbol);
 
   explicit ConstAddress(const Type* typeInfoFor) : origin_(typeInfoFor) {}
 
-  [[nodiscard]] auto symbol() const -> Symbol* { return symbol_; }
+  [[nodiscard]] auto symbol() const -> Symbol*;
   [[nodiscard]] auto typeInfoFor() const -> const Type*;
   [[nodiscard]] auto owner() const -> const std::shared_ptr<ConstObject>&;
   [[nodiscard]] auto storage() const -> const std::shared_ptr<ConstStorage>&;
+  [[nodiscard]] auto materializedStorage() const
+      -> std::shared_ptr<ConstMaterializedStorage>;
+  [[nodiscard]] auto lifetimeStorage() const
+      -> std::shared_ptr<ConstLifetimeStorage>;
+  [[nodiscard]] auto ownedLifetimeStorage() const
+      -> const std::shared_ptr<ConstLifetimeStorage>&;
+  [[nodiscard]] auto borrowedLifetimeStorage() const
+      -> std::shared_ptr<ConstLifetimeStorage>;
+  [[nodiscard]] auto hasExpiredLifetimeStorage() const -> bool;
   [[nodiscard]] auto stringLiteral() const -> const StringLiteral*;
-  [[nodiscard]] auto offset() const -> std::intmax_t { return offset_; }
+  [[nodiscard]] auto offset() const -> std::intmax_t;
 
   // Returns the containing storage address for a subobject address.
   [[nodiscard]] auto parent() const -> const std::shared_ptr<ConstAddress>&;
@@ -201,24 +319,48 @@ class ConstAddress {
   [[nodiscard]] auto sameTarget(const ConstAddress& other) const -> bool;
 
   [[nodiscard]] auto denotesWholeOwner() const -> bool {
-    return owner() && !symbol_;
+    return owner() && !symbol();
   }
 
   void setSymbol(Symbol* symbol) { symbol_ = symbol; }
   void setParent(std::shared_ptr<ConstAddress> parent);
   void setOwner(std::shared_ptr<ConstObject> owner);
   void setStorage(std::shared_ptr<ConstStorage> storage);
+  void setOwnedLifetimeStorage(std::shared_ptr<ConstLifetimeStorage> storage);
+  void setBorrowedLifetimeStorage(
+      std::shared_ptr<ConstLifetimeStorage> storage);
   void setStringLiteral(const StringLiteral* string);
   void setTypeInfoFor(const Type* type);
-  void setOffset(std::intmax_t offset) { offset_ = offset; }
+  void setOffset(std::intmax_t offset);
 
  private:
+  [[nodiscard]] auto forwardedAddress() const -> std::shared_ptr<ConstAddress>;
+
+  [[nodiscard]] auto hasLifetimeStorage() const -> bool;
+  [[nodiscard]] auto sameLifetimeStorage(const ConstAddress& other) const
+      -> bool;
+
+  explicit ConstAddress(std::shared_ptr<ConstMaterializedStorage> storage,
+                        std::intmax_t offset)
+      : origin_(std::move(storage)), offset_(offset) {}
+
+  explicit ConstAddress(std::shared_ptr<ConstLifetimeStorage> storage,
+                        std::intmax_t offset)
+      : origin_(std::move(storage)), offset_(offset) {}
+
+  explicit ConstAddress(std::weak_ptr<ConstLifetimeStorage> storage,
+                        std::intmax_t offset)
+      : origin_(std::move(storage)), offset_(offset) {}
+
   Symbol* symbol_ = nullptr;
   // Mutually exclusive root of this address. Pointer arithmetic clones the
   // leaf while subobject paths retain their immutable parent address.
   std::variant<std::monostate, std::shared_ptr<ConstAddress>,
                std::shared_ptr<ConstObject>, std::shared_ptr<ConstStorage>,
-               const StringLiteral*, const Type*>
+               std::shared_ptr<ConstMaterializedStorage>,
+               std::shared_ptr<ConstLifetimeStorage>,
+               std::weak_ptr<ConstLifetimeStorage>, const StringLiteral*,
+               const Type*>
       origin_;
   std::intmax_t offset_ = 0;
 };

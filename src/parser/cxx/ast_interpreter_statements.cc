@@ -160,6 +160,7 @@ auto ASTInterpreter::StatementVisitor::operator()(DefaultStatementAST* ast)
 
 auto ASTInterpreter::StatementVisitor::operator()(ExpressionStatementAST* ast)
     -> StatementResult {
+  FullExpressionScope fullExpressionScope{interp};
   if (ast->expression && !interp.discardedValue(ast->expression)) {
     interp.aborted_ = true;
   }
@@ -296,6 +297,7 @@ auto ASTInterpreter::StatementVisitor::operator()(DoStatementAST* ast)
 
 auto ASTInterpreter::StatementVisitor::evaluateCondition(
     ExpressionAST* condition) -> std::optional<bool> {
+  FullExpressionScope fullExpressionScope{interp};
   auto value = interp.expression(condition);
   if (value.has_value()) {
     if (auto truth = interp.toBool(*value)) return truth;
@@ -306,6 +308,7 @@ auto ASTInterpreter::StatementVisitor::evaluateCondition(
 
 auto ASTInterpreter::StatementVisitor::evaluateSwitchCondition(
     ExpressionAST* condition) -> std::optional<std::intmax_t> {
+  FullExpressionScope fullExpressionScope{interp};
   auto value = interp.expression(condition);
   if (value.has_value()) {
     if (auto integer = interp.toInt(*value)) return integer;
@@ -339,9 +342,12 @@ auto ASTInterpreter::StatementVisitor::runLoopIteration(
   if (result.flow == ControlFlow::kBreak) return result;
   if (result.flow == ControlFlow::kReturn) return result;
 
-  if (expression && !interp.discardedValue(expression)) {
-    interp.aborted_ = true;
-    return {};
+  if (expression) {
+    FullExpressionScope fullExpressionScope{interp};
+    if (!interp.discardedValue(expression)) {
+      interp.aborted_ = true;
+      return {};
+    }
   }
 
   return {};
@@ -412,7 +418,9 @@ auto ASTInterpreter::StatementVisitor::forRangeOverPointerIterator(
     if (ast->usesMemberBeginEnd) {
       auto objPtr = std::get_if<std::shared_ptr<ConstObject>>(&rangeVal);
       if (!objPtr) return std::nullopt;
-      auto savedThis = std::exchange(interp.receiver_, Receiver{*objPtr, {}});
+      auto savedThis =
+          std::exchange(interp.receiver_,
+                        Receiver{*objPtr, ConstAddress::materialized(*objPtr)});
       auto result = interp.evaluateCall(f, {});
       interp.receiver_ = std::move(savedThis);
       return result;
@@ -463,7 +471,9 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
     if (ast->usesMemberBeginEnd) {
       auto objPtr = std::get_if<std::shared_ptr<ConstObject>>(&rangeVal);
       if (!objPtr) return std::nullopt;
-      auto savedThis = std::exchange(interp.receiver_, Receiver{*objPtr, {}});
+      auto savedThis =
+          std::exchange(interp.receiver_,
+                        Receiver{*objPtr, ConstAddress::materialized(*objPtr)});
       auto result = interp.evaluateCall(f, {});
       interp.receiver_ = std::move(savedThis);
       return result;
@@ -484,7 +494,8 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
           const std::shared_ptr<ConstObject>& it) -> std::optional<ConstValue> {
     if (!f) return std::nullopt;
     if (f->isImplicitObjectMemberFunction()) {
-      auto savedThis = std::exchange(interp.receiver_, Receiver{it, {}});
+      auto savedThis = std::exchange(
+          interp.receiver_, Receiver{it, ConstAddress::materialized(it)});
       auto result = interp.evaluateCall(f, {});
       interp.receiver_ = std::move(savedThis);
       return result;
@@ -496,7 +507,8 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
           const std::shared_ptr<ConstObject>& b) -> std::optional<ConstValue> {
     if (!f) return std::nullopt;
     if (f->isImplicitObjectMemberFunction()) {
-      auto savedThis = std::exchange(interp.receiver_, Receiver{a, {}});
+      auto savedThis = std::exchange(
+          interp.receiver_, Receiver{a, ConstAddress::materialized(a)});
       auto result = interp.evaluateCall(f, {ConstValue{b}});
       interp.receiver_ = std::move(savedThis);
       return result;
@@ -522,8 +534,9 @@ auto ASTInterpreter::StatementVisitor::forRangeOverClassIterator(
     if (bindByRef) {
       std::optional<ConstValue> address;
       if (ast->derefFunction->isImplicitObjectMemberFunction()) {
-        auto savedThis =
-            std::exchange(interp.receiver_, Receiver{*beginObj, {}});
+        auto savedThis = std::exchange(
+            interp.receiver_,
+            Receiver{*beginObj, ConstAddress::materialized(*beginObj)});
         address = interp.evaluateCallAddress(ast->derefFunction, {});
         interp.receiver_ = std::move(savedThis);
       } else {
@@ -565,9 +578,11 @@ auto ASTInterpreter::StatementVisitor::operator()(ForRangeStatementAST* ast)
 
     auto var = rangeForVariable(ast->rangeDeclaration);
 
+    auto rangeVal = [&]() {
+      FullExpressionScope fullExpressionScope{interp};
+      return interp.expression(ast->rangeInitializer);
+    }();
     if (var) {
-      auto rangeVal = interp.expression(ast->rangeInitializer);
-
       if (rangeVal.has_value()) {
         if (std::get_if<std::shared_ptr<InitializerList>>(&*rangeVal)) {
           return forRangeOverList(ast, var, *rangeVal, scope);
@@ -580,8 +595,6 @@ auto ASTInterpreter::StatementVisitor::operator()(ForRangeStatementAST* ast)
           return forRangeOverClassIterator(ast, var, *rangeVal);
         }
       }
-    } else {
-      (void)interp.expression(ast->rangeInitializer);
     }
 
     (void)interp.statement(ast->statement);
@@ -628,6 +641,7 @@ auto ASTInterpreter::StatementVisitor::operator()(ContinueStatementAST* ast)
 
 auto ASTInterpreter::StatementVisitor::operator()(ReturnStatementAST* ast)
     -> StatementResult {
+  FullExpressionScope fullExpressionScope{interp};
   if (interp.captureReturnAddress_) {
     interp.returnAddress_ = interp.addressOfLvalue(ast->expression);
     return {ControlFlow::kReturn};
@@ -650,6 +664,7 @@ auto ASTInterpreter::StatementVisitor::operator()(ReturnStatementAST* ast)
 
 auto ASTInterpreter::StatementVisitor::operator()(
     CoroutineReturnStatementAST* ast) -> StatementResult {
+  FullExpressionScope fullExpressionScope{interp};
   auto expressionResult = interp.expression(ast->expression);
 
   return {};
@@ -682,11 +697,26 @@ auto ASTInterpreter::initializeAutomaticVariable(Symbol* symbol,
 
   if (!initVal.has_value()) return false;
 
-  if (var && (traits.is_class(traits.remove_cv(var->type())) ||
-              traits.is_vector(traits.remove_cv(var->type()))))
+  if (var && traits.is_vector(traits.remove_cv(var->type())))
     initVal = cloneValue(*initVal);
   setAutomaticLocal(symbol, *initVal);
-  if (var) registerAutomaticObject(var);
+  if (var) {
+    auto& frame = frames_.back();
+    auto slot = frame.locals.find(symbol);
+    if (slot != frame.locals.end()) {
+      bool hasMaterializedStorage = false;
+      if (auto object =
+              std::get_if<std::shared_ptr<ConstObject>>(&slot->second.value)) {
+        hasMaterializedStorage = *object && (*object)->storage();
+      } else if (auto elements = std::get_if<std::shared_ptr<InitializerList>>(
+                     &slot->second.value)) {
+        hasMaterializedStorage = *elements && (*elements)->storage();
+      }
+      if (hasMaterializedStorage)
+        bindMaterializedStorage(slot->second.value, localAddress(frame, var));
+    }
+    registerAutomaticObject(var);
+  }
   return true;
 }
 

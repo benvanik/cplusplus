@@ -119,6 +119,7 @@ export class PlanBuilder {
       "::cxx::InitializerList",
       "::cxx::ConstComplex",
       "::cxx::ConstObject",
+      "::cxx::ConstLifetimeStorage",
       "::cxx::ConstAddress",
       "::cxx::ConstLabelAddress",
     ]) {

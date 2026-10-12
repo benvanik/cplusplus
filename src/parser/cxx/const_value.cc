@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -53,6 +54,15 @@ auto ConstObject::makeConstexprUnknown(const Type* type)
   auto object = std::make_shared<ConstObject>(type);
   object->setConstexprUnknown(true);
   return object;
+}
+
+auto InitializerList::storage() const
+    -> std::shared_ptr<ConstMaterializedStorage> {
+  return storage_.lock();
+}
+
+auto ConstObject::storage() const -> std::shared_ptr<ConstMaterializedStorage> {
+  return storage_.lock();
 }
 
 auto ConstObject::isUnion() const -> bool {
@@ -109,33 +119,181 @@ auto ConstObject::mutableSubobject(const Symbol* symbol) -> ConstValue* {
 ConstAddress::ConstAddress(Symbol* symbol, std::intmax_t offset)
     : symbol_(symbol ? symbol->canonical() : nullptr), offset_(offset) {}
 
+ConstAddress::ConstAddress(std::shared_ptr<ConstObject> owner, Symbol* symbol,
+                           std::intmax_t offset)
+    : symbol_(symbol ? symbol->canonical() : nullptr),
+      origin_(std::move(owner)),
+      offset_(offset) {}
+
+auto ConstMaterializedStorage::address() const
+    -> std::shared_ptr<ConstAddress> {
+  if (auto owned = std::get_if<std::shared_ptr<ConstAddress>>(&address_))
+    return *owned;
+  if (auto borrowed = std::get_if<std::weak_ptr<ConstAddress>>(&address_))
+    return borrowed->lock();
+  return {};
+}
+
+void ConstMaterializedStorage::bind(std::shared_ptr<ConstAddress> address) {
+  assert(std::holds_alternative<std::monostate>(address_));
+  address_ = std::move(address);
+}
+
+void ConstMaterializedStorage::bindBorrowed(
+    std::weak_ptr<ConstAddress> address) {
+  assert(std::holds_alternative<std::monostate>(address_));
+  address_ = std::move(address);
+}
+
+auto ConstAddress::materialized(std::shared_ptr<ConstObject> object,
+                                Symbol* symbol, std::intmax_t offset)
+    -> std::shared_ptr<ConstAddress> {
+  if (!object) return {};
+  auto storage = object->storage();
+  if (!storage) {
+    storage = std::make_shared<ConstMaterializedStorage>(object);
+    object->setStorage(storage);
+  }
+  auto address = materialized(std::move(storage), offset);
+  if (symbol) {
+    return std::make_shared<ConstAddress>(std::move(address), symbol);
+  }
+  return address;
+}
+
+auto ConstAddress::materialized(
+    std::shared_ptr<ConstMaterializedStorage> storage, std::intmax_t offset)
+    -> std::shared_ptr<ConstAddress> {
+  if (!storage) return {};
+  return std::shared_ptr<ConstAddress>(
+      new ConstAddress(std::move(storage), offset));
+}
+
+auto ConstAddress::owningLifetime(std::shared_ptr<ConstLifetimeStorage> storage,
+                                  std::intmax_t offset)
+    -> std::shared_ptr<ConstAddress> {
+  if (!storage) return {};
+  return std::shared_ptr<ConstAddress>(
+      new ConstAddress(std::move(storage), offset));
+}
+
+auto ConstAddress::borrowedLifetime(
+    const std::shared_ptr<ConstLifetimeStorage>& storage, std::intmax_t offset)
+    -> std::shared_ptr<ConstAddress> {
+  if (!storage) return {};
+  return std::shared_ptr<ConstAddress>(
+      new ConstAddress(std::weak_ptr<ConstLifetimeStorage>{storage}, offset));
+}
+
 ConstAddress::ConstAddress(std::shared_ptr<ConstAddress> parent, Symbol* symbol)
     : symbol_(symbol->canonical()), origin_(std::move(parent)) {}
 
+auto ConstAddress::forwardedAddress() const -> std::shared_ptr<ConstAddress> {
+  auto storage =
+      std::get_if<std::shared_ptr<ConstMaterializedStorage>>(&origin_);
+  return storage && *storage ? (*storage)->address() : nullptr;
+}
+
+auto ConstAddress::symbol() const -> Symbol* {
+  auto forwarded = forwardedAddress();
+  return forwarded ? forwarded->symbol() : symbol_;
+}
+
 auto ConstAddress::parent() const -> const std::shared_ptr<ConstAddress>& {
+  auto forwarded = forwardedAddress();
+  if (forwarded) return forwarded->parent();
   static const std::shared_ptr<ConstAddress> empty;
   auto parent = std::get_if<std::shared_ptr<ConstAddress>>(&origin_);
   return parent ? *parent : empty;
 }
 
 auto ConstAddress::owner() const -> const std::shared_ptr<ConstObject>& {
+  auto forwarded = forwardedAddress();
+  if (forwarded) return forwarded->owner();
   static const std::shared_ptr<ConstObject> empty;
   auto owner = std::get_if<std::shared_ptr<ConstObject>>(&origin_);
   return owner ? *owner : empty;
 }
 
 auto ConstAddress::storage() const -> const std::shared_ptr<ConstStorage>& {
+  auto forwarded = forwardedAddress();
+  if (forwarded) return forwarded->storage();
   static const std::shared_ptr<ConstStorage> empty;
   auto storage = std::get_if<std::shared_ptr<ConstStorage>>(&origin_);
   return storage ? *storage : empty;
 }
 
+auto ConstAddress::materializedStorage() const
+    -> std::shared_ptr<ConstMaterializedStorage> {
+  auto storage =
+      std::get_if<std::shared_ptr<ConstMaterializedStorage>>(&origin_);
+  if (!storage || !*storage) return {};
+  auto forwarded = (*storage)->address();
+  return forwarded ? forwarded->materializedStorage() : *storage;
+}
+
+auto ConstAddress::lifetimeStorage() const
+    -> std::shared_ptr<ConstLifetimeStorage> {
+  auto forwarded = forwardedAddress();
+  if (forwarded) return forwarded->lifetimeStorage();
+  if (auto owned = ownedLifetimeStorage()) return owned;
+  return borrowedLifetimeStorage();
+}
+
+auto ConstAddress::ownedLifetimeStorage() const
+    -> const std::shared_ptr<ConstLifetimeStorage>& {
+  static const std::shared_ptr<ConstLifetimeStorage> empty;
+  auto storage = std::get_if<std::shared_ptr<ConstLifetimeStorage>>(&origin_);
+  return storage ? *storage : empty;
+}
+
+auto ConstAddress::borrowedLifetimeStorage() const
+    -> std::shared_ptr<ConstLifetimeStorage> {
+  if (auto borrowed =
+          std::get_if<std::weak_ptr<ConstLifetimeStorage>>(&origin_))
+    return borrowed->lock();
+  auto forwarded = forwardedAddress();
+  return forwarded ? forwarded->lifetimeStorage() : nullptr;
+}
+
+auto ConstAddress::hasLifetimeStorage() const -> bool {
+  return std::holds_alternative<std::shared_ptr<ConstLifetimeStorage>>(
+             origin_) ||
+         std::holds_alternative<std::weak_ptr<ConstLifetimeStorage>>(origin_);
+}
+
+auto ConstAddress::hasExpiredLifetimeStorage() const -> bool {
+  auto forwarded = forwardedAddress();
+  if (forwarded) return forwarded->hasExpiredLifetimeStorage();
+  auto borrowed = std::get_if<std::weak_ptr<ConstLifetimeStorage>>(&origin_);
+  return borrowed && borrowed->expired();
+}
+
+auto ConstAddress::sameLifetimeStorage(const ConstAddress& other) const
+    -> bool {
+  if (!hasLifetimeStorage() || !other.hasLifetimeStorage()) return false;
+
+  auto weakStorage = [](const ConstAddress& address) {
+    if (auto owned = std::get_if<std::shared_ptr<ConstLifetimeStorage>>(
+            &address.origin_))
+      return std::weak_ptr<ConstLifetimeStorage>{*owned};
+    return *std::get_if<std::weak_ptr<ConstLifetimeStorage>>(&address.origin_);
+  };
+  auto left = weakStorage(*this);
+  auto right = weakStorage(other);
+  return !left.owner_before(right) && !right.owner_before(left);
+}
+
 auto ConstAddress::stringLiteral() const -> const StringLiteral* {
+  auto forwarded = forwardedAddress();
+  if (forwarded) return forwarded->stringLiteral();
   auto string = std::get_if<const StringLiteral*>(&origin_);
   return string ? *string : nullptr;
 }
 
 auto ConstAddress::typeInfoFor() const -> const Type* {
+  auto forwarded = forwardedAddress();
+  if (forwarded) return forwarded->typeInfoFor();
   auto type = std::get_if<const Type*>(&origin_);
   return type ? *type : nullptr;
 }
@@ -152,6 +310,16 @@ void ConstAddress::setStorage(std::shared_ptr<ConstStorage> storage) {
   if (storage) origin_ = std::move(storage);
 }
 
+void ConstAddress::setOwnedLifetimeStorage(
+    std::shared_ptr<ConstLifetimeStorage> storage) {
+  if (storage) origin_ = std::move(storage);
+}
+
+void ConstAddress::setBorrowedLifetimeStorage(
+    std::shared_ptr<ConstLifetimeStorage> storage) {
+  if (storage) origin_ = std::weak_ptr<ConstLifetimeStorage>{storage};
+}
+
 void ConstAddress::setStringLiteral(const StringLiteral* string) {
   if (string) origin_ = string;
 }
@@ -161,6 +329,8 @@ void ConstAddress::setTypeInfoFor(const Type* type) {
 }
 
 auto ConstAddress::rootSymbol() const -> Symbol* {
+  auto forwarded = forwardedAddress();
+  if (forwarded) return forwarded->rootSymbol();
   return parent() ? parent()->rootSymbol()
          : std::holds_alternative<std::monostate>(origin_) ? symbol_
                                                            : nullptr;
@@ -170,8 +340,22 @@ auto ConstAddress::sameTarget(const ConstAddress& other) const -> bool {
   auto left = this;
   auto right = &other;
   for (;;) {
+    auto leftForwarded = left->forwardedAddress();
+    if (leftForwarded) {
+      left = leftForwarded.get();
+      continue;
+    }
+    auto rightForwarded = right->forwardedAddress();
+    if (rightForwarded) {
+      right = rightForwarded.get();
+      continue;
+    }
+    if (left->hasLifetimeStorage() != right->hasLifetimeStorage()) return false;
+    if (left->hasLifetimeStorage() && !left->sameLifetimeStorage(*right))
+      return false;
     if (left->symbol_ != right->symbol_ || left->owner() != right->owner() ||
         left->storage() != right->storage() ||
+        left->materializedStorage() != right->materializedStorage() ||
         left->stringLiteral() != right->stringLiteral() ||
         left->typeInfoFor() != right->typeInfoFor())
       return false;
@@ -181,6 +365,16 @@ auto ConstAddress::sameTarget(const ConstAddress& other) const -> bool {
     right = right->parent().get();
     if (left->offset_ != right->offset_) return false;
   }
+}
+
+auto ConstAddress::offset() const -> std::intmax_t {
+  auto forwarded = forwardedAddress();
+  return offset_ + (forwarded ? forwarded->offset() : 0);
+}
+
+void ConstAddress::setOffset(std::intmax_t offset) {
+  auto forwarded = forwardedAddress();
+  offset_ = offset - (forwarded ? forwarded->offset() : 0);
 }
 
 auto ConstObject::operator==(const ConstObject& other) const -> bool {

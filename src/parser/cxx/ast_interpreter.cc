@@ -37,6 +37,7 @@
 #include <bit>
 #include <cmath>
 #include <format>
+#include <iterator>
 #include <limits>
 #include <utility>
 
@@ -241,6 +242,139 @@ auto ASTInterpreter::cloneValueOfType(const ConstValue& value, const Type* type)
   return cloneValue(value);
 }
 
+void ASTInterpreter::bindMaterializedStorage(
+    const ConstValue& value, std::shared_ptr<ConstAddress> address) {
+  if (!address) return;
+
+  if (auto object = std::get_if<std::shared_ptr<ConstObject>>(&value)) {
+    if (!*object) return;
+    auto storage = (*object)->storage();
+    if (storage && !storage->isBound()) storage->bind(std::move(address));
+    return;
+  }
+
+  auto elements = std::get_if<std::shared_ptr<InitializerList>>(&value);
+  if (!elements || !*elements) return;
+  auto storage = (*elements)->storage();
+  if (storage && !storage->isBound()) storage->bind(std::move(address));
+}
+
+auto ASTInterpreter::materializeLifetime(ConstValue value)
+    -> MaterializedLifetime {
+  auto storage = std::make_shared<ConstLifetimeStorage>(std::move(value));
+  auto owner = ConstAddress::owningLifetime(storage);
+
+  std::shared_ptr<ConstMaterializedStorage> materializedStorage;
+  if (auto object =
+          std::get_if<std::shared_ptr<ConstObject>>(storage->mutableValue());
+      object && *object) {
+    materializedStorage = (*object)->storage();
+  } else if (auto elements = std::get_if<std::shared_ptr<InitializerList>>(
+                 storage->mutableValue());
+             elements && *elements) {
+    materializedStorage = (*elements)->storage();
+  }
+  if (materializedStorage && !materializedStorage->isBound())
+    materializedStorage->bindBorrowed(owner);
+
+  return MaterializedLifetime{std::move(owner),
+                              ConstAddress::borrowedLifetime(storage)};
+}
+
+auto ASTInterpreter::materializeAddressLifetime(
+    std::shared_ptr<ConstAddress> address)
+    -> std::optional<MaterializedLifetime> {
+  struct AddressStep {
+    // Selected record member, or null for the materialized root.
+    Symbol* symbol = nullptr;
+    // Element displacement at this step.
+    std::intmax_t offset = 0;
+  };
+
+  std::vector<AddressStep> reversePath;
+  auto root = address;
+  for (auto current = address; current; current = current->parent()) {
+    reversePath.push_back({current->symbol(), current->offset()});
+    root = current;
+  }
+
+  auto materialized = root ? root->materializedStorage() : nullptr;
+  if (!materialized || materialized->isBound()) return std::nullopt;
+
+  std::optional<ConstValue> value;
+  if (auto object = materialized->object()) {
+    value = ConstValue{std::move(object)};
+  } else if (auto elements = materialized->elements()) {
+    value = ConstValue{std::move(elements)};
+  }
+  if (!value) return std::nullopt;
+
+  auto lifetime = materializeLifetime(std::move(*value));
+  auto rebuildPath = [&](std::shared_ptr<ConstAddress> newRoot) {
+    newRoot->setOffset(reversePath.back().offset);
+    for (auto step = std::next(reversePath.rbegin());
+         step != reversePath.rend(); ++step) {
+      if (!step->symbol) return std::shared_ptr<ConstAddress>{};
+      newRoot =
+          std::make_shared<ConstAddress>(std::move(newRoot), step->symbol);
+      newRoot->setOffset(step->offset);
+    }
+    return newRoot;
+  };
+
+  lifetime.owner = rebuildPath(std::move(lifetime.owner));
+  lifetime.borrower = rebuildPath(std::move(lifetime.borrower));
+  if (!lifetime.owner || !lifetime.borrower) return std::nullopt;
+  return lifetime;
+}
+
+void ASTInterpreter::attachMaterializedSubobject(
+    const std::shared_ptr<ConstObject>& object, Symbol* member,
+    const ConstValue& value) {
+  if (!object || !member) return;
+  std::shared_ptr<ConstMaterializedStorage> childStorage;
+  if (auto child = std::get_if<std::shared_ptr<ConstObject>>(&value);
+      child && *child) {
+    childStorage = (*child)->storage();
+  } else if (auto child = std::get_if<std::shared_ptr<InitializerList>>(&value);
+             child && *child) {
+    childStorage = (*child)->storage();
+  }
+  if (!childStorage || childStorage->isBound()) return;
+
+  auto parentStorage = object->storage();
+  if (!parentStorage) {
+    parentStorage = std::make_shared<ConstMaterializedStorage>(object);
+    object->setStorage(parentStorage);
+  }
+  auto parentAddress = ConstAddress::materialized(std::move(parentStorage));
+  childStorage->bind(
+      std::make_shared<ConstAddress>(std::move(parentAddress), member));
+}
+
+void ASTInterpreter::attachMaterializedElement(
+    const std::shared_ptr<InitializerList>& elements, std::size_t index,
+    const ConstValue& value) {
+  if (!elements) return;
+  std::shared_ptr<ConstMaterializedStorage> childStorage;
+  if (auto child = std::get_if<std::shared_ptr<ConstObject>>(&value);
+      child && *child) {
+    childStorage = (*child)->storage();
+  } else if (auto child = std::get_if<std::shared_ptr<InitializerList>>(&value);
+             child && *child) {
+    childStorage = (*child)->storage();
+  }
+  if (!childStorage || childStorage->isBound()) return;
+
+  auto parentStorage = elements->storage();
+  if (!parentStorage) {
+    parentStorage = std::make_shared<ConstMaterializedStorage>(elements);
+    elements->setStorage(parentStorage);
+  }
+  childStorage->bind(ConstAddress::materialized(
+      std::move(parentStorage), static_cast<std::intmax_t>(index)));
+}
+
 auto isFullyInitialized(const ConstValue& value) -> bool {
   if (std::holds_alternative<IndeterminateValue>(value)) return false;
 
@@ -261,6 +395,12 @@ auto isFullyInitialized(const ConstValue& value) -> bool {
 
   if (auto address = std::get_if<std::shared_ptr<ConstAddress>>(&value)) {
     for (auto current = *address; current; current = current->parent()) {
+      if (current->hasExpiredLifetimeStorage()) return false;
+      if (auto storage = current->materializedStorage()) {
+        if (storage->hasExpiredAddress()) return false;
+        if (!storage->isBound() && !storage->object() && !storage->elements())
+          return false;
+      }
       if (current->storage() && !current->storage()->slot()) return false;
     }
   }
@@ -521,11 +661,17 @@ auto ASTInterpreter::lookupLocal(const Symbol* sym)
 
 auto ASTInterpreter::lookupLocalSlot(const Symbol* sym) -> ConstValue* {
   for (auto it = frames_.rbegin(); it != frames_.rend(); ++it) {
+    auto referenceAddress = it->referenceAddresses.find(sym);
+    if (referenceAddress != it->referenceAddresses.end()) {
+      auto address =
+          std::get_if<std::shared_ptr<ConstAddress>>(&referenceAddress->second);
+      return address && *address ? addressSlot(**address, 0, sym->type())
+                                 : nullptr;
+    }
     auto ref = it->refs.find(sym);
     if (ref != it->refs.end()) return ref->second;
     auto found = it->locals.find(sym);
     if (found != it->locals.end()) return &found->second.value;
-    if (it->referenceAddresses.contains(sym)) return nullptr;
   }
   return nullptr;
 }
@@ -547,14 +693,29 @@ auto ASTInterpreter::bindReferenceTo(Frame& frame, Symbol* reference,
   if (auto temporary = materializedTemporary(initializer)) {
     auto value = evaluate(temporary);
     if (!value) return false;
-    auto storage = std::make_shared<ConstObject>(
-        traits.remove_reference(reference->type()));
-    storage->addMember(reference, cloneValue(*value));
-    return bindReferenceAddress(
-        frame, reference, std::make_shared<ConstAddress>(storage, reference));
+    auto lifetime = materializeLifetime(std::move(*value));
+    if (symbol_cast<ParameterSymbol>(reference)) {
+      fullExpressionStorage_.emplace_back(lifetime.owner);
+    } else {
+      if (!currentAutomaticScope_) return false;
+      currentAutomaticScope_->lifetimeOwners_.push_back(lifetime.owner);
+    }
+    return bindReferenceAddress(frame, reference, lifetime.borrower);
   }
 
   if (auto value = addressOfLvalue(initializer)) {
+    auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value);
+    if (address && *address) {
+      if (auto lifetime = materializeAddressLifetime(*address)) {
+        if (symbol_cast<ParameterSymbol>(reference)) {
+          fullExpressionStorage_.emplace_back(lifetime->owner);
+        } else {
+          if (!currentAutomaticScope_) return false;
+          currentAutomaticScope_->lifetimeOwners_.push_back(lifetime->owner);
+        }
+        return bindReferenceAddress(frame, reference, lifetime->borrower);
+      }
+    }
     if (bindReferenceAddress(frame, reference, std::move(*value))) return true;
   }
 
@@ -713,6 +874,7 @@ auto ASTInterpreter::initializeDefaultedObject(
       receiver_ = std::move(savedThis);
       return false;
     }
+    attachMaterializedSubobject(obj, base, *value);
     obj->setMember(base, std::move(*value));
   }
 
@@ -729,6 +891,7 @@ auto ASTInterpreter::initializeDefaultedObject(
         receiver_ = std::move(savedThis);
         return false;
       }
+      attachMaterializedSubobject(obj, field, *value);
       obj->setMember(field, std::move(*value));
       if (classSymbol->isUnion()) break;
       continue;
@@ -742,6 +905,7 @@ auto ASTInterpreter::initializeDefaultedObject(
       receiver_ = std::move(savedThis);
       return false;
     }
+    attachMaterializedSubobject(obj, field, *value);
     obj->setMember(field, std::move(*value));
   }
 
@@ -854,6 +1018,8 @@ auto ASTInterpreter::copyArrayElements(const Type* type,
       *slot = std::move(*element);
     else
       elements->elements.emplace_back(std::move(*element), elementType);
+    attachMaterializedElement(elements, index,
+                              std::get<0>(elements->elements[index]));
   }
   return ConstValue{std::move(elements)};
 }
@@ -886,6 +1052,8 @@ auto ASTInterpreter::constructSubobject(
       else
         elements->elements.emplace_back(std::move(*element),
                                         array->elementType());
+      attachMaterializedElement(elements, i,
+                                std::get<0>(elements->elements[i]));
     }
     return elements;
   }
@@ -959,6 +1127,7 @@ void ASTInterpreter::initializeSubobject(
     aborted_ = true;
     return;
   }
+  attachMaterializedSubobject(receiver_.object, subobject, *value);
   receiver_.object->setMember(subobject, std::move(*value));
 }
 
@@ -984,6 +1153,8 @@ auto ASTInterpreter::defaultConstruct(const Type* type, ConstValue* storage)
       else
         elements->elements.emplace_back(std::move(*value),
                                         arrayType->elementType());
+      attachMaterializedElement(elements, index,
+                                std::get<0>(elements->elements[index]));
     }
     return ConstValue{std::move(elements)};
   }
@@ -1044,6 +1215,7 @@ void ASTInterpreter::AutomaticScope::end() {
   }
 
   interp.retireAutomaticStorage(*this);
+  lifetimeOwners_.clear();
 
   interp.currentAutomaticScope_ = parent_;
   active_ = false;
@@ -1184,6 +1356,7 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
           aborted_ = true;
           break;
         }
+        attachMaterializedSubobject(receiver_.object, field, *value);
         receiver_.object->setMember(field, std::move(*value));
       }
     }

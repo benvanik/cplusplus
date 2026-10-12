@@ -91,6 +91,13 @@ export const bindings: Record<string, ClassBindings> = {
     },
   },
 
+  "::cxx::InitializerList": {
+    storage_: {
+      cls: "R",
+      why: "materialized identity is reconstructed through logical addresses",
+    },
+  },
+
   "::cxx::ConstObject": {
     members_: {
       cls: "P",
@@ -101,6 +108,18 @@ export const bindings: Record<string, ClassBindings> = {
       cls: "P",
       read: "$->isConstexprUnknown()",
       write: "$->setConstexprUnknown($value)",
+    },
+    storage_: {
+      cls: "R",
+      why: "materialized identity is reconstructed through logical addresses",
+    },
+  },
+
+  "::cxx::ConstLifetimeStorage": {
+    value_: {
+      cls: "P",
+      read: "$->value()",
+      write: "$->setValue($value)",
     },
   },
 
@@ -433,6 +452,18 @@ export const extraFields: Record<string, ExtraField[]> = {
       write: "$->setOwner($value)",
     },
     {
+      name: "ownedLifetimeStorage",
+      from: "ownedLifetimeStorage",
+      cls: "P",
+      write: "$->setOwnedLifetimeStorage($value)",
+    },
+    {
+      name: "borrowedLifetimeStorage",
+      from: "borrowedLifetimeStorage",
+      cls: "P",
+      write: "$->setBorrowedLifetimeStorage($value)",
+    },
+    {
       name: "stringLiteral",
       from: "stringLiteral",
       cls: "P",
@@ -501,6 +532,14 @@ const archiveRejections: Record<string, ArchiveRejection[]> = {
     {
       when: "$->storage() != nullptr",
       message: "constant address refers to automatic invocation storage",
+    },
+    {
+      when: "$->materializedStorage() != nullptr",
+      message: "constant address refers to uncommitted materialized storage",
+    },
+    {
+      when: "$->hasExpiredLifetimeStorage()",
+      message: "constant address refers to expired temporary storage",
     },
   ],
 };

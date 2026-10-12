@@ -397,6 +397,9 @@ void InitDeclaratorChecker::evaluateFieldConstValue(FieldSymbol* field) {
   auto value = interp.initializationValue(field->type(), field->constructor(),
                                           field->initializer());
 
+  if (value)
+    interp.bindMaterializedStorage(*value,
+                                   std::make_shared<ConstAddress>(field));
   if (value.has_value() && !isFullyInitialized(*value)) value.reset();
 
   field->setConstValue(std::move(value));
@@ -414,6 +417,9 @@ void InitDeclaratorChecker::evaluateConstValue(VariableSymbol* var,
     auto value = interp.initializationValue(var->type(), var->constructor(),
                                             var->initializer());
 
+    if (value)
+      interp.bindMaterializedStorage(*value,
+                                     std::make_shared<ConstAddress>(var));
     if (value.has_value() && !isFullyInitialized(*value)) value.reset();
 
     var->setConstValue(value);
@@ -421,6 +427,9 @@ void InitDeclaratorChecker::evaluateConstValue(VariableSymbol* var,
     auto interp = ASTInterpreter{ctx.unit, ctx.checker.scope()};
     auto value =
         interp.initializationValue(var->type(), var->constructor(), nullptr);
+    if (value)
+      interp.bindMaterializedStorage(*value,
+                                     std::make_shared<ConstAddress>(var));
     if (value && !isFullyInitialized(*value)) value.reset();
     var->setConstValue(std::move(value));
   }
@@ -436,19 +445,13 @@ void InitDeclaratorChecker::evaluateConstValue(VariableSymbol* var,
     std::optional<ConstValue> constantValue;
     if (needsConstantNode) {
       constantValue = *var->constValue();
-      if (is_glvalue(*target)) {
+      if (is_glvalue(*target) && !ctx.traits.is_reference(var->type())) {
         auto interp = ASTInterpreter{ctx.unit, ctx.checker.scope()};
         auto address = interp.evaluateAddress(*target);
         if (address.has_value()) {
           constantValue = std::move(address);
-          if (ctx.traits.is_reference(var->type())) {
-            var->setConstValue(constantValue);
-          }
         } else {
           needsConstantNode = false;
-          if (ctx.traits.is_reference(var->type())) {
-            var->setConstValue(std::nullopt);
-          }
         }
       }
     }

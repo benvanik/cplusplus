@@ -38,9 +38,60 @@ function constAlternativesOf(plan: CodecPlan): Wire[] {
 }
 
 function sharedConstKindsOf(plan: CodecPlan): string[] {
-  return constAlternativesOf(plan)
-    .filter((alternative) => alternative.k === "shared")
-    .map((alternative) => alternative.cpp);
+  const kinds: string[] = [];
+  const seen = new Set<string>();
+  const visit = (wire: Wire): void => {
+    if (wire.k === "shared") {
+      if (!seen.has(wire.cpp)) {
+        seen.add(wire.cpp);
+        kinds.push(wire.cpp);
+      }
+      return;
+    }
+    if (
+      wire.k === "arena-list" ||
+      wire.k === "unique" ||
+      wire.k === "optional" ||
+      wire.k === "vector" ||
+      wire.k === "deque"
+    ) {
+      visit(wire.element);
+      return;
+    }
+    if (wire.k === "pair") {
+      visit(wire.first);
+      visit(wire.second);
+      return;
+    }
+    if (wire.k === "map") {
+      visit(wire.key);
+      visit(wire.value);
+      return;
+    }
+    if (
+      wire.k === "tuple" ||
+      wire.k === "variant" ||
+      wire.k === "const-value"
+    ) {
+      for (const element of wire.k === "tuple"
+        ? wire.elements
+        : wire.alternatives)
+        visit(element);
+    }
+  };
+
+  visit(plan.constValue);
+  for (const entity of [
+    ...plan.names,
+    ...plan.types,
+    ...plan.symbolBases,
+    ...plan.symbols,
+    ...plan.nodeBases,
+    ...plan.nodes,
+    ...plan.structs,
+  ])
+    for (const field of entity.fields) if (field.wire) visit(field.wire);
+  return kinds;
 }
 
 export function gen_semantic_codec({

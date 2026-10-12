@@ -1456,6 +1456,10 @@ void SemanticEncoder::writeConstNode(ByteWriter& out, const ConstNode& node) {
       writecxxConstComplex(
           out, static_cast<const cxx::ConstComplex*>(node.owner.get()));
       break;
+    case 6:
+      writecxxConstLifetimeStorage(
+          out, static_cast<const cxx::ConstLifetimeStorage*>(node.owner.get()));
+      break;
     default:
       reportError("unknown constant node kind");
       break;
@@ -6492,12 +6496,26 @@ void SemanticEncoder::writecxxConstAddress(
     reportError("constant address refers to automatic invocation storage");
     return;
   }
+  if (self->materializedStorage() != nullptr) {
+    reportError("constant address refers to uncommitted materialized storage");
+    return;
+  }
+  if (self->hasExpiredLifetimeStorage()) {
+    reportError("constant address refers to expired temporary storage");
+    return;
+  }
   // ::cxx::ConstAddress::symbol
   out.varU32(static_cast<std::uint32_t>(symbolRef(self->symbol())));
   // ::cxx::ConstAddress::parent
   out.varU32(static_cast<std::uint32_t>(constRef(self->parent())));
   // ::cxx::ConstAddress::owner
   out.varU32(static_cast<std::uint32_t>(constRef(self->owner())));
+  // ::cxx::ConstAddress::ownedLifetimeStorage
+  out.varU32(
+      static_cast<std::uint32_t>(constRef(self->ownedLifetimeStorage())));
+  // ::cxx::ConstAddress::borrowedLifetimeStorage
+  out.varU32(
+      static_cast<std::uint32_t>(constRef(self->borrowedLifetimeStorage())));
   // ::cxx::ConstAddress::stringLiteral
   writeLiteral(out, self->stringLiteral());
   // ::cxx::ConstAddress::typeInfoFor
@@ -6518,6 +6536,12 @@ void SemanticEncoder::writecxxConstComplex(
   writeConstValue(out, self->real());
   // ::cxx::ConstComplex::imag_
   writeConstValue(out, self->imag());
+}
+
+void SemanticEncoder::writecxxConstLifetimeStorage(
+    ByteWriter& out, [[maybe_unused]] const cxx::ConstLifetimeStorage* self) {
+  // ::cxx::ConstLifetimeStorage::value_
+  writeConstValue(out, self->value());
 }
 
 void SemanticEncoder::writecxxTemplateSpecialization(
@@ -9039,6 +9063,12 @@ auto SemanticDecoder::constantAt(ConstRef ref) -> std::shared_ptr<void> {
       auto value = std::make_shared<cxx::ConstComplex>();
       constants_[index - 1] = value;
       readcxxConstComplex(in, value.get());
+      return value;
+    }
+    case 6: {
+      auto value = std::make_shared<cxx::ConstLifetimeStorage>();
+      constants_[index - 1] = value;
+      readcxxConstLifetimeStorage(in, value.get());
       return value;
     }
     default:
@@ -16318,15 +16348,25 @@ void SemanticDecoder::readcxxConstAddress(
       std::static_pointer_cast<cxx::ConstObject>(
           constantAt(ConstRef{in.varU32()}));
   self->setOwner(std::move(value3));
+  // ::cxx::ConstAddress::ownedLifetimeStorage
+  std::shared_ptr<cxx::ConstLifetimeStorage> value4 =
+      std::static_pointer_cast<cxx::ConstLifetimeStorage>(
+          constantAt(ConstRef{in.varU32()}));
+  self->setOwnedLifetimeStorage(std::move(value4));
+  // ::cxx::ConstAddress::borrowedLifetimeStorage
+  std::shared_ptr<cxx::ConstLifetimeStorage> value5 =
+      std::static_pointer_cast<cxx::ConstLifetimeStorage>(
+          constantAt(ConstRef{in.varU32()}));
+  self->setBorrowedLifetimeStorage(std::move(value5));
   // ::cxx::ConstAddress::stringLiteral
-  const cxx::StringLiteral* value4 = readStringLiteral(in);
-  self->setStringLiteral(std::move(value4));
+  const cxx::StringLiteral* value6 = readStringLiteral(in);
+  self->setStringLiteral(std::move(value6));
   // ::cxx::ConstAddress::typeInfoFor
-  const cxx::Type* value5 = typeAt(TypeRef{in.varU32()});
-  self->setTypeInfoFor(std::move(value5));
+  const cxx::Type* value7 = typeAt(TypeRef{in.varU32()});
+  self->setTypeInfoFor(std::move(value7));
   // ::cxx::ConstAddress::offset
-  long long value6 = static_cast<long long>(in.varI64());
-  self->setOffset(std::move(value6));
+  long long value8 = static_cast<long long>(in.varI64());
+  self->setOffset(std::move(value8));
 }
 
 void SemanticDecoder::readcxxConstLabelAddress(
@@ -16345,6 +16385,14 @@ void SemanticDecoder::readcxxConstComplex(
   // ::cxx::ConstComplex::imag_
   cxx::ConstValue value2 = readConstValue(in);
   self->setImag(std::move(value2));
+}
+
+void SemanticDecoder::readcxxConstLifetimeStorage(
+    [[maybe_unused]] ByteReader& in,
+    [[maybe_unused]] cxx::ConstLifetimeStorage* self) {
+  // ::cxx::ConstLifetimeStorage::value_
+  cxx::ConstValue value1 = readConstValue(in);
+  self->setValue(std::move(value1));
 }
 
 void SemanticDecoder::readcxxTemplateSpecialization(

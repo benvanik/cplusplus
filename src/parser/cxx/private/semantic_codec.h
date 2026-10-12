@@ -102,6 +102,11 @@ class SemanticEncoder final : public SemanticEncoderBase {
     return ConstRef{constNodeRef(value, 5)};
   }
 
+  [[nodiscard]] auto constRef(
+      const std::shared_ptr<cxx::ConstLifetimeStorage>& value) -> ConstRef {
+    return ConstRef{constNodeRef(value, 6)};
+  }
+
   template <typename T>
   void writeAstList(ByteWriter& out, cxx::List<T*>* list) {
     std::uint32_t count = 0;
@@ -771,6 +776,8 @@ class SemanticEncoder final : public SemanticEncoderBase {
   void writecxxConstLabelAddress(ByteWriter& out,
                                  const cxx::ConstLabelAddress* self);
   void writecxxConstComplex(ByteWriter& out, const cxx::ConstComplex* self);
+  void writecxxConstLifetimeStorage(ByteWriter& out,
+                                    const cxx::ConstLifetimeStorage* self);
   void writecxxTemplateSpecialization(ByteWriter& out,
                                       const cxx::TemplateSpecialization* self);
   void writecxxInstantiationError(ByteWriter& out,
@@ -1458,6 +1465,8 @@ class SemanticDecoder final : public SemanticDecoderBase {
   void readcxxConstAddress(ByteReader& in, cxx::ConstAddress* self);
   void readcxxConstLabelAddress(ByteReader& in, cxx::ConstLabelAddress* self);
   void readcxxConstComplex(ByteReader& in, cxx::ConstComplex* self);
+  void readcxxConstLifetimeStorage(ByteReader& in,
+                                   cxx::ConstLifetimeStorage* self);
   void readcxxTemplateSpecialization(ByteReader& in,
                                      cxx::TemplateSpecialization* self);
   void readcxxInstantiationError(ByteReader& in, cxx::InstantiationError* self);

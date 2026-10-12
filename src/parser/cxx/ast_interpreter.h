@@ -73,6 +73,9 @@ class ASTInterpreter {
   [[nodiscard]] auto cloneValueOfType(const ConstValue& value, const Type* type)
       -> ConstValue;
 
+  void bindMaterializedStorage(const ConstValue& value,
+                               std::shared_ptr<ConstAddress> address);
+
   [[nodiscard]] auto evaluateAddress(ExpressionAST* ast)
       -> std::optional<ConstValue>;
 
@@ -422,6 +425,20 @@ class ASTInterpreter {
   [[nodiscard]] auto bindReferenceTo(Frame& frame, Symbol* reference,
                                      ExpressionAST* initializer) -> bool;
 
+  struct MaterializedLifetime {
+    // Address that owns the temporary value.
+    std::shared_ptr<ConstAddress> owner;
+    // Address that observes the temporary without retaining it.
+    std::shared_ptr<ConstAddress> borrower;
+  };
+
+  [[nodiscard]] auto materializeLifetime(ConstValue value)
+      -> MaterializedLifetime;
+
+  [[nodiscard]] auto materializeAddressLifetime(
+      std::shared_ptr<ConstAddress> address)
+      -> std::optional<MaterializedLifetime>;
+
   auto initializeAutomaticVariable(Symbol* symbol, ExpressionAST* initializer)
       -> bool;
 
@@ -516,6 +533,8 @@ class ASTInterpreter {
 
   [[nodiscard]] auto receiverFor(ExpressionAST* base, TokenKind accessOp)
       -> Receiver;
+
+  void retainMaterializedTemporary(std::shared_ptr<ConstObject> object);
 
   [[nodiscard]] auto memberReceiver(MemberExpressionAST* ast) -> Receiver;
 
@@ -661,6 +680,13 @@ class ASTInterpreter {
                                        ConstValue* storage)
       -> std::optional<ConstValue>;
 
+  void attachMaterializedSubobject(const std::shared_ptr<ConstObject>& object,
+                                   Symbol* member, const ConstValue& value);
+
+  void attachMaterializedElement(
+      const std::shared_ptr<InitializerList>& elements, std::size_t index,
+      const ConstValue& value);
+
   TranslationUnit* unit_ = nullptr;
   TypeTraits traits;
 
@@ -713,6 +739,8 @@ class ASTInterpreter {
     std::size_t frameIndex_ = 0;
     std::size_t automaticObjectMark_ = 0;
     std::shared_ptr<ConstStorage> storageHead_;
+    // Temporaries whose references extend through this automatic scope.
+    std::vector<std::shared_ptr<ConstAddress>> lifetimeOwners_;
     bool active_ = false;
   };
   std::deque<Frame> frames_;
@@ -726,7 +754,10 @@ class ASTInterpreter {
     }
 
     ~EvaluationScope() {
-      if (--interp_.activeEvaluations_ == 0) interp_.retiredFrames_.clear();
+      if (--interp_.activeEvaluations_ == 0) {
+        interp_.retiredFrames_.clear();
+        interp_.fullExpressionStorage_.clear();
+      }
     }
 
    private:
@@ -734,6 +765,24 @@ class ASTInterpreter {
   };
 
   int activeEvaluations_ = 0;
+  // Values retained until their containing C++ full-expression completes.
+  std::vector<ConstValue> fullExpressionStorage_;
+
+  class FullExpressionScope {
+   public:
+    explicit FullExpressionScope(ASTInterpreter& interp)
+        : interp_(interp), storageMark_(interp.fullExpressionStorage_.size()) {}
+
+    ~FullExpressionScope() {
+      interp_.fullExpressionStorage_.resize(storageMark_);
+    }
+
+   private:
+    // Interpreter whose full-expression stack this scope restores.
+    ASTInterpreter& interp_;
+    // Stack size on entry, preserving owners from an enclosing expression.
+    std::size_t storageMark_ = 0;
+  };
 
   std::optional<ConstValue> returnValue_;
 
