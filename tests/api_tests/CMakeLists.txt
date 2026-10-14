@@ -50,7 +50,8 @@ add_executable(test_api
 
 target_link_libraries(test_api
     GTest::gtest_main
-    cxx-parser)
+    cxx-parser
+    Threads::Threads)
 
 gtest_discover_tests(test_api DISCOVERY_MODE PRE_TEST)
 

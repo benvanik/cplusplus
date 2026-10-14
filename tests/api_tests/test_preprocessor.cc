@@ -24,11 +24,78 @@
 #include <cxx/token.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <filesystem>
+#include <future>
+#include <latch>
+#include <ranges>
+#include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
 using namespace cxx;
+
+TEST(Preprocessor, ConcurrentConstructionProducesValidCompilationTimes) {
+  constexpr unsigned kPreprocessorCount = 8;
+  std::latch start(1);
+  std::vector<std::future<std::vector<std::string>>> tasks;
+  tasks.reserve(kPreprocessorCount);
+  for (unsigned i = 0; i < kPreprocessorCount; ++i) {
+    tasks.push_back(std::async(std::launch::async, [&start] {
+      start.wait();
+      Control control;
+      DiagnosticsClient diagnostics;
+      Preprocessor preprocessor{&control, &diagnostics};
+      std::vector<Token> tokens;
+      preprocessor.beginPreprocessing("__DATE__, __TIME__", "main.cc", tokens);
+      while (true) {
+        auto state = preprocessor.continuePreprocessing(tokens);
+        if (std::holds_alternative<ProcessingComplete>(state)) break;
+      }
+      preprocessor.endPreprocessing(tokens);
+      std::vector<std::string> spellings;
+      for (const auto& token : tokens) {
+        if (token.kind() == TokenKind::T_STRING_LITERAL) {
+          spellings.push_back(token.spell());
+        }
+      }
+      return spellings;
+    }));
+  }
+
+  start.count_down();
+  for (auto& task : tasks) {
+    const auto spellings = task.get();
+    ASSERT_EQ(spellings.size(), 2u);
+    const auto& date = spellings[0];
+    ASSERT_EQ(date.size(), 13u);
+    constexpr std::array<std::string_view, 12> monthNames{
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    };
+    EXPECT_TRUE(
+        std::ranges::contains(monthNames, std::string_view{date}.substr(1, 3)));
+    EXPECT_EQ(date[0], '"');
+    EXPECT_EQ(date[4], ' ');
+    EXPECT_EQ(date[7], ' ');
+    EXPECT_EQ(date[12], '"');
+    const auto isDigit = [](char value) {
+      return value >= '0' && value <= '9';
+    };
+    EXPECT_TRUE(date[5] == ' ' || isDigit(date[5]));
+    for (auto index : {6u, 8u, 9u, 10u, 11u}) EXPECT_TRUE(isDigit(date[index]));
+
+    const auto& time = spellings[1];
+    ASSERT_EQ(time.size(), 10u);
+    EXPECT_EQ(time[0], '"');
+    EXPECT_EQ(time[3], ':');
+    EXPECT_EQ(time[6], ':');
+    EXPECT_EQ(time[9], '"');
+    for (auto index : {1u, 2u, 4u, 5u, 7u, 8u})
+      EXPECT_TRUE(isDigit(time[index]));
+  }
+}
 
 TEST(Preprocessor, IncludeContinuationRetainsRequestState) {
   Control control;

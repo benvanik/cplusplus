@@ -39,6 +39,7 @@
 #include <compare>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <deque>
 #include <filesystem>
 #include <format>
@@ -137,6 +138,16 @@ std::unordered_set<std::string_view> enabledFeatures{
 inline auto getHeaderName(const cxx::Include& include) -> std::string {
   return std::visit([](const auto& include) { return include.fileName; },
                     include);
+}
+
+auto localTime(std::time_t time) -> std::optional<std::tm> {
+  std::tm result{};
+#if defined(_WIN32)
+  if (localtime_s(&result, &time) != 0) return std::nullopt;
+#else
+  if (!localtime_r(&time, &result)) return std::nullopt;
+#endif
+  return result;
 }
 
 }  // namespace
@@ -1250,15 +1261,22 @@ Preprocessor::Private::Private() {
   skipping_.push_back(false);
   evaluating_.push_back(true);
 
-  time_t t;
-  time(&t);
+  date_ = "\"??? ?? ????\"";
+  time_ = "\"??:??:??\"";
+  const auto currentTime = std::time(nullptr);
+  if (currentTime == static_cast<std::time_t>(-1)) return;
+  const auto compilationTime = localTime(currentTime);
+  if (!compilationTime) return;
 
-  char buffer[32];
-  strftime(buffer, sizeof(buffer), "\"%b %e %Y\"", localtime(&t));
-  date_ = buffer;
-
-  strftime(buffer, sizeof(buffer), "\"%T\"", localtime(&t));
-  time_ = buffer;
+  constexpr std::array<std::string_view, 12> monthNames{
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  };
+  date_ =
+      std::format("\"{} {:2} {}\"", monthNames[compilationTime->tm_mon],
+                  compilationTime->tm_mday, compilationTime->tm_year + 1900);
+  time_ = std::format("\"{:02}:{:02}:{:02}\"", compilationTime->tm_hour,
+                      compilationTime->tm_min, compilationTime->tm_sec);
 }
 
 void Preprocessor::Private::initialize() {
