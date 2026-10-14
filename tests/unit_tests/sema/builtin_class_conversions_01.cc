@@ -46,6 +46,17 @@ static_assert(elements[width] == 13u);
 static_assert(width[elements] == 13u);
 static_assert(&width[elements] == elements + 5);
 
+enum ElementIndex { fifth = 5 };
+static_assert(elements[fifth] == 13u);
+static_assert(fifth[elements] == 13u);
+
+union UnionSubscript {
+  unsigned value;
+  constexpr unsigned operator[](unsigned index) const { return value + index; }
+};
+constexpr UnionSubscript unionSubscript{11u};
+static_assert(unionSubscript[2u] == 13u);
+
 constexpr unsigned write_subscripts() {
   unsigned values[6]{};
   values[width] = 11u;

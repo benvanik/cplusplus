@@ -1519,7 +1519,6 @@ void TypeChecker::Visitor::operator()(VaArgExpressionAST* ast) {
 
 auto TypeChecker::Visitor::check_subscript_operator(SubscriptExpressionAST* ast)
     -> bool {
-  if (!isCxx()) return false;
   std::vector<ExpressionAST*> arguments;
   for (auto argument : ListView{ast->expressionList})
     arguments.push_back(argument);
@@ -1606,10 +1605,15 @@ void TypeChecker::Visitor::operator()(SubscriptExpressionAST* ast) {
     return;
   }
   ast->type = nullptr;
+  bool hasClassOrUnionOperand =
+      isCxx() && traits.is_class_or_union(ast->baseExpression->type);
   for (auto argument : ListView{ast->expressionList}) {
     if (!argument->type && !ast_cast<BracedInitListAST>(argument)) return;
+    hasClassOrUnionOperand =
+        hasClassOrUnionOperand ||
+        (argument->type && traits.is_class_or_union(argument->type));
   }
-  if (check_subscript_operator(ast)) return;
+  if (hasClassOrUnionOperand && check_subscript_operator(ast)) return;
   if (!ast->expressionList || ast->expressionList->next) {
     error(ast->lbracketLoc, "built-in subscript requires exactly one argument");
     return;
