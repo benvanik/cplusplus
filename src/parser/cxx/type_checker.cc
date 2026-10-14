@@ -680,6 +680,9 @@ struct TypeChecker::Visitor {
 
   [[nodiscard]] auto resolve_unary_overload(UnaryExpressionAST* ast) -> bool;
 
+  [[nodiscard]] auto convert_class_subscript_operands(
+      SubscriptExpressionAST* ast) -> bool;
+
   void apply_operator_argument_conversions(FunctionSymbol* operatorFunc,
                                            ExpressionAST*& leftExpression,
                                            ExpressionAST*& rightExpression);
@@ -1286,52 +1289,9 @@ void TypeChecker::Visitor::operator()(SubscriptExpressionAST* ast) {
     return;
   }
 
-  const bool baseIsClass = traits.is_class(ast->baseExpression->type);
-  const bool indexIsClass = traits.is_class(ast->indexExpression->type);
-
-  if (baseIsClass || indexIsClass) {
-    auto convertedType = [&](ExpressionAST* expression,
-                             BuiltinOperandKind kind) {
-      return traits.is_class(expression->type)
-                 ? stdconv_.classOperandTargetForBuiltinOperator(expression,
-                                                                 kind)
-                 : expression->type;
-    };
-    auto isIntegral = [&](const Type* type) {
-      return type && traits.is_integral_or_unscoped_enum(type);
-    };
-
-    const bool direct =
-        traits.is_subscriptable(
-            convertedType(ast->baseExpression, BuiltinOperandKind::kPointer)) &&
-        isIntegral(
-            convertedType(ast->indexExpression, BuiltinOperandKind::kIntegral));
-    const bool commuted =
-        traits.is_subscriptable(convertedType(ast->indexExpression,
-                                              BuiltinOperandKind::kPointer)) &&
-        isIntegral(
-            convertedType(ast->baseExpression, BuiltinOperandKind::kIntegral));
-
-    if (direct == commuted) {
-      error(ast->firstSourceLocation(),
-            std::format("invalid subscript of type '{}' with index type '{}'",
-                        to_string(ast->baseExpression->type),
-                        to_string(ast->indexExpression->type)));
-      return;
-    }
-
-    auto convert = [&](ExpressionAST*& expression, BuiltinOperandKind kind) {
-      if (!traits.is_class(expression->type)) return;
-      (void)stdconv_.convertClassOperandForBuiltinOperator(expression, kind);
-      check.useConversionFunction(expression);
-    };
-    if (direct) {
-      convert(ast->baseExpression, BuiltinOperandKind::kPointer);
-      convert(ast->indexExpression, BuiltinOperandKind::kIntegral);
-    } else {
-      convert(ast->baseExpression, BuiltinOperandKind::kIntegral);
-      convert(ast->indexExpression, BuiltinOperandKind::kPointer);
-    }
+  if (traits.is_class(ast->baseExpression->type) ||
+      traits.is_class(ast->indexExpression->type)) [[unlikely]] {
+    if (!convert_class_subscript_operands(ast)) return;
   }
 
   auto array_subscript = [this](ExpressionAST* ast, ExpressionAST*& base,
@@ -1385,6 +1345,72 @@ void TypeChecker::Visitor::operator()(SubscriptExpressionAST* ast) {
         std::format("invalid subscript of type '{}' with index type '{}'",
                     to_string(ast->baseExpression->type),
                     to_string(ast->indexExpression->type)));
+}
+
+auto TypeChecker::Visitor::convert_class_subscript_operands(
+    SubscriptExpressionAST* ast) -> bool {
+  const Type* baseType = ast->baseExpression->type;
+  const Type* indexType = ast->indexExpression->type;
+  const bool baseIsClass = traits.is_class(baseType);
+  const bool indexIsClass = traits.is_class(indexType);
+  auto isIntegral = [&](const Type* type) {
+    return type && traits.is_integral_or_unscoped_enum(type);
+  };
+
+  const Type* baseTarget = nullptr;
+  const Type* indexTarget = nullptr;
+  if (baseIsClass && indexIsClass) {
+    const Type* basePointer = stdconv_.classOperandTargetForBuiltinOperator(
+        ast->baseExpression, BuiltinOperandKind::kPointer);
+    const Type* baseIntegral = stdconv_.classOperandTargetForBuiltinOperator(
+        ast->baseExpression, BuiltinOperandKind::kIntegral);
+    const Type* indexPointer = stdconv_.classOperandTargetForBuiltinOperator(
+        ast->indexExpression, BuiltinOperandKind::kPointer);
+    const Type* indexIntegral = stdconv_.classOperandTargetForBuiltinOperator(
+        ast->indexExpression, BuiltinOperandKind::kIntegral);
+    const bool direct = basePointer && indexIntegral;
+    const bool commuted = indexPointer && baseIntegral;
+    if (direct != commuted) {
+      baseTarget = direct ? basePointer : baseIntegral;
+      indexTarget = direct ? indexIntegral : indexPointer;
+    }
+  } else if (baseIsClass) {
+    if (isIntegral(indexType)) {
+      baseTarget = stdconv_.classOperandTargetForBuiltinOperator(
+          ast->baseExpression, BuiltinOperandKind::kPointer);
+    } else if (traits.is_subscriptable(indexType)) {
+      baseTarget = stdconv_.classOperandTargetForBuiltinOperator(
+          ast->baseExpression, BuiltinOperandKind::kIntegral);
+    }
+  } else if (traits.is_subscriptable(baseType)) {
+    indexTarget = stdconv_.classOperandTargetForBuiltinOperator(
+        ast->indexExpression, BuiltinOperandKind::kIntegral);
+  } else if (isIntegral(baseType)) {
+    indexTarget = stdconv_.classOperandTargetForBuiltinOperator(
+        ast->indexExpression, BuiltinOperandKind::kPointer);
+  }
+
+  if ((baseIsClass && !baseTarget) || (indexIsClass && !indexTarget)) {
+    error(ast->firstSourceLocation(),
+          std::format("invalid subscript of type '{}' with index type '{}'",
+                      to_string(baseType), to_string(indexType)));
+    return false;
+  }
+
+  auto convert = [&](ExpressionAST*& expression, const Type* target) {
+    if (!target) return true;
+    if (!stdconv_.convertImplicitly(expression, target)) return false;
+    check.useConversionFunction(expression);
+    return true;
+  };
+  if (!convert(ast->baseExpression, baseTarget) ||
+      !convert(ast->indexExpression, indexTarget)) {
+    error(ast->firstSourceLocation(),
+          std::format("invalid subscript of type '{}' with index type '{}'",
+                      to_string(baseType), to_string(indexType)));
+    return false;
+  }
+  return true;
 }
 
 void TypeChecker::Visitor::set_base_symbol(ExpressionAST* base, Symbol* sym) {
