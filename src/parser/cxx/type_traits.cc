@@ -1461,6 +1461,10 @@ auto TypeTraits::is_vector(const Type* type) const -> bool {
   return type && visit(IsVector{}, type);
 }
 
+auto TypeTraits::is_subscriptable(const Type* type) const -> bool {
+  return is_array(type) || is_pointer(type) || is_vector(type);
+}
+
 auto TypeTraits::is_scalar_or_vector(const Type* type) const -> bool {
   return is_scalar(type) || is_vector(type);
 }

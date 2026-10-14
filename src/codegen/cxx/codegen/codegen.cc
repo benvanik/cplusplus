@@ -230,7 +230,9 @@ auto Codegen::memberAlignment(MemberExpressionAST* member) -> uint64_t {
 }
 
 auto Codegen::elementAlignment(SubscriptExpressionAST* subscript) -> uint64_t {
-  auto base = withoutParentheses(subscript->baseExpression);
+  auto base = subscript->baseExpression;
+  if (!traits.is_subscriptable(base->type)) base = subscript->indexExpression;
+  base = withoutParentheses(base);
   if (auto decay = ast_cast<ImplicitCastExpressionAST>(base);
       decay && decay->castKind == ImplicitCastKind::kArrayToPointerConversion)
     base = decay->expression;

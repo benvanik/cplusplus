@@ -1069,21 +1069,27 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
 
     auto baseVal = expression(sub->baseExpression);
     if (!baseVal.has_value()) return nullptr;
+    auto indexVal = expression(sub->indexExpression);
+    if (!indexVal.has_value()) return nullptr;
 
-    if (auto list = std::get_if<std::shared_ptr<InitializerList>>(&*baseVal)) {
+    auto indexedVal = &baseVal;
+    auto offsetVal = &indexVal;
+    if (!traits.is_subscriptable(sub->baseExpression->type)) {
+      indexedVal = &indexVal;
+      offsetVal = &baseVal;
+    }
+
+    if (auto list =
+            std::get_if<std::shared_ptr<InitializerList>>(&**indexedVal)) {
       if (!*list) return nullptr;
-      auto idxVal = expression(sub->indexExpression);
-      if (!idxVal.has_value()) return nullptr;
-      auto idx = toUInt(*idxVal);
+      auto idx = toUInt(**offsetVal);
       if (!idx.has_value() || *idx >= (*list)->elements.size()) return nullptr;
       return &std::get<0>((*list)->elements[*idx]);
     }
 
-    if (auto addr = std::get_if<std::shared_ptr<ConstAddress>>(&*baseVal)) {
+    if (auto addr = std::get_if<std::shared_ptr<ConstAddress>>(&**indexedVal)) {
       if (!*addr) return nullptr;
-      auto idxVal = expression(sub->indexExpression);
-      if (!idxVal.has_value()) return nullptr;
-      auto idx = toInt(*idxVal);
+      auto idx = toInt(**offsetVal);
       if (!idx.has_value()) return nullptr;
       return addressSlot(**addr, *idx, sub->type);
     }
@@ -1877,10 +1883,22 @@ auto ASTInterpreter::addressOfLvalue(ExpressionAST* ast)
     if (subscript->symbol) return std::nullopt;
 
     auto base = subscript->baseExpression;
-    auto value = traits.is_array(traits.remove_cvref(base->type))
-                     ? addressOfLvalue(base)
-                     : expression(base);
-    if (!value) return std::nullopt;
+    auto index = subscript->indexExpression;
+    auto indexed = traits.is_subscriptable(base->type) ? base : index;
+    auto evaluateIndexed = [&](ExpressionAST* expression) {
+      return traits.is_array(traits.remove_cvref(expression->type))
+                 ? addressOfLvalue(expression)
+                 : this->expression(expression);
+    };
+
+    auto baseValue = indexed == base ? evaluateIndexed(base) : expression(base);
+    if (!baseValue) return std::nullopt;
+    auto indexValue =
+        indexed == index ? evaluateIndexed(index) : expression(index);
+    if (!indexValue) return std::nullopt;
+
+    auto& value = indexed == base ? baseValue : indexValue;
+    auto& offsetValue = indexed == base ? indexValue : baseValue;
 
     auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value);
     if (!address || !*address) return std::nullopt;
@@ -1897,11 +1915,9 @@ auto ASTInterpreter::addressOfLvalue(ExpressionAST* ast)
         return std::nullopt;
     }
 
-    auto indexValue = expression(subscript->indexExpression);
-    if (!indexValue) return std::nullopt;
-    auto index = toInt(*indexValue);
-    if (!index) return std::nullopt;
-    auto offset = checkedOffsetAdd((*address)->offset(), *index);
+    auto offsetIndex = toInt(*offsetValue);
+    if (!offsetIndex) return std::nullopt;
+    auto offset = checkedOffsetAdd((*address)->offset(), *offsetIndex);
     if (!offset) return std::nullopt;
 
     auto result = std::make_shared<ConstAddress>(**address);
@@ -2323,20 +2339,27 @@ auto ASTInterpreter::ExpressionVisitor::operator()(SubscriptExpressionAST* ast)
   auto indexExpressionResult = interp.expression(ast->indexExpression);
   if (!baseExpressionResult || !indexExpressionResult) return std::nullopt;
 
-  auto idx = interp.toUInt(*indexExpressionResult);
+  auto indexedExpressionResult = &baseExpressionResult;
+  auto offsetExpressionResult = &indexExpressionResult;
+  if (!interp.traits.is_subscriptable(ast->baseExpression->type)) {
+    indexedExpressionResult = &indexExpressionResult;
+    offsetExpressionResult = &baseExpressionResult;
+  }
+
+  auto idx = interp.toUInt(**offsetExpressionResult);
   if (!idx.has_value()) return std::nullopt;
 
   if (auto list = std::get_if<std::shared_ptr<InitializerList>>(
-          &*baseExpressionResult)) {
+          &**indexedExpressionResult)) {
     if (!*list || *idx >= (*list)->elements.size()) return std::nullopt;
     return std::get<0>((*list)->elements[*idx]);
   }
 
-  if (auto str = std::get_if<const StringLiteral*>(&*baseExpressionResult))
+  if (auto str = std::get_if<const StringLiteral*>(&**indexedExpressionResult))
     return stringLiteralElement(*str, static_cast<std::intmax_t>(*idx));
 
-  if (auto addr =
-          std::get_if<std::shared_ptr<ConstAddress>>(&*baseExpressionResult)) {
+  if (auto addr = std::get_if<std::shared_ptr<ConstAddress>>(
+          &**indexedExpressionResult)) {
     return interp.loadAddress(**addr, static_cast<std::intmax_t>(*idx),
                               ast->type);
   }

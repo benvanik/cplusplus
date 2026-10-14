@@ -499,15 +499,15 @@ auto StandardConversion::convertImplicitly(
   return true;
 }
 
-auto StandardConversion::convertClassOperandForBuiltinOperator(
-    ExpressionAST*& expr, BuiltinOperandKind kind) -> bool {
-  if (!expr || !expr->type) return false;
+auto StandardConversion::classOperandTargetForBuiltinOperator(
+    ExpressionAST* expr, BuiltinOperandKind kind) -> const Type* {
+  if (!expr || !expr->type) return nullptr;
 
   auto classType = type_cast<ClassType>(traits.remove_cvref(expr->type));
-  if (!classType) return false;
+  if (!classType) return nullptr;
 
   auto classSymbol = classType->symbol();
-  if (!classSymbol) return false;
+  if (!classSymbol) return nullptr;
 
   traits.requireCompleteClass(classSymbol);
 
@@ -534,17 +534,26 @@ auto StandardConversion::convertClassOperandForBuiltinOperator(
       case BuiltinOperandKind::kArithmetic:
         isEligible = isArithmetic;
         break;
+      case BuiltinOperandKind::kPointer:
+        isEligible = isPointer;
+        break;
       case BuiltinOperandKind::kArithmeticOrPointer:
         isEligible = isArithmetic || isPointer;
         break;
     }
     if (!isEligible) continue;
 
-    if (target && !traits.is_same(target, returnType)) return false;
+    if (target && !traits.is_same(target, returnType)) return nullptr;
 
     target = returnType;
   }
 
+  return target;
+}
+
+auto StandardConversion::convertClassOperandForBuiltinOperator(
+    ExpressionAST*& expr, BuiltinOperandKind kind) -> bool {
+  auto target = classOperandTargetForBuiltinOperator(expr, kind);
   if (!target) return false;
 
   return convertImplicitly(expr, target);

@@ -41,6 +41,26 @@ constexpr unsigned mix(T value) {
 }
 static_assert(mix(shift) == 1u);
 
+constexpr unsigned elements[] = {2u, 3u, 5u, 7u, 11u, 13u};
+static_assert(elements[width] == 13u);
+static_assert(width[elements] == 13u);
+static_assert(&width[elements] == elements + 5);
+
+constexpr unsigned write_subscripts() {
+  unsigned values[6]{};
+  values[width] = 11u;
+  width[values] = 13u;
+  return values[5];
+}
+static_assert(write_subscripts() == 13u);
+
+struct Elements {
+  constexpr operator const unsigned*() const { return elements; }
+};
+constexpr Elements convertedElements{};
+static_assert(convertedElements[width] == 13u);
+static_assert(width[convertedElements] == 13u);
+
 struct WithPointer {
   constexpr operator unsigned() const { return 5; }
   operator int*() const;
@@ -49,6 +69,10 @@ constexpr WithPointer withPointer{};
 static_assert(withPointer * 3u == 15u);
 static_assert((withPointer & 3u) == 1u);
 static_assert((1u << withPointer) == 32u);
+void ambiguous_subscript(WithPointer value) {
+  // expected-error@+1 {{invalid subscript of type '::WithPointer' with index type '::WithPointer'}}
+  value[value];
+}
 
 struct IntegralOrFloat {
   constexpr operator unsigned() const { return 5; }

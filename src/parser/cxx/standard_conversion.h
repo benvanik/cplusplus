@@ -51,6 +51,7 @@ enum class ConversionContext { kImplicit, kStandardOnly };
 enum class BuiltinOperandKind {
   kIntegral,
   kArithmetic,
+  kPointer,
   kArithmeticOrPointer,
 };
 
@@ -135,6 +136,9 @@ class StandardConversion {
 
   [[nodiscard]] auto convertClassOperandForBuiltinOperator(
       ExpressionAST*& expr, BuiltinOperandKind kind) -> bool;
+
+  [[nodiscard]] auto classOperandTargetForBuiltinOperator(
+      ExpressionAST* expr, BuiltinOperandKind kind) -> const Type*;
 
   [[nodiscard]] auto isNullPointerConstant(ExpressionAST* expr) const -> bool;
 

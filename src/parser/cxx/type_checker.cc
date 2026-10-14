@@ -1286,8 +1286,53 @@ void TypeChecker::Visitor::operator()(SubscriptExpressionAST* ast) {
     return;
   }
 
-  if (traits.is_class(ast->baseExpression->type)) return;
-  if (traits.is_class(ast->indexExpression->type)) return;
+  const bool baseIsClass = traits.is_class(ast->baseExpression->type);
+  const bool indexIsClass = traits.is_class(ast->indexExpression->type);
+
+  if (baseIsClass || indexIsClass) {
+    auto convertedType = [&](ExpressionAST* expression,
+                             BuiltinOperandKind kind) {
+      return traits.is_class(expression->type)
+                 ? stdconv_.classOperandTargetForBuiltinOperator(expression,
+                                                                 kind)
+                 : expression->type;
+    };
+    auto isIntegral = [&](const Type* type) {
+      return type && traits.is_integral_or_unscoped_enum(type);
+    };
+
+    const bool direct =
+        traits.is_subscriptable(
+            convertedType(ast->baseExpression, BuiltinOperandKind::kPointer)) &&
+        isIntegral(
+            convertedType(ast->indexExpression, BuiltinOperandKind::kIntegral));
+    const bool commuted =
+        traits.is_subscriptable(convertedType(ast->indexExpression,
+                                              BuiltinOperandKind::kPointer)) &&
+        isIntegral(
+            convertedType(ast->baseExpression, BuiltinOperandKind::kIntegral));
+
+    if (direct == commuted) {
+      error(ast->firstSourceLocation(),
+            std::format("invalid subscript of type '{}' with index type '{}'",
+                        to_string(ast->baseExpression->type),
+                        to_string(ast->indexExpression->type)));
+      return;
+    }
+
+    auto convert = [&](ExpressionAST*& expression, BuiltinOperandKind kind) {
+      if (!traits.is_class(expression->type)) return;
+      (void)stdconv_.convertClassOperandForBuiltinOperator(expression, kind);
+      check.useConversionFunction(expression);
+    };
+    if (direct) {
+      convert(ast->baseExpression, BuiltinOperandKind::kPointer);
+      convert(ast->indexExpression, BuiltinOperandKind::kIntegral);
+    } else {
+      convert(ast->baseExpression, BuiltinOperandKind::kIntegral);
+      convert(ast->indexExpression, BuiltinOperandKind::kPointer);
+    }
+  }
 
   auto array_subscript = [this](ExpressionAST* ast, ExpressionAST*& base,
                                 ExpressionAST*& index) {

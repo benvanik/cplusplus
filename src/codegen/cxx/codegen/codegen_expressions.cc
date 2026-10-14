@@ -936,13 +936,20 @@ auto Codegen::ExpressionVisitor::operator()(SubscriptExpressionAST* ast)
 
   auto resultType = gen.convertType(gen.traits.add_pointer(ast->type));
 
-  auto baseType = ast->baseExpression->type;
-  ir::ValueRef index = indexExpressionResult.value;
+  auto indexedExpressionResult = baseExpressionResult;
+  auto offsetExpressionResult = indexExpressionResult;
+  auto indexedType = ast->baseExpression->type;
+  if (!gen.traits.is_subscriptable(indexedType)) {
+    indexedExpressionResult = indexExpressionResult;
+    offsetExpressionResult = baseExpressionResult;
+    indexedType = ast->indexExpression->type;
+  }
+  ir::ValueRef index = offsetExpressionResult.value;
 
   const Type* strideBaseType = nullptr;
-  if (gen.traits.is_pointer(baseType))
-    strideBaseType = gen.traits.get_element_type(baseType);
-  else if (auto vla = type_cast<UnresolvedBoundedArrayType>(baseType))
+  if (gen.traits.is_pointer(indexedType))
+    strideBaseType = gen.traits.get_element_type(indexedType);
+  else if (auto vla = type_cast<UnresolvedBoundedArrayType>(indexedType))
     strideBaseType = vla->elementType();
 
   if (strideBaseType) {
@@ -969,23 +976,15 @@ auto Codegen::ExpressionVisitor::operator()(SubscriptExpressionAST* ast)
       index = gen.emitter_.binaryOp(loc, ir::BinaryOp::MulInt, index, stride);
   }
 
-  if (gen.traits.is_pointer(baseType) ||
-      type_cast<UnresolvedBoundedArrayType>(baseType)) {
+  if (gen.traits.is_pointer(indexedType) ||
+      type_cast<UnresolvedBoundedArrayType>(indexedType)) {
     auto op = gen.emitter_.pointerAdd(loc, resultType,
-                                      baseExpressionResult.value, index);
+                                      indexedExpressionResult.value, index);
     return {op};
   }
 
-  auto indexType = ast->indexExpression->type;
-  if (gen.traits.is_pointer(indexType)) {
-    auto op =
-        gen.emitter_.pointerAdd(loc, resultType, indexExpressionResult.value,
-                                baseExpressionResult.value);
-    return {op};
-  }
-
-  auto op = gen.emitter_.subscript(loc, resultType, baseExpressionResult.value,
-                                   indexExpressionResult.value);
+  auto op = gen.emitter_.subscript(loc, resultType,
+                                   indexedExpressionResult.value, index);
 
   return {op};
 }

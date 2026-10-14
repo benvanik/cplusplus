@@ -107,6 +107,7 @@ class TypeTraits {
   [[nodiscard]] auto overload_set_operand(const Type* type) const
       -> OverloadSetOperand;
   [[nodiscard]] auto is_vector(const Type* type) const -> bool;
+  [[nodiscard]] auto is_subscriptable(const Type* type) const -> bool;
 
   /**
    * A type whose special member functions are all trivial and which has no

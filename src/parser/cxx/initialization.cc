@@ -3049,6 +3049,7 @@ auto materializedTemporary(const TypeTraits& traits, ExpressionAST* expr)
   if (auto subscript = ast_cast<SubscriptExpressionAST>(expr)) {
     if (subscript->symbol) return {};
     auto base = subscript->baseExpression;
+    if (!traits.is_subscriptable(base->type)) base = subscript->indexExpression;
     if (!base || !traits.is_array(traits.remove_reference(base->type)))
       return {};
     return materializedTemporary(traits, base);
