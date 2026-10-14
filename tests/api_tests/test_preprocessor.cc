@@ -25,10 +25,54 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <future>
+#include <latch>
+#include <string>
 #include <variant>
 #include <vector>
 
 using namespace cxx;
+
+TEST(Preprocessor, ConcurrentConstructionHasIndependentCompilationTimes) {
+  constexpr unsigned kPreprocessorCount = 8;
+  std::latch start(1);
+  std::vector<std::future<std::vector<std::string>>> tasks;
+  tasks.reserve(kPreprocessorCount);
+  for (unsigned i = 0; i < kPreprocessorCount; ++i) {
+    tasks.push_back(std::async(std::launch::async, [&start] {
+      start.wait();
+      Control control;
+      DiagnosticsClient diagnostics;
+      Preprocessor preprocessor{&control, &diagnostics};
+      std::vector<Token> tokens;
+      preprocessor.beginPreprocessing("__DATE__ __TIME__", "main.cc", tokens);
+      while (true) {
+        auto state = preprocessor.continuePreprocessing(tokens);
+        if (std::holds_alternative<ProcessingComplete>(state)) break;
+      }
+      preprocessor.endPreprocessing(tokens);
+      std::vector<std::string> spellings;
+      for (const auto& token : tokens) {
+        if (token.kind() == TokenKind::T_STRING_LITERAL) {
+          spellings.push_back(token.spell());
+        }
+      }
+      return spellings;
+    }));
+  }
+
+  start.count_down();
+  for (auto& task : tasks) {
+    const auto spellings = task.get();
+    ASSERT_EQ(spellings.size(), 2u);
+    EXPECT_EQ(spellings[0].size(), 13u);
+    EXPECT_EQ(spellings[1].size(), 10u);
+    EXPECT_EQ(spellings[0].front(), '"');
+    EXPECT_EQ(spellings[0].back(), '"');
+    EXPECT_EQ(spellings[1].front(), '"');
+    EXPECT_EQ(spellings[1].back(), '"');
+  }
+}
 
 TEST(Preprocessor, IncludeContinuationRetainsRequestState) {
   Control control;

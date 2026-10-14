@@ -34,6 +34,7 @@
 #include <cassert>
 #include <cctype>
 #include <cstring>
+#include <ctime>
 #include <deque>
 #include <filesystem>
 #include <format>
@@ -134,6 +135,16 @@ std::unordered_set<std::string_view> enabledFeatures{
 inline auto getHeaderName(const cxx::Include& include) -> std::string {
   return std::visit([](const auto& include) { return include.fileName; },
                     include);
+}
+
+auto localTime(std::time_t time) -> std::tm {
+  std::tm result{};
+#if defined(_WIN32)
+  localtime_s(&result, &time);
+#else
+  localtime_r(&time, &result);
+#endif
+  return result;
 }
 
 }  // namespace
@@ -1006,14 +1017,14 @@ Preprocessor::Private::Private() {
   skipping_.push_back(false);
   evaluating_.push_back(true);
 
-  time_t t;
-  time(&t);
+  const auto currentTime = std::time(nullptr);
+  const auto compilationTime = localTime(currentTime);
 
   char buffer[32];
-  strftime(buffer, sizeof(buffer), "\"%b %e %Y\"", localtime(&t));
+  std::strftime(buffer, sizeof(buffer), "\"%b %e %Y\"", &compilationTime);
   date_ = buffer;
 
-  strftime(buffer, sizeof(buffer), "\"%T\"", localtime(&t));
+  std::strftime(buffer, sizeof(buffer), "\"%T\"", &compilationTime);
   time_ = buffer;
 }
 
