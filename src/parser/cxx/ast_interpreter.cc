@@ -665,8 +665,14 @@ auto ASTInterpreter::lookupLocalSlot(const Symbol* sym) -> ConstValue* {
     if (referenceAddress != it->referenceAddresses.end()) {
       auto address =
           std::get_if<std::shared_ptr<ConstAddress>>(&referenceAddress->second);
-      return address && *address ? addressSlot(**address, 0, sym->type())
-                                 : nullptr;
+      if (address && *address) {
+        if (auto slot = addressSlot(**address, 0, sym->type())) return slot;
+      }
+      // Immutable storage may have a readable value but no mutable slot. Use
+      // only the fallback captured in this frame so an address-only binding
+      // still shadows the same parameter in older recursive frames.
+      auto found = it->locals.find(sym);
+      return found != it->locals.end() ? &found->second.value : nullptr;
     }
     auto ref = it->refs.find(sym);
     if (ref != it->refs.end()) return ref->second;
