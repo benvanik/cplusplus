@@ -66,6 +66,28 @@ test("constant addresses persist their logical origin", () => {
   }
 });
 
+test("constant lifetime storage persists its storage duration", () => {
+  const storage = plan.structs.find(
+    (entity) => entity.name === "::cxx::ConstLifetimeStorage",
+  );
+  assert.ok(storage);
+  assert.deepEqual(
+    storage.fields.map((field) => field.name),
+    ["value_", "hasStaticStorageDuration_"],
+  );
+
+  const fields = reportsFor(
+    "::cxx::ConstLifetimeStorage",
+    "hasStaticStorageDuration_",
+  );
+  assert.equal(fields.length, 1);
+  assert.equal(fields[0].cls, "P");
+  assert.equal(
+    fields[0].why,
+    "lifetime-extended temporaries retain their source storage duration",
+  );
+});
+
 test("selected subobject paths are persisted with their rationale", () => {
   const memberPaths = reportsFor("::cxx::MemberExpressionAST", "subobjectPath");
   assert.equal(memberPaths.length, 1);

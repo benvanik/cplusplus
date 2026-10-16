@@ -843,6 +843,7 @@ static_assert(saved_second == &values[1]);
 
   auto lifetime = reference->ownedLifetimeStorage();
   ASSERT_TRUE(lifetime);
+  EXPECT_TRUE(lifetime->hasStaticStorageDuration());
   EXPECT_FALSE(reference->persistentReadsRestricted());
   auto object = std::get_if<std::shared_ptr<ConstObject>>(&lifetime->value());
   ASSERT_TRUE(object);

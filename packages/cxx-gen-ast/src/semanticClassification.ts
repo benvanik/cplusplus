@@ -121,6 +121,12 @@ export const bindings: Record<string, ClassBindings> = {
       read: "$->value()",
       write: "$->setValue($value)",
     },
+    hasStaticStorageDuration_: {
+      cls: "P",
+      read: "$->hasStaticStorageDuration()",
+      write: "$->setStaticStorageDuration($value)",
+      why: "lifetime-extended temporaries retain their source storage duration",
+    },
   },
 
   "::cxx::ConstAddress": {

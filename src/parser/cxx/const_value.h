@@ -219,9 +219,19 @@ class ConstLifetimeStorage {
   [[nodiscard]] auto mutableValue() -> ConstValue* { return &value_; }
   void setValue(ConstValue value) { value_ = std::move(value); }
 
+  [[nodiscard]] auto hasStaticStorageDuration() const -> bool {
+    return hasStaticStorageDuration_;
+  }
+
+  void setStaticStorageDuration(bool hasStaticStorageDuration) {
+    hasStaticStorageDuration_ = hasStaticStorageDuration;
+  }
+
  private:
   // Value whose lifetime is controlled by the owning address.
   ConstValue value_;
+  // Whether a reference with static storage extended this value's lifetime.
+  bool hasStaticStorageDuration_ = false;
 };
 
 // Owning lifetime root whose value cannot be read by a later constant
@@ -332,6 +342,7 @@ class ConstAddress {
   [[nodiscard]] auto borrowedLifetimeStorage() const
       -> std::shared_ptr<ConstLifetimeStorage>;
   [[nodiscard]] auto hasExpiredLifetimeStorage() const -> bool;
+  [[nodiscard]] auto hasStaticStorageDuration() const -> bool;
   [[nodiscard]] auto persistentReadsRestricted() const -> bool;
   [[nodiscard]] auto stringLiteral() const -> const StringLiteral*;
   [[nodiscard]] auto offset() const -> std::intmax_t;
@@ -346,7 +357,7 @@ class ConstAddress {
 
   // Applies the constant-expression read rules after a reference initializer
   // has retained this address beyond its evaluation.
-  void finalizeConstantReference();
+  void finalizeConstantReference(bool hasStaticStorageDuration);
 
   [[nodiscard]] auto isArrayElement() const -> bool {
     return parent() && !symbol();

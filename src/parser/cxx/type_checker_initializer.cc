@@ -45,10 +45,19 @@
 namespace cxx {
 namespace {
 
-void finalizeReferenceConstant(std::optional<ConstValue>& value) {
+void finalizeReferenceConstant(std::optional<ConstValue>& value,
+                               bool hasStaticStorageDuration) {
   if (!value) return;
   auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value);
-  if (address && *address) (*address)->finalizeConstantReference();
+  if (address && *address)
+    (*address)->finalizeConstantReference(hasStaticStorageDuration);
+}
+
+[[nodiscard]] auto isConstantReferenceAddress(
+    const std::optional<ConstValue>& value) -> bool {
+  if (!value) return false;
+  auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value);
+  return address && *address && (*address)->hasStaticStorageDuration();
 }
 
 struct TypeDeducer {
@@ -403,7 +412,8 @@ void InitDeclaratorChecker::evaluateFieldConstValue(FieldSymbol* field) {
   auto value = interp.initializationValue(field->type(), field->constructor(),
                                           field->initializer());
 
-  if (ctx.traits.is_reference(field->type())) finalizeReferenceConstant(value);
+  if (ctx.traits.is_reference(field->type()))
+    finalizeReferenceConstant(value, true);
 
   if (value)
     interp.bindMaterializedStorage(*value,
@@ -425,7 +435,12 @@ void InitDeclaratorChecker::evaluateConstValue(VariableSymbol* var,
     auto value = interp.initializationValue(var->type(), var->constructor(),
                                             var->initializer());
 
-    if (ctx.traits.is_reference(var->type())) finalizeReferenceConstant(value);
+    if (ctx.traits.is_reference(var->type())) {
+      finalizeReferenceConstant(value, has_static_storage_duration(var));
+      if (var->isConstexpr() && !dependent &&
+          !isConstantReferenceAddress(value))
+        value.reset();
+    }
 
     if (value)
       interp.bindMaterializedStorage(*value,
@@ -437,7 +452,10 @@ void InitDeclaratorChecker::evaluateConstValue(VariableSymbol* var,
     auto interp = ASTInterpreter{ctx.unit, ctx.checker.scope()};
     auto value =
         interp.initializationValue(var->type(), var->constructor(), nullptr);
-    if (ctx.traits.is_reference(var->type())) finalizeReferenceConstant(value);
+    if (ctx.traits.is_reference(var->type())) {
+      finalizeReferenceConstant(value, has_static_storage_duration(var));
+      if (!dependent && !isConstantReferenceAddress(value)) value.reset();
+    }
     if (value)
       interp.bindMaterializedStorage(*value,
                                      std::make_shared<ConstAddress>(var));

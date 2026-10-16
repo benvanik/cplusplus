@@ -285,6 +285,27 @@ auto ConstAddress::hasExpiredLifetimeStorage() const -> bool {
   return borrowed && borrowed->expired();
 }
 
+auto ConstAddress::hasStaticStorageDuration() const -> bool {
+  auto root = this;
+  for (;;) {
+    auto forwarded = root->forwardedAddress();
+    if (forwarded) {
+      root = forwarded.get();
+      continue;
+    }
+    if (!root->parent()) break;
+    root = root->parent().get();
+  }
+
+  if (auto lifetime = root->lifetimeStorage())
+    return lifetime->hasStaticStorageDuration();
+  if (root->stringLiteral() || root->typeInfoFor()) return true;
+
+  auto symbol = root->rootSymbol();
+  return symbol_cast<FunctionSymbol>(symbol) ||
+         has_static_storage_duration(symbol);
+}
+
 auto ConstAddress::sameLifetimeStorage(const ConstAddress& other) const
     -> bool {
   if (!hasLifetimeStorage() || !other.hasLifetimeStorage()) return false;
@@ -396,12 +417,16 @@ auto ConstAddress::persistentReadsRestricted() const -> bool {
   return std::holds_alternative<ConstRestrictedLifetimeStorage>(origin_);
 }
 
-void ConstAddress::finalizeConstantReference() {
+void ConstAddress::finalizeConstantReference(bool hasStaticStorageDuration) {
   auto root = this;
   bool selectsSubobject = false;
   while (root->parent()) {
     selectsSubobject = true;
     root = root->parent().get();
+  }
+  if (hasStaticStorageDuration) {
+    if (auto lifetime = root->lifetimeStorage())
+      lifetime->setStaticStorageDuration(true);
   }
   if (!selectsSubobject) return;
   root->setPersistentReadsRestricted(true);

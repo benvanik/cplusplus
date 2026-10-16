@@ -6544,6 +6544,8 @@ void SemanticEncoder::writecxxConstLifetimeStorage(
     ByteWriter& out, [[maybe_unused]] const cxx::ConstLifetimeStorage* self) {
   // ::cxx::ConstLifetimeStorage::value_
   writeConstValue(out, self->value());
+  // ::cxx::ConstLifetimeStorage::hasStaticStorageDuration_
+  out.boolean(self->hasStaticStorageDuration());
 }
 
 void SemanticEncoder::writecxxTemplateSpecialization(
@@ -16398,6 +16400,9 @@ void SemanticDecoder::readcxxConstLifetimeStorage(
   // ::cxx::ConstLifetimeStorage::value_
   cxx::ConstValue value1 = readConstValue(in);
   self->setValue(std::move(value1));
+  // ::cxx::ConstLifetimeStorage::hasStaticStorageDuration_
+  bool value2 = in.boolean();
+  self->setStaticStorageDuration(std::move(value2));
 }
 
 void SemanticDecoder::readcxxTemplateSpecialization(
