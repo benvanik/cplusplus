@@ -45,6 +45,12 @@
 namespace cxx {
 namespace {
 
+void finalizeReferenceConstant(std::optional<ConstValue>& value) {
+  if (!value) return;
+  auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value);
+  if (address && *address) (*address)->finalizeConstantReference();
+}
+
 struct TypeDeducer {
   InitContext& ctx;
 
@@ -397,6 +403,8 @@ void InitDeclaratorChecker::evaluateFieldConstValue(FieldSymbol* field) {
   auto value = interp.initializationValue(field->type(), field->constructor(),
                                           field->initializer());
 
+  if (ctx.traits.is_reference(field->type())) finalizeReferenceConstant(value);
+
   if (value)
     interp.bindMaterializedStorage(*value,
                                    std::make_shared<ConstAddress>(field));
@@ -417,6 +425,8 @@ void InitDeclaratorChecker::evaluateConstValue(VariableSymbol* var,
     auto value = interp.initializationValue(var->type(), var->constructor(),
                                             var->initializer());
 
+    if (ctx.traits.is_reference(var->type())) finalizeReferenceConstant(value);
+
     if (value)
       interp.bindMaterializedStorage(*value,
                                      std::make_shared<ConstAddress>(var));
@@ -427,6 +437,7 @@ void InitDeclaratorChecker::evaluateConstValue(VariableSymbol* var,
     auto interp = ASTInterpreter{ctx.unit, ctx.checker.scope()};
     auto value =
         interp.initializationValue(var->type(), var->constructor(), nullptr);
+    if (ctx.traits.is_reference(var->type())) finalizeReferenceConstant(value);
     if (value)
       interp.bindMaterializedStorage(*value,
                                      std::make_shared<ConstAddress>(var));

@@ -6516,6 +6516,8 @@ void SemanticEncoder::writecxxConstAddress(
   // ::cxx::ConstAddress::borrowedLifetimeStorage
   out.varU32(
       static_cast<std::uint32_t>(constRef(self->borrowedLifetimeStorage())));
+  // ::cxx::ConstAddress::persistentReadsRestricted
+  out.boolean(self->persistentReadsRestricted());
   // ::cxx::ConstAddress::stringLiteral
   writeLiteral(out, self->stringLiteral());
   // ::cxx::ConstAddress::typeInfoFor
@@ -16358,15 +16360,18 @@ void SemanticDecoder::readcxxConstAddress(
       std::static_pointer_cast<cxx::ConstLifetimeStorage>(
           constantAt(ConstRef{in.varU32()}));
   self->setBorrowedLifetimeStorage(std::move(value5));
+  // ::cxx::ConstAddress::persistentReadsRestricted
+  bool value6 = in.boolean();
+  self->setPersistentReadsRestricted(std::move(value6));
   // ::cxx::ConstAddress::stringLiteral
-  const cxx::StringLiteral* value6 = readStringLiteral(in);
-  self->setStringLiteral(std::move(value6));
+  const cxx::StringLiteral* value7 = readStringLiteral(in);
+  self->setStringLiteral(std::move(value7));
   // ::cxx::ConstAddress::typeInfoFor
-  const cxx::Type* value7 = typeAt(TypeRef{in.varU32()});
-  self->setTypeInfoFor(std::move(value7));
+  const cxx::Type* value8 = typeAt(TypeRef{in.varU32()});
+  self->setTypeInfoFor(std::move(value8));
   // ::cxx::ConstAddress::offset
-  long long value8 = static_cast<long long>(in.varI64());
-  self->setOffset(std::move(value8));
+  long long value9 = static_cast<long long>(in.varI64());
+  self->setOffset(std::move(value9));
 }
 
 void SemanticDecoder::readcxxConstLabelAddress(

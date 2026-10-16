@@ -1196,6 +1196,7 @@ auto ASTInterpreter::loadAddress(const ConstAddress& address,
   }
 
   if (auto storage = address.lifetimeStorage()) {
+    if (address.persistentReadsRestricted()) return std::nullopt;
     auto value = storage->value();
     if (auto elements = std::get_if<std::shared_ptr<InitializerList>>(&value)) {
       auto type = objectType ? traits.remove_cvref(objectType) : nullptr;

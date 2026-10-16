@@ -2385,6 +2385,8 @@ inline constexpr FieldDescriptor kSemanticFieldModelStorage[] = {
      FieldPersistence::kPersisted, ""},
     {"::cxx::ConstAddress", "borrowedLifetimeStorage",
      FieldPersistence::kPersisted, ""},
+    {"::cxx::ConstAddress", "persistentReadsRestricted",
+     FieldPersistence::kPersisted, ""},
     {"::cxx::ConstAddress", "stringLiteral", FieldPersistence::kPersisted, ""},
     {"::cxx::ConstAddress", "typeInfoFor", FieldPersistence::kPersisted, ""},
     {"::cxx::ConstAddress", "offset", FieldPersistence::kPersisted, ""},

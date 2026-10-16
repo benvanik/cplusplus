@@ -464,6 +464,12 @@ export const extraFields: Record<string, ExtraField[]> = {
       write: "$->setBorrowedLifetimeStorage($value)",
     },
     {
+      name: "persistentReadsRestricted",
+      from: "persistentReadsRestricted",
+      cls: "P",
+      write: "$->setPersistentReadsRestricted($value)",
+    },
+    {
       name: "stringLiteral",
       from: "stringLiteral",
       cls: "P",

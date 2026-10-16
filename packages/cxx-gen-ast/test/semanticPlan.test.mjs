@@ -32,12 +32,30 @@ test("constant addresses persist their logical origin", () => {
   assert.ok(address);
   assert.deepEqual(
     address.fields.map((field) => field.name),
-    ["symbol", "parent", "owner", "stringLiteral", "typeInfoFor", "offset"],
+    [
+      "symbol",
+      "parent",
+      "owner",
+      "ownedLifetimeStorage",
+      "borrowedLifetimeStorage",
+      "persistentReadsRestricted",
+      "stringLiteral",
+      "typeInfoFor",
+      "offset",
+    ],
   );
   assert.deepEqual(address.archiveRejections, [
     {
       when: "$->storage() != nullptr",
       message: "constant address refers to automatic invocation storage",
+    },
+    {
+      when: "$->materializedStorage() != nullptr",
+      message: "constant address refers to uncommitted materialized storage",
+    },
+    {
+      when: "$->hasExpiredLifetimeStorage()",
+      message: "constant address refers to expired temporary storage",
     },
   ]);
 

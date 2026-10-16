@@ -224,6 +224,13 @@ class ConstLifetimeStorage {
   ConstValue value_;
 };
 
+// Owning lifetime root whose value cannot be read by a later constant
+// evaluation. A distinct origin alternative retains this property without
+// enlarging every lifetime storage or address.
+struct ConstRestrictedLifetimeStorage {
+  std::shared_ptr<ConstLifetimeStorage> storage;
+};
+
 // Identity of an addressed materialized aggregate. Addresses retain this token
 // without owning the value. Once the value reaches its C++ destination the
 // token forwards to that storage address, preserving subobject and array
@@ -325,6 +332,7 @@ class ConstAddress {
   [[nodiscard]] auto borrowedLifetimeStorage() const
       -> std::shared_ptr<ConstLifetimeStorage>;
   [[nodiscard]] auto hasExpiredLifetimeStorage() const -> bool;
+  [[nodiscard]] auto persistentReadsRestricted() const -> bool;
   [[nodiscard]] auto stringLiteral() const -> const StringLiteral*;
   [[nodiscard]] auto offset() const -> std::intmax_t;
 
@@ -335,6 +343,10 @@ class ConstAddress {
   [[nodiscard]] auto rootSymbol() const -> Symbol*;
 
   [[nodiscard]] auto sameTarget(const ConstAddress& other) const -> bool;
+
+  // Applies the constant-expression read rules after a reference initializer
+  // has retained this address beyond its evaluation.
+  void finalizeConstantReference();
 
   [[nodiscard]] auto isArrayElement() const -> bool {
     return parent() && !symbol();
@@ -351,6 +363,7 @@ class ConstAddress {
   void setOwnedLifetimeStorage(std::shared_ptr<ConstLifetimeStorage> storage);
   void setBorrowedLifetimeStorage(
       std::shared_ptr<ConstLifetimeStorage> storage);
+  void setPersistentReadsRestricted(bool persistentReadsRestricted);
   void setStringLiteral(const StringLiteral* string);
   void setTypeInfoFor(const Type* type);
   void setOffset(std::intmax_t offset);
@@ -380,12 +393,12 @@ class ConstAddress {
   Symbol* symbol_ = nullptr;
   // Mutually exclusive root of this address. Pointer arithmetic clones the
   // leaf while subobject paths retain their immutable parent address.
-  std::variant<std::monostate, std::shared_ptr<ConstAddress>,
-               std::shared_ptr<ConstObject>, std::shared_ptr<ConstStorage>,
-               std::shared_ptr<ConstMaterializedStorage>,
-               std::shared_ptr<ConstLifetimeStorage>,
-               std::weak_ptr<ConstLifetimeStorage>, const StringLiteral*,
-               const Type*>
+  std::variant<
+      std::monostate, std::shared_ptr<ConstAddress>,
+      std::shared_ptr<ConstObject>, std::shared_ptr<ConstStorage>,
+      std::shared_ptr<ConstMaterializedStorage>,
+      std::shared_ptr<ConstLifetimeStorage>, ConstRestrictedLifetimeStorage,
+      std::weak_ptr<ConstLifetimeStorage>, const StringLiteral*, const Type*>
       origin_;
   std::intmax_t offset_ = 0;
 };

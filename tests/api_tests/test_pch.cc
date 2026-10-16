@@ -797,6 +797,8 @@ constexpr const Value& reference = Value{};
 constexpr const Value* saved_self = reference.self;
 constexpr const Value (&values)[2] = {};
 constexpr const Value* saved_second = values[1].self;
+constexpr const unsigned& saved_number = Value{}.number;
+constexpr const unsigned* saved_number_address = &saved_number;
 static_assert(reference.self == &reference);
 static_assert(saved_self->number == 9);
 static_assert(values[0].self == &values[0]);
@@ -829,13 +831,19 @@ static_assert(saved_second == &values[1]);
   auto savedSelf = constantAddress(globalScope, "saved_self");
   auto values = constantAddress(globalScope, "values");
   auto savedSecond = constantAddress(globalScope, "saved_second");
+  auto savedNumber = constantAddress(globalScope, "saved_number");
+  auto savedNumberAddress =
+      constantAddress(globalScope, "saved_number_address");
   ASSERT_TRUE(reference);
   ASSERT_TRUE(savedSelf);
   ASSERT_TRUE(values);
   ASSERT_TRUE(savedSecond);
+  ASSERT_TRUE(savedNumber);
+  ASSERT_TRUE(savedNumberAddress);
 
   auto lifetime = reference->ownedLifetimeStorage();
   ASSERT_TRUE(lifetime);
+  EXPECT_FALSE(reference->persistentReadsRestricted());
   auto object = std::get_if<std::shared_ptr<ConstObject>>(&lifetime->value());
   ASSERT_TRUE(object);
   ASSERT_TRUE(*object);
@@ -890,6 +898,13 @@ static_assert(saved_second == &values[1]);
   auto firstElement = ConstAddress::arrayElement(values, 0);
   EXPECT_TRUE((*firstSelf)->sameTarget(*firstElement));
   EXPECT_TRUE((*secondSelf)->sameTarget(*savedSecond));
+
+  auto savedNumberRoot = savedNumber;
+  while (savedNumberRoot->parent()) savedNumberRoot = savedNumberRoot->parent();
+  auto savedNumberLifetime = savedNumberRoot->ownedLifetimeStorage();
+  ASSERT_TRUE(savedNumberLifetime);
+  EXPECT_TRUE(savedNumberRoot->persistentReadsRestricted());
+  EXPECT_TRUE(savedNumber->sameTarget(*savedNumberAddress));
 }
 
 TEST(PrecompiledHeader, RestoresMultidimensionalArrayAddresses) {

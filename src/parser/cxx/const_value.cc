@@ -257,7 +257,9 @@ auto ConstAddress::ownedLifetimeStorage() const
     -> const std::shared_ptr<ConstLifetimeStorage>& {
   static const std::shared_ptr<ConstLifetimeStorage> empty;
   auto storage = std::get_if<std::shared_ptr<ConstLifetimeStorage>>(&origin_);
-  return storage ? *storage : empty;
+  if (storage) return *storage;
+  auto restricted = std::get_if<ConstRestrictedLifetimeStorage>(&origin_);
+  return restricted ? restricted->storage : empty;
 }
 
 auto ConstAddress::borrowedLifetimeStorage() const
@@ -272,6 +274,7 @@ auto ConstAddress::borrowedLifetimeStorage() const
 auto ConstAddress::hasLifetimeStorage() const -> bool {
   return std::holds_alternative<std::shared_ptr<ConstLifetimeStorage>>(
              origin_) ||
+         std::holds_alternative<ConstRestrictedLifetimeStorage>(origin_) ||
          std::holds_alternative<std::weak_ptr<ConstLifetimeStorage>>(origin_);
 }
 
@@ -287,9 +290,8 @@ auto ConstAddress::sameLifetimeStorage(const ConstAddress& other) const
   if (!hasLifetimeStorage() || !other.hasLifetimeStorage()) return false;
 
   auto weakStorage = [](const ConstAddress& address) {
-    if (auto owned = std::get_if<std::shared_ptr<ConstLifetimeStorage>>(
-            &address.origin_))
-      return std::weak_ptr<ConstLifetimeStorage>{*owned};
+    if (auto owned = address.ownedLifetimeStorage())
+      return std::weak_ptr<ConstLifetimeStorage>{owned};
     return *std::get_if<std::weak_ptr<ConstLifetimeStorage>>(&address.origin_);
   };
   auto left = weakStorage(*this);
@@ -331,6 +333,14 @@ void ConstAddress::setOwnedLifetimeStorage(
 void ConstAddress::setBorrowedLifetimeStorage(
     std::shared_ptr<ConstLifetimeStorage> storage) {
   if (storage) origin_ = std::weak_ptr<ConstLifetimeStorage>{storage};
+}
+
+void ConstAddress::setPersistentReadsRestricted(
+    bool persistentReadsRestricted) {
+  if (!persistentReadsRestricted || this->persistentReadsRestricted()) return;
+  auto storage = std::get_if<std::shared_ptr<ConstLifetimeStorage>>(&origin_);
+  if (storage && *storage)
+    origin_ = ConstRestrictedLifetimeStorage{std::move(*storage)};
 }
 
 void ConstAddress::setStringLiteral(const StringLiteral* string) {
@@ -380,6 +390,21 @@ auto ConstAddress::sameTarget(const ConstAddress& other) const -> bool {
     right = right->parent().get();
     compareOffset = true;
   }
+}
+
+auto ConstAddress::persistentReadsRestricted() const -> bool {
+  return std::holds_alternative<ConstRestrictedLifetimeStorage>(origin_);
+}
+
+void ConstAddress::finalizeConstantReference() {
+  auto root = this;
+  bool selectsSubobject = false;
+  while (root->parent()) {
+    selectsSubobject = true;
+    root = root->parent().get();
+  }
+  if (!selectsSubobject) return;
+  root->setPersistentReadsRestricted(true);
 }
 
 auto ConstAddress::offset() const -> std::intmax_t {
