@@ -45,7 +45,7 @@ TEST(Preprocessor, ConcurrentConstructionHasIndependentCompilationTimes) {
       DiagnosticsClient diagnostics;
       Preprocessor preprocessor{&control, &diagnostics};
       std::vector<Token> tokens;
-      preprocessor.beginPreprocessing("__DATE__ __TIME__", "main.cc", tokens);
+      preprocessor.beginPreprocessing("__DATE__, __TIME__", "main.cc", tokens);
       while (true) {
         auto state = preprocessor.continuePreprocessing(tokens);
         if (std::holds_alternative<ProcessingComplete>(state)) break;
