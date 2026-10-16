@@ -678,14 +678,20 @@ auto ASTInterpreter::lookupLocalSlot(const Symbol* sym) -> ConstValue* {
 
 auto ASTInterpreter::materializedTemporary(ExpressionAST* ast)
     -> ExpressionAST* {
-  while (auto nested = ast_cast<NestedExpressionAST>(ast))
-    ast = nested->expression;
-  if (!is_glvalue(ast)) return ast;
-  auto cast = ast_cast<ImplicitCastExpressionAST>(ast);
-  if (!cast) return nullptr;
-  if (cast->castKind != ImplicitCastKind::kTemporaryMaterializationConversion)
-    return nullptr;
-  return cast->expression;
+  auto temporary = ast;
+  while (ast) {
+    while (auto nested = ast_cast<NestedExpressionAST>(ast))
+      ast = nested->expression;
+    if (!is_glvalue(ast)) return temporary;
+
+    auto cast = ast_cast<ImplicitCastExpressionAST>(ast);
+    if (cast &&
+        cast->castKind == ImplicitCastKind::kTemporaryMaterializationConversion)
+      return temporary;
+
+    ast = sameObjectOperand(ast);
+  }
+  return nullptr;
 }
 
 auto ASTInterpreter::bindReferenceTo(Frame& frame, Symbol* reference,

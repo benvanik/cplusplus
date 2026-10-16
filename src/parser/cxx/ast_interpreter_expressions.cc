@@ -1168,6 +1168,10 @@ auto ASTInterpreter::loadAddress(const ConstAddress& address,
   if (auto storage = address.lifetimeStorage()) {
     auto value = storage->value();
     if (auto elements = std::get_if<std::shared_ptr<InitializerList>>(&value)) {
+      auto type = objectType ? traits.remove_cvref(objectType) : nullptr;
+      if (index == 0 && type &&
+          (traits.is_array(type) || traits.is_vector(type)))
+        return value;
       if (!*elements ||
           static_cast<std::size_t>(index) >= (*elements)->elements.size())
         return std::nullopt;
@@ -1296,6 +1300,10 @@ auto ASTInterpreter::addressSlot(const ConstAddress& address,
   if (auto storage = address.lifetimeStorage()) {
     auto slot = storage->mutableValue();
     if (auto elements = std::get_if<std::shared_ptr<InitializerList>>(slot)) {
+      auto type = objectType ? traits.remove_cvref(objectType) : nullptr;
+      if (index == 0 && type &&
+          (traits.is_array(type) || traits.is_vector(type)))
+        return slot;
       if (!*elements ||
           static_cast<std::size_t>(index) >= (*elements)->elements.size())
         return nullptr;
