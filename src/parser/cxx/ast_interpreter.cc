@@ -878,6 +878,7 @@ auto ASTInterpreter::bindOneParameter(Frame& frame, Symbol* paramSymbol,
   auto destination = std::make_shared<ConstAddress>(paramSymbol);
   destination->setStorage(storage);
   frame.locals.insert_or_assign(paramSymbol, storage);
+  BackingArrayFullExpressionScope backingArrayLifetime{*this, destination};
   if (auto value =
           evaluateInitializer(paramSymbol->type(), argExpr, destination)) {
     storage->setValue(std::move(*value));
@@ -941,6 +942,7 @@ auto ASTInterpreter::initializeDefaultedObject(
     if (field->initializer()) {
       if (!obj->subobject(field)) obj->setMember(field, IndeterminateValue{});
       auto address = subobjectDestination(destination, field);
+      BackingArrayFullExpressionScope backingArrayLifetime{*this, address};
       auto value =
           initializationValue(field->type(), field->constructor(),
                               field->initializer(), std::move(address));
@@ -1188,6 +1190,7 @@ void ASTInterpreter::initializeSubobject(
   if (!thisObject_->subobject(subobject))
     thisObject_->setMember(subobject, IndeterminateValue{});
   auto destination = subobjectDestination(thisAddress_, subobject);
+  BackingArrayFullExpressionScope backingArrayLifetime{*this, destination};
   auto value = ast->constructor
                    ? constructSubobject(ast, type, arguments, destination)
                    : initialValue(type, arguments.front(), destination);

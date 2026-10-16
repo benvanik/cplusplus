@@ -180,6 +180,141 @@ constexpr unsigned initializer_list_lives_for_range_statement() {
 static_assert(initializer_list_lives_for_range_statement() == 7);
 }  // namespace materialized_ranges
 
+namespace reference_argument_lifetimes {
+constexpr const int& identity(const int& value) { return value; }
+
+static_assert(identity(3) == 3);
+
+constexpr int read_temporary() { return identity(5); }
+static_assert(read_temporary() == 5);
+
+struct ArrayBound {
+  int values[identity(7)];
+};
+static_assert(sizeof(ArrayBound::values) == 7 * sizeof(int));
+
+struct ConvertedInteger {
+  constexpr operator int() const { return 11; }
+};
+static_assert(identity(ConvertedInteger{}) == 11);
+
+using IntegerPair = int[2];
+constexpr const int& second(const IntegerPair& values) { return values[1]; }
+static_assert(second(IntegerPair{13, 17}) == 17);
+
+using IntegerVector = int __attribute__((vector_size(8)));
+constexpr const IntegerVector& vector_identity(const IntegerVector& values) {
+  return values;
+}
+static_assert(vector_identity(IntegerVector{19, 23})[1] == 23);
+
+constexpr const int* escape(const int& value) { return &value; }
+constexpr int read_expired_temporary() {
+  const int* pointer = escape(29);
+  return *pointer;
+}
+
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(read_expired_temporary() == 29);
+}  // namespace reference_argument_lifetimes
+
+namespace initializer_list_backing_array_lifetimes {
+constexpr const int& first(std::initializer_list<int> values) {
+  return *values.begin();
+}
+static_assert(first({31, 37}) == 31);
+
+constexpr const int* first_address(std::initializer_list<int> values) {
+  return values.begin();
+}
+constexpr int read_expired_parameter_array() {
+  const int* pointer = first_address({41, 43});
+  return *pointer;
+}
+
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(read_expired_parameter_array() == 41);
+
+constexpr int local_array_lifetime() {
+  std::initializer_list<int> values = {47, 53};
+  return *values.begin();
+}
+static_assert(local_array_lifetime() == 47);
+
+struct ListPair {
+  std::initializer_list<int> first;
+  std::initializer_list<int> second;
+};
+
+constexpr int aggregate_arrays_live_with_object() {
+  ListPair lists{{59, 61}, {67, 71}};
+  return *lists.first.begin() + *lists.second.begin();
+}
+static_assert(aggregate_arrays_live_with_object() == 126);
+
+constexpr const int* aggregate_parameter_address(ListPair lists) {
+  return lists.first.begin();
+}
+static_assert(*aggregate_parameter_address({{73, 79}, {83, 89}}) == 73);
+
+constexpr const int* expired_aggregate_array(bool second) {
+  const int* pointer = nullptr;
+  {
+    ListPair lists{{97, 101}, {103, 107}};
+    pointer = second ? lists.second.begin() : lists.first.begin();
+  }
+  return pointer;
+}
+
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(*expired_aggregate_array(false) == 97);
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(*expired_aggregate_array(true) == 103);
+
+using NestedLists = std::initializer_list<std::initializer_list<int>>;
+
+constexpr int nested_arrays_live_with_object() {
+  NestedLists lists{{109, 113}, {127, 131}};
+  return *lists.begin()->begin() + *(lists.begin() + 1)->begin();
+}
+static_assert(nested_arrays_live_with_object() == 236);
+
+constexpr const int* expired_nested_array() {
+  const int* pointer = nullptr;
+  {
+    NestedLists lists{{137, 139}, {149, 151}};
+    pointer = lists.begin()->begin();
+  }
+  return pointer;
+}
+
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(*expired_nested_array() == 137);
+
+constexpr int parenthesized_aggregate_array_expires() {
+  ListPair lists({157, 163}, {167, 173});
+  return *lists.first.begin();
+}
+
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(parenthesized_aggregate_array_expires() == 157);
+
+constexpr std::initializer_list<int> returned_list() { return {179, 181}; }
+
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(*returned_list().begin() == 179);
+
+constexpr int new_initializer_list_dangles() {
+  auto* values = new std::initializer_list<int>{191, 193};
+  int value = *values->begin();
+  delete values;
+  return value;
+}
+
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(new_initializer_list_dangles() == 191);
+}  // namespace initializer_list_backing_array_lifetimes
+
 namespace escaped_storage {
 constexpr const unsigned* parameter(unsigned value) { return &value; }
 

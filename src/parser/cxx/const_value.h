@@ -239,6 +239,12 @@ class ConstStorage {
   void setBackingArray(std::shared_ptr<ConstStorage> array) {
     backingArray_ = std::move(array);
   }
+  // Backing arrays form a reverse-construction chain rooted at their lifetime
+  // owner so one link represents arbitrarily many nested arrays.
+  void addBackingArray(std::shared_ptr<ConstStorage> array) {
+    array->setBackingArray(std::move(backingArray_));
+    backingArray_ = std::move(array);
+  }
 
  private:
   const Type* type_ = nullptr;

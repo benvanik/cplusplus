@@ -408,6 +408,8 @@ auto ASTInterpreter::StatementVisitor::operator()(ContinueStatementAST* ast)
 auto ASTInterpreter::StatementVisitor::operator()(ReturnStatementAST* ast)
     -> StatementResult {
   FullExpressionScope fullExpression{interp};
+  BackingArrayFullExpressionScope backingArrayLifetime{interp,
+                                                       interp.resultAddress_};
   if (interp.captureReturnAddress_) {
     interp.returnAddress_ = interp.addressOfLvalue(ast->expression);
     if (interp.returnAddress_ || !interp.returnAddressFallsBackToValue_)

@@ -981,6 +981,35 @@ class ASTInterpreter {
   std::vector<const Frame*> framesBeingBound_;
   std::vector<std::shared_ptr<ConstStorage>> backingArrays_;
 
+  ConstStorage* fullExpressionBackingArrayDestination_ = nullptr;
+
+  class BackingArrayFullExpressionScope {
+   public:
+    BackingArrayFullExpressionScope(
+        ASTInterpreter& interp,
+        const std::shared_ptr<ConstAddress>& destination)
+        : interp_(interp),
+          saved_(interp.fullExpressionBackingArrayDestination_) {
+      interp.fullExpressionBackingArrayDestination_ =
+          destination && destination->storage()
+              ? destination->storage().get()
+              : nullptr;
+    }
+
+    BackingArrayFullExpressionScope(
+        const BackingArrayFullExpressionScope&) = delete;
+    auto operator=(const BackingArrayFullExpressionScope&)
+        -> BackingArrayFullExpressionScope& = delete;
+
+    ~BackingArrayFullExpressionScope() {
+      interp_.fullExpressionBackingArrayDestination_ = saved_;
+    }
+
+   private:
+    ASTInterpreter& interp_;
+    ConstStorage* saved_ = nullptr;
+  };
+
   class ParameterBindingScope {
    public:
     ParameterBindingScope(ASTInterpreter& interp, const Frame& frame)
