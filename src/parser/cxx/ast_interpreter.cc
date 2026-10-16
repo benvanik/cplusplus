@@ -285,16 +285,19 @@ auto ASTInterpreter::materializeAddressLifetime(
     std::shared_ptr<ConstAddress> address)
     -> std::optional<MaterializedLifetime> {
   struct AddressStep {
-    // Selected record member, or null for the materialized root.
+    // Selected record member, or null for an array element or the root.
     Symbol* symbol = nullptr;
     // Element displacement at this step.
     std::intmax_t offset = 0;
+    // Whether this step selects an element from its parent array.
+    bool isArrayElement = false;
   };
 
   std::vector<AddressStep> reversePath;
   auto root = address;
   for (auto current = address; current; current = current->parent()) {
-    reversePath.push_back({current->symbol(), current->offset()});
+    reversePath.push_back(
+        {current->symbol(), current->offset(), current->isArrayElement()});
     root = current;
   }
 
@@ -314,10 +317,14 @@ auto ASTInterpreter::materializeAddressLifetime(
     newRoot->setOffset(reversePath.back().offset);
     for (auto step = std::next(reversePath.rbegin());
          step != reversePath.rend(); ++step) {
-      if (!step->symbol) return std::shared_ptr<ConstAddress>{};
-      newRoot =
-          std::make_shared<ConstAddress>(std::move(newRoot), step->symbol);
-      newRoot->setOffset(step->offset);
+      if (step->isArrayElement) {
+        newRoot = ConstAddress::arrayElement(std::move(newRoot), step->offset);
+      } else {
+        if (!step->symbol) return std::shared_ptr<ConstAddress>{};
+        newRoot =
+            std::make_shared<ConstAddress>(std::move(newRoot), step->symbol);
+        newRoot->setOffset(step->offset);
+      }
     }
     return newRoot;
   };
@@ -371,8 +378,9 @@ void ASTInterpreter::attachMaterializedElement(
     parentStorage = std::make_shared<ConstMaterializedStorage>(elements);
     elements->setStorage(parentStorage);
   }
-  childStorage->bind(ConstAddress::materialized(
-      std::move(parentStorage), static_cast<std::intmax_t>(index)));
+  childStorage->bind(ConstAddress::arrayElement(
+      ConstAddress::materialized(std::move(parentStorage)),
+      static_cast<std::intmax_t>(index)));
 }
 
 auto isFullyInitialized(const ConstValue& value) -> bool {

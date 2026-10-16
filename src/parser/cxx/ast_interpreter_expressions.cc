@@ -1162,15 +1162,33 @@ auto ASTInterpreter::loadAddress(const ConstAddress& address,
   const auto index = address.offset() + extraIndex;
   if (index < 0) return std::nullopt;
 
-  if (auto str = address.stringLiteral())
+  if (address.isArrayElement()) {
+    auto parent = address.parent();
+    if (!parent) return std::nullopt;
+    if (auto string = parent->stringLiteral())
+      return stringLiteralElement(string, index);
+    auto value = loadAddress(*parent, 0);
+    if (!value) return std::nullopt;
+    auto elements = std::get_if<std::shared_ptr<InitializerList>>(&*value);
+    if (!elements || !*elements ||
+        static_cast<std::size_t>(index) >= (*elements)->elements.size())
+      return std::nullopt;
+    return std::get<0>((*elements)->elements[index]);
+  }
+
+  if (auto str = address.stringLiteral()) {
+    if (index == 0 && objectType &&
+        traits.is_array(traits.remove_cvref(objectType)))
+      return str;
     return stringLiteralElement(str, index);
+  }
 
   if (auto storage = address.lifetimeStorage()) {
     auto value = storage->value();
     if (auto elements = std::get_if<std::shared_ptr<InitializerList>>(&value)) {
       auto type = objectType ? traits.remove_cvref(objectType) : nullptr;
-      if (index == 0 && type &&
-          (traits.is_array(type) || traits.is_vector(type)))
+      if (index == 0 &&
+          (!type || traits.is_array(type) || traits.is_vector(type)))
         return value;
       if (!*elements ||
           static_cast<std::size_t>(index) >= (*elements)->elements.size())
@@ -1188,8 +1206,9 @@ auto ASTInterpreter::loadAddress(const ConstAddress& address,
       return ConstValue{std::move(object)};
     }
     auto elements = storage->elements();
-    if (!elements ||
-        static_cast<std::size_t>(index) >= elements->elements.size())
+    if (!elements) return std::nullopt;
+    if (index == 0) return ConstValue{std::move(elements)};
+    if (static_cast<std::size_t>(index) >= elements->elements.size())
       return std::nullopt;
     return std::get<0>(elements->elements[index]);
   }
@@ -1240,6 +1259,10 @@ auto ASTInterpreter::loadAddress(const ConstAddress& address,
   }
 
   if (auto list = std::get_if<std::shared_ptr<InitializerList>>(&*storage)) {
+    auto storageType = traits.remove_cvref(sym->type());
+    if (index == 0 &&
+        (traits.is_array(storageType) || traits.is_vector(storageType)))
+      return storage;
     if (!*list || static_cast<std::size_t>(index) >= (*list)->elements.size())
       return std::nullopt;
     return std::get<0>((*list)->elements[index]);
@@ -1247,6 +1270,31 @@ auto ASTInterpreter::loadAddress(const ConstAddress& address,
 
   if (index == 0) return storage;
   return std::nullopt;
+}
+
+auto ASTInterpreter::addressedType(const ConstAddress& address) const
+    -> const Type* {
+  if (address.isArrayElement()) {
+    auto parent = address.parent();
+    auto parentType = parent ? addressedType(*parent) : nullptr;
+    parentType = parentType ? traits.remove_cvref(parentType) : nullptr;
+    return parentType && traits.is_array(parentType)
+               ? traits.remove_extent(parentType)
+               : nullptr;
+  }
+
+  if (auto symbol = address.symbol()) return symbol->type();
+  if (auto owner = address.owner()) return owner->type();
+  if (auto storage = address.materializedStorage()) {
+    if (auto object = storage->object()) return object->type();
+  }
+  if (auto storage = address.lifetimeStorage()) {
+    if (auto object =
+            std::get_if<std::shared_ptr<ConstObject>>(&storage->value());
+        object && *object)
+      return (*object)->type();
+  }
+  return nullptr;
 }
 
 auto ASTInterpreter::pointeeCharacter(const ConstValue& pointer,
@@ -1295,14 +1343,34 @@ auto ASTInterpreter::addressSlot(const ConstAddress& address,
   const auto index = address.offset() + extraIndex;
   if (index < 0) return nullptr;
 
+  if (address.isArrayElement()) {
+    auto parent = address.parent();
+    if (!parent || parent->stringLiteral()) return nullptr;
+    if (auto storage = parent->materializedStorage();
+        storage && !storage->isBound()) {
+      auto elements = storage->elements();
+      if (!elements ||
+          static_cast<std::size_t>(index) >= elements->elements.size())
+        return nullptr;
+      return &std::get<0>(elements->elements[index]);
+    }
+    auto slot = addressSlot(*parent, 0);
+    if (!slot) return nullptr;
+    auto elements = std::get_if<std::shared_ptr<InitializerList>>(slot);
+    if (!elements || !*elements ||
+        static_cast<std::size_t>(index) >= (*elements)->elements.size())
+      return nullptr;
+    return &std::get<0>((*elements)->elements[index]);
+  }
+
   if (address.stringLiteral()) return nullptr;
 
   if (auto storage = address.lifetimeStorage()) {
     auto slot = storage->mutableValue();
     if (auto elements = std::get_if<std::shared_ptr<InitializerList>>(slot)) {
       auto type = objectType ? traits.remove_cvref(objectType) : nullptr;
-      if (index == 0 && type &&
-          (traits.is_array(type) || traits.is_vector(type)))
+      if (index == 0 &&
+          (!type || traits.is_array(type) || traits.is_vector(type)))
         return slot;
       if (!*elements ||
           static_cast<std::size_t>(index) >= (*elements)->elements.size())
@@ -1369,6 +1437,10 @@ auto ASTInterpreter::addressSlot(const ConstAddress& address,
   }
 
   if (auto list = std::get_if<std::shared_ptr<InitializerList>>(slot)) {
+    auto storageType = traits.remove_cvref(sym->type());
+    if (index == 0 &&
+        (traits.is_array(storageType) || traits.is_vector(storageType)))
+      return slot;
     if (!*list || static_cast<std::size_t>(index) >= (*list)->elements.size())
       return nullptr;
     return &std::get<0>((*list)->elements[index]);
@@ -1599,18 +1671,13 @@ auto ASTInterpreter::applySubobjectPath(Receiver receiver,
 auto ASTInterpreter::addressOfField(const Receiver& receiver,
                                     FieldSymbol* field)
     -> std::optional<ConstValue> {
-  const Type* receiverType = nullptr;
-  if (receiver.address && receiver.address->symbol()) {
-    auto symbol = receiver.address->symbol();
-    if (auto base = symbol_cast<BaseClassSymbol>(symbol)) {
-      symbol = base->symbol();
-    }
-    receiverType = symbol ? traits.remove_cvref(symbol->type()) : nullptr;
-    if (traits.is_array(receiverType)) {
-      receiverType = traits.remove_extent(receiverType);
-    }
-  } else if (receiver.object) {
-    receiverType = receiver.object->type();
+  auto receiverType =
+      receiver.address ? addressedType(*receiver.address) : nullptr;
+  if (!receiverType && receiver.object) receiverType = receiver.object->type();
+  if (auto base = receiver.address
+                      ? symbol_cast<BaseClassSymbol>(receiver.address->symbol())
+                      : nullptr) {
+    receiverType = base->symbol() ? base->symbol()->type() : nullptr;
   }
 
   // This branch can only represent a direct field. Inherited and anonymous
@@ -1624,26 +1691,18 @@ auto ASTInterpreter::addressOfField(const Receiver& receiver,
   if (receiver.address) {
     if (!receiver.address->denotesWholeOwner()) {
       // A member selection requires a live receiver element, not one-past-end.
-      auto symbol = receiver.address->symbol();
-      auto materialized = receiver.address->materializedStorage();
-      auto lifetime = receiver.address->lifetimeStorage();
-      if (!symbol && !materialized && !lifetime) return std::nullopt;
-      auto array =
-          symbol ? unqualified_cast<BoundedArrayType>(symbol->type()) : nullptr;
-      const auto materializedElements =
-          materialized ? materialized->elements() : nullptr;
-      const auto lifetimeElements =
-          lifetime ? std::get_if<std::shared_ptr<InitializerList>>(
-                         &lifetime->value())
-                   : nullptr;
-      const auto extent = array ? array->size()
-                          : materializedElements
-                              ? materializedElements->elements.size()
-                          : lifetimeElements && *lifetimeElements
-                              ? (*lifetimeElements)->elements.size()
-                              : std::uint64_t{1};
-      if (receiver.address->offset() < 0 ||
-          static_cast<std::uintmax_t>(receiver.address->offset()) >= extent) {
+      if (receiver.address->offset() < 0) return std::nullopt;
+      if (receiver.address->isArrayElement()) {
+        auto parent = receiver.address->parent();
+        auto parentType = parent ? addressedType(*parent) : nullptr;
+        auto array = parentType ? unqualified_cast<BoundedArrayType>(
+                                      traits.remove_cvref(parentType))
+                                : nullptr;
+        if (array && static_cast<std::uintmax_t>(receiver.address->offset()) >=
+                         array->size())
+          return std::nullopt;
+        if (!array && !receiver.object) return std::nullopt;
+      } else if (receiver.address->offset() != 0) {
         return std::nullopt;
       }
     }
@@ -1911,20 +1970,13 @@ auto ASTInterpreter::addressOfLvalue(ExpressionAST* ast)
     auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value);
     if (!address || !*address) return std::nullopt;
 
-    // The offset represents one array level. Nested subobjects need a selected
-    // subobject path and cannot be flattened into this representation.
-    if (auto symbol = (*address)->symbol()) {
-      auto storageType = traits.remove_cvref(symbol->type());
-      auto elementType = traits.is_array(storageType)
-                             ? traits.remove_extent(storageType)
-                             : storageType;
-      if (!traits.is_same(traits.remove_cv(elementType),
-                          traits.remove_cvref(subscript->type)))
-        return std::nullopt;
-    }
-
     auto offsetIndex = toInt(*offsetValue);
     if (!offsetIndex) return std::nullopt;
+
+    if (traits.is_array(traits.remove_cvref(indexed->type))) {
+      return ConstAddress::arrayElement(*address, *offsetIndex);
+    }
+
     auto offset = checkedOffsetAdd((*address)->offset(), *offsetIndex);
     if (!offset) return std::nullopt;
 
@@ -3129,7 +3181,11 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
   }
 
   if (ast->castKind == ImplicitCastKind::kArrayToPointerConversion) {
-    return interp.addressOfLvalue(ast->expression);
+    auto value = interp.addressOfLvalue(ast->expression);
+    auto address =
+        value ? std::get_if<std::shared_ptr<ConstAddress>>(&*value) : nullptr;
+    if (!address || !*address) return std::nullopt;
+    return ConstValue{ConstAddress::arrayElement(*address, 0)};
   }
 
   auto value = evaluate(ast->expression);
@@ -4199,10 +4255,13 @@ auto ASTInterpreter::ExpressionVisitor::operator()(BracedInitListAST* ast)
   backing->setConstexpr(true);
   backing->setConstValue(ConstValue{elements});
   auto object = std::make_shared<ConstObject>(ast->type);
-  object->addMember(fields[0], std::make_shared<ConstAddress>(backing));
+  object->addMember(fields[0], ConstAddress::arrayElement(
+                                   std::make_shared<ConstAddress>(backing), 0));
   auto size = static_cast<std::intmax_t>(elements->elements.size());
   if (traits.is_pointer(fields[1]->type()))
-    object->addMember(fields[1], std::make_shared<ConstAddress>(backing, size));
+    object->addMember(fields[1],
+                      ConstAddress::arrayElement(
+                          std::make_shared<ConstAddress>(backing), size));
   else if (traits.is_integral(fields[1]->type()))
     object->addMember(fields[1], size);
   else

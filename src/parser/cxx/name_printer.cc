@@ -34,6 +34,13 @@ struct TemplateArgumentPrinter {
 
   auto address_to_string(const ConstAddress& address, const Type* type) const
       -> std::string {
+    if (address.isArrayElement()) {
+      auto parent = address_to_string(*address.parent(), nullptr);
+      if (parent.starts_with("&")) parent.erase(0, 1);
+      auto name = std::format("{}[{}]", parent, address.offset());
+      return type_cast<LvalueReferenceType>(type) ? name : "&" + name;
+    }
+
     auto symbol = address.symbol();
     if (address.owner() || address.stringLiteral() || address.typeInfoFor())
       return "<const-address>";
@@ -64,7 +71,8 @@ struct TemplateArgumentPrinter {
     auto storageType = unqualified_type(symbol->type());
     const bool isArray = type_cast<BoundedArrayType>(storageType) ||
                          type_cast<UnboundedArrayType>(storageType);
-    if (isArray && unqualified_type(elementType) != storageType) {
+    if (isArray && elementType &&
+        unqualified_type(elementType) != storageType) {
       name += std::format("[{}]", address.offset());
     } else if (address.offset() != 0) {
       return std::format("(&{} + {})", name, address.offset());

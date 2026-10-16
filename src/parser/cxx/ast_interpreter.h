@@ -509,6 +509,11 @@ class ASTInterpreter {
                                  const Type* objectType = nullptr)
       -> std::optional<ConstValue>;
 
+  // Returns the type selected by a retained address path when the root carries
+  // enough type information to derive it.
+  [[nodiscard]] auto addressedType(const ConstAddress& address) const
+      -> const Type*;
+
   [[nodiscard]] auto pointeeCharacter(const ConstValue& pointer,
                                       std::intmax_t index)
       -> std::optional<std::intmax_t>;

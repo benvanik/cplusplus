@@ -873,6 +873,10 @@ class Codegen {
                                               ir::TypeRef pointerType,
                                               const StringLiteral* literal)
       -> ir::ValueRef;
+  [[nodiscard]] auto emitConstAddress(SourceLocation loc,
+                                      ir::TypeRef pointerType,
+                                      const ConstAddress& address)
+      -> ir::ValueRef;
   [[nodiscard]] auto emitConstInitValue(SourceLocation loc, const Type* type,
                                         const ConstValue& value)
       -> ir::ValueRef;

@@ -1237,15 +1237,50 @@ namespace {
   if (symbol_cast<FunctionSymbol>(symbol)) return (*address)->offset() == 0;
   if (!has_static_storage_duration(symbol)) return false;
 
-  const auto offset = (*address)->offset();
-  if (offset < 0) return false;
-  auto target = (*address)->symbol();
-  if (unqualified_cast<UnboundedArrayType>(target->type())) return offset == 0;
+  std::vector<const ConstAddress*> reversePath;
+  for (auto current = address->get(); current;
+       current = current->parent().get())
+    reversePath.push_back(current);
 
-  auto array = unqualified_cast<BoundedArrayType>(target->type());
-  const auto extent = array ? array->size() : std::uint64_t{1};
-  return isReference ? static_cast<std::uintmax_t>(offset) < extent
-                     : static_cast<std::uintmax_t>(offset) <= extent;
+  const Type* selectedType = symbol->type();
+  for (auto step = reversePath.rbegin(); step != reversePath.rend(); ++step) {
+    auto current = *step;
+    const bool isLeaf = std::next(step) == reversePath.rend();
+    const auto offset = current->offset();
+    if (offset < 0) return false;
+
+    if (current->isArrayElement()) {
+      auto array = unqualified_cast<BoundedArrayType>(selectedType);
+      if (array) {
+        const auto position = static_cast<std::uintmax_t>(offset);
+        if (isLeaf && !isReference ? position > array->size()
+                                   : position >= array->size())
+          return false;
+        selectedType = array->elementType();
+        continue;
+      }
+      if (unqualified_cast<UnboundedArrayType>(selectedType)) {
+        if (offset != 0) return false;
+        selectedType =
+            unqualified_cast<UnboundedArrayType>(selectedType)->elementType();
+        continue;
+      }
+      return false;
+    }
+
+    auto target = current->symbol();
+    if (!target) continue;
+    selectedType = target->type();
+    if (offset == 0) continue;
+    if (unqualified_cast<UnboundedArrayType>(selectedType)) return false;
+    auto array = unqualified_cast<BoundedArrayType>(selectedType);
+    const auto extent = array ? array->size() : std::uint64_t{1};
+    const auto position = static_cast<std::uintmax_t>(offset);
+    if (isLeaf && !isReference ? position > extent : position >= extent)
+      return false;
+    if (array) selectedType = array->elementType();
+  }
+  return true;
 }
 
 }  // namespace

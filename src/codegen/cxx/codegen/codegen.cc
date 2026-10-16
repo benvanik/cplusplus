@@ -492,6 +492,48 @@ auto Codegen::emitStringLiteralAddress(SourceLocation loc,
   return emitter_.addressOfSymbol(loc, pointerType, name);
 }
 
+auto Codegen::emitConstAddress(SourceLocation loc, ir::TypeRef pointerType,
+                               const ConstAddress& address) -> ir::ValueRef {
+  auto path = constAddressPath(address, *control()->memoryLayout());
+  if (!path) return {};
+
+  const auto bytePointerType = emitter_.pointerType(emitter_.integerType(8));
+  ir::ValueRef result;
+  auto rootStringLiteral = path->rootAddress->stringLiteral();
+  auto rootSymbol = path->rootAddress->symbol();
+  if (rootStringLiteral) {
+    result = emitStringLiteralAddress(
+        loc, path->byteOffset == 0 ? pointerType : bytePointerType,
+        rootStringLiteral);
+  } else if (rootSymbol) {
+    result = staticStorageAddress(loc, rootSymbol);
+    if (!result) {
+      if (auto function = symbol_cast<FunctionSymbol>(rootSymbol)) {
+        auto functionOp = findOrCreateFunction(function);
+        return emitter_.addressOfSymbol(loc, pointerType,
+                                        functionName(functionOp));
+      }
+      return {};
+    }
+  }
+
+  if (!result) return {};
+  if (path->byteOffset != 0) {
+    if (emitter_.typeOf(result) != bytePointerType)
+      result = emitter_.bitcast(loc, bytePointerType, result);
+    auto offsetType = pointerSizedIntType();
+    auto offset =
+        ConstInt::make(static_cast<ConstInt::Wide>(path->byteOffset),
+                       static_cast<int>(pointerSize() * 8), /*isSigned=*/false);
+    if (!offset) return {};
+    auto offsetValue = emitter_.constantInt(loc, offsetType, *offset);
+    result = emitter_.pointerAdd(loc, bytePointerType, result, offsetValue);
+  }
+  if (emitter_.typeOf(result) != pointerType)
+    result = emitter_.bitcast(loc, pointerType, result);
+  return result;
+}
+
 auto Codegen::emitConstInitValue(SourceLocation loc, const Type* type,
                                  const ConstValue& value) -> ir::ValueRef {
   auto interp = ASTInterpreter{unit_};
@@ -546,37 +588,8 @@ auto Codegen::emitConstInitValue(SourceLocation loc, const Type* type,
         auto typeInfoName = findOrCreateTypeInfo(typeInfoFor);
         return emitter_.addressOfSymbol(loc, irPtrType, typeInfoName);
       }
-      auto symbol = (*addrPtr)->symbol();
-      auto offset = (*addrPtr)->offset();
-      if (auto literal = (*addrPtr)->stringLiteral()) {
-        if (offset == 0)
-          return emitStringLiteralAddress(loc, irPtrType, literal);
-        auto bytePointerType = emitter_.pointerType(emitter_.integerType(8));
-        auto base = emitStringLiteralAddress(loc, bytePointerType, literal);
-        auto byteOffset =
-            offset * static_cast<std::intmax_t>(literal->codeUnitSize());
-        auto offsetType = emitter_.integerType(64);
-        auto offsetValue = emitter_.constantLiteral(
-            loc, offsetType,
-            ir::Initializer::integerValue(offsetType, byteOffset));
-        return emitter_.bitcast(
-            loc, irPtrType,
-            emitter_.pointerAdd(loc, bytePointerType, base, offsetValue));
-      }
-      if (auto result = staticStorageAddress(loc, symbol)) {
-        if (offset != 0) {
-          auto offsetVal = emitter_.constantLiteral(
-              loc, emitter_.integerType(64),
-              ir::Initializer::integerValue(emitter_.integerType(64), offset));
-          result = emitter_.pointerAdd(loc, irPtrType, result, offsetVal);
-        }
+      if (auto result = emitConstAddress(loc, irPtrType, **addrPtr))
         return result;
-      }
-      if (auto funcSym = symbol_cast<FunctionSymbol>(symbol)) {
-        auto funcOp = findOrCreateFunction(funcSym);
-        return emitter_.addressOfSymbol(loc, irPtrType,
-                                        this->functionName(funcOp));
-      }
     }
 
     if (auto labelAddrPtr =

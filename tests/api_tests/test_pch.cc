@@ -779,8 +779,10 @@ constexpr const unsigned* external_scale_address = &external.scale;
   ASSERT_TRUE(pairLeftScale->parent()->parent());
   EXPECT_EQ(pairLeftScale->parent()->parent()->symbol(), pair);
   ASSERT_TRUE(tableOneScale->parent());
-  EXPECT_EQ(tableOneScale->parent()->symbol(), table);
+  EXPECT_TRUE(tableOneScale->parent()->isArrayElement());
   EXPECT_EQ(tableOneScale->parent()->offset(), 1);
+  ASSERT_TRUE(tableOneScale->parent()->parent());
+  EXPECT_EQ(tableOneScale->parent()->parent()->symbol(), table);
 }
 
 TEST(PrecompiledHeader, RestoresMaterializedObjectLifetimes) {
@@ -877,12 +879,89 @@ static_assert(saved_second == &values[1]);
   ASSERT_TRUE(secondSelf);
   ASSERT_TRUE(*firstSelf);
   ASSERT_TRUE(*secondSelf);
-  EXPECT_EQ((*firstSelf)->borrowedLifetimeStorage(), valuesLifetime);
-  EXPECT_EQ((*secondSelf)->borrowedLifetimeStorage(), valuesLifetime);
+  EXPECT_TRUE((*firstSelf)->isArrayElement());
+  EXPECT_TRUE((*secondSelf)->isArrayElement());
+  ASSERT_TRUE((*firstSelf)->parent());
+  ASSERT_TRUE((*secondSelf)->parent());
+  EXPECT_EQ((*firstSelf)->parent()->borrowedLifetimeStorage(), valuesLifetime);
+  EXPECT_EQ((*secondSelf)->parent()->borrowedLifetimeStorage(), valuesLifetime);
   EXPECT_EQ((*firstSelf)->offset(), 0);
   EXPECT_EQ((*secondSelf)->offset(), 1);
-  EXPECT_TRUE((*firstSelf)->sameTarget(*values));
+  auto firstElement = ConstAddress::arrayElement(values, 0);
+  EXPECT_TRUE((*firstSelf)->sameTarget(*firstElement));
   EXPECT_TRUE((*secondSelf)->sameTarget(*savedSecond));
+}
+
+TEST(PrecompiledHeader, RestoresMultidimensionalArrayAddresses) {
+  std::vector<std::uint8_t> data;
+  {
+    Prefix prefix{R"(
+struct Cell { unsigned value; };
+constexpr Cell table[2][2] = {{{3}, {5}}, {{7}, {11}}};
+constexpr const Cell* selected = &table[1][0];
+constexpr const Cell* other = &table[0][1];
+constexpr const unsigned* selected_value = &table[1][0].value;
+static_assert(selected != other);
+static_assert(*selected_value == 7);
+
+struct Self {
+  unsigned value = 9;
+  const Self* self = this;
+};
+constexpr Self self_table[2][2] = {};
+constexpr const Self* saved_self = self_table[1][0].self;
+constexpr const Self* selected_self = &self_table[1][0];
+static_assert(saved_self == selected_self);
+)"};
+    data = prefix.emit();
+    ASSERT_TRUE(prefix.errors().empty());
+    ASSERT_FALSE(data.empty());
+  }
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+  {
+    PrecompiledHeaderReader reader{&consumer, keys()};
+    ASSERT_TRUE(reader(data)) << reader.error();
+  }
+
+  auto globalScope = consumer.globalScope();
+  auto table = findMember(globalScope, "table");
+  auto selfTable = findMember(globalScope, "self_table");
+  auto selected = constantAddress(globalScope, "selected");
+  auto other = constantAddress(globalScope, "other");
+  auto selectedValue = constantAddress(globalScope, "selected_value");
+  auto savedSelf = constantAddress(globalScope, "saved_self");
+  auto selectedSelf = constantAddress(globalScope, "selected_self");
+  ASSERT_TRUE(table);
+  ASSERT_TRUE(selfTable);
+  ASSERT_TRUE(selected);
+  ASSERT_TRUE(other);
+  ASSERT_TRUE(selectedValue);
+  ASSERT_TRUE(savedSelf);
+  ASSERT_TRUE(selectedSelf);
+
+  EXPECT_EQ(selected->rootSymbol(), table);
+  EXPECT_TRUE(selected->isArrayElement());
+  EXPECT_EQ(selected->offset(), 0);
+  ASSERT_TRUE(selected->parent());
+  EXPECT_TRUE(selected->parent()->isArrayElement());
+  EXPECT_EQ(selected->parent()->offset(), 1);
+  ASSERT_TRUE(selected->parent()->parent());
+  EXPECT_EQ(selected->parent()->parent()->symbol(), table);
+  EXPECT_FALSE(selected->sameTarget(*other));
+
+  EXPECT_EQ(selectedValue->rootSymbol(), table);
+  ASSERT_TRUE(selectedValue->parent());
+  EXPECT_TRUE(selectedValue->parent()->isArrayElement());
+  EXPECT_EQ(selectedValue->parent()->offset(), 0);
+  ASSERT_TRUE(selectedValue->parent()->parent());
+  EXPECT_EQ(selectedValue->parent()->parent()->offset(), 1);
+
+  EXPECT_EQ(savedSelf->rootSymbol(), selfTable);
+  EXPECT_TRUE(savedSelf->sameTarget(*selectedSelf));
+  EXPECT_EQ(savedSelf->offset(), selectedSelf->offset());
 }
 
 TEST(PrecompiledHeader, RestoresSelectedSubobjectPaths) {

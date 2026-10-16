@@ -42,7 +42,6 @@
 #include <cstdint>
 #include <format>
 #include <functional>
-#include <limits>
 #include <set>
 #include <span>
 
@@ -126,16 +125,6 @@ namespace {
       return placeholder->typeConstraint;
   }
   return nullptr;
-}
-
-[[nodiscard]] auto designates_subobject(const TypeTraits& traits,
-                                        const Type* pointee,
-                                        const ConstAddress& address) -> bool {
-  if (address.offset() != 0) return true;
-  auto entityType = address.symbol()->type();
-  if (traits.is_array(entityType)) return true;
-  return !traits.is_same(traits.remove_cv(pointee),
-                         traits.remove_cv(entityType));
 }
 
 [[nodiscard]] auto mangling_parent(Symbol* symbol) -> Symbol* {
@@ -2816,12 +2805,14 @@ auto ExternalNameEncoder::isExpressionPrimary(const Type* type,
   if (std::holds_alternative<std::shared_ptr<InitializerList>>(value))
     return false;
   auto address = std::get_if<std::shared_ptr<ConstAddress>>(&value);
-  if (!address || !*address || !(*address)->symbol()) return true;
+  if (!address || !*address) return true;
+  auto path = constAddressPath(**address, *unit_->control()->memoryLayout());
+  auto rootSymbol = path ? path->rootAddress->symbol() : nullptr;
+  if (!rootSymbol) return !(*address)->symbol();
   auto traits = TypeTraits{unit_};
   if (!traits.is_reference(type)) return false;
-  if ((*address)->offset() != 0) return false;
-  return traits.is_same(traits.remove_reference(type),
-                        (*address)->symbol()->type());
+  if (path->designatesSubobject) return false;
+  return traits.is_same(traits.remove_reference(type), rootSymbol->type());
 }
 
 void ExternalNameEncoder::encodeValueExpression(const Type* type,
@@ -2846,7 +2837,8 @@ void ExternalNameEncoder::encodeValueExpression(const Type* type,
 
 void ExternalNameEncoder::encodeAddressValue(const Type* type,
                                              const ConstAddress& address) {
-  auto entity = address.symbol();
+  auto path = constAddressPath(address, *unit_->control()->memoryLayout());
+  auto entity = path ? path->rootAddress->symbol() : address.symbol();
   if (!entity) {
     out("L");
     encodeType(type);
@@ -2858,11 +2850,21 @@ void ExternalNameEncoder::encodeAddressValue(const Type* type,
 
   if (traits.is_member_pointer(type)) {
     out("ad");
-    encodeExternalName(entity);
+    encodeExternalName(address.symbol());
     return;
   }
 
+  auto pointee = traits.get_element_type(type);
+
   if (traits.is_reference(type)) {
+    if (path && path->designatesSubobject) {
+      out("so");
+      encodeType(pointee);
+      encodeExternalName(entity);
+      if (path->byteOffset != 0) out(std::to_string(path->byteOffset));
+      out("E");
+      return;
+    }
     if (!traits.is_same(traits.remove_reference(type), entity->type())) {
       out("cv");
       encodeType(type);
@@ -2871,16 +2873,11 @@ void ExternalNameEncoder::encodeAddressValue(const Type* type,
     return;
   }
 
-  auto pointee = traits.get_element_type(type);
-  if (designates_subobject(traits, pointee, address)) {
+  if (path && path->designatesSubobject) {
     out("adso");
     encodeType(pointee);
     encodeExternalName(entity);
-    if (address.offset() != 0) {
-      auto elementSize = unit_->control()->memoryLayout()->sizeOf(pointee);
-      out(std::to_string(address.offset() *
-                         static_cast<std::intmax_t>(elementSize.value_or(1))));
-    }
+    if (path->byteOffset != 0) out(std::to_string(path->byteOffset));
     out("E");
     return;
   }

@@ -19,6 +19,8 @@
 // SOFTWARE.
 
 #include <cxx/const_value.h>
+#include <cxx/literals.h>
+#include <cxx/memory_layout.h>
 #include <cxx/names.h>
 #include <cxx/symbols.h>
 #include <cxx/types.h>
@@ -185,8 +187,19 @@ auto ConstAddress::borrowedLifetime(
       new ConstAddress(std::weak_ptr<ConstLifetimeStorage>{storage}, offset));
 }
 
+auto ConstAddress::arrayElement(std::shared_ptr<ConstAddress> parent,
+                                std::intmax_t offset)
+    -> std::shared_ptr<ConstAddress> {
+  if (!parent) return {};
+  return std::shared_ptr<ConstAddress>(
+      new ConstAddress(std::move(parent), offset));
+}
+
 ConstAddress::ConstAddress(std::shared_ptr<ConstAddress> parent, Symbol* symbol)
-    : symbol_(symbol->canonical()), origin_(std::move(parent)) {}
+    : symbol_(symbol ? symbol->canonical() : nullptr),
+      origin_(std::move(parent)) {
+  assert(symbol_);
+}
 
 auto ConstAddress::forwardedAddress() const -> std::shared_ptr<ConstAddress> {
   auto storage =
@@ -339,6 +352,7 @@ auto ConstAddress::rootSymbol() const -> Symbol* {
 auto ConstAddress::sameTarget(const ConstAddress& other) const -> bool {
   auto left = this;
   auto right = &other;
+  bool compareOffset = false;
   for (;;) {
     auto leftForwarded = left->forwardedAddress();
     if (leftForwarded) {
@@ -350,6 +364,7 @@ auto ConstAddress::sameTarget(const ConstAddress& other) const -> bool {
       right = rightForwarded.get();
       continue;
     }
+    if (compareOffset && left->offset_ != right->offset_) return false;
     if (left->hasLifetimeStorage() != right->hasLifetimeStorage()) return false;
     if (left->hasLifetimeStorage() && !left->sameLifetimeStorage(*right))
       return false;
@@ -363,7 +378,7 @@ auto ConstAddress::sameTarget(const ConstAddress& other) const -> bool {
     if (!left->parent() || !right->parent()) return false;
     left = left->parent().get();
     right = right->parent().get();
-    if (left->offset_ != right->offset_) return false;
+    compareOffset = true;
   }
 }
 
@@ -375,6 +390,108 @@ auto ConstAddress::offset() const -> std::intmax_t {
 void ConstAddress::setOffset(std::intmax_t offset) {
   auto forwarded = forwardedAddress();
   offset_ = offset - (forwarded ? forwarded->offset() : 0);
+}
+
+auto constAddressPath(const ConstAddress& address,
+                      const MemoryLayout& memoryLayout)
+    -> std::optional<ConstAddressPath> {
+  std::vector<const ConstAddress*> reversePath;
+  for (auto current = &address; current; current = current->parent().get())
+    reversePath.push_back(current);
+  if (reversePath.empty()) return std::nullopt;
+
+  auto root = reversePath.back();
+  auto rootSymbol = address.rootSymbol();
+  auto rootStringLiteral = root->stringLiteral();
+  if (!rootSymbol && !rootStringLiteral) return std::nullopt;
+  ConstAddressPath result{.rootAddress = root};
+  const Type* selectedType = rootSymbol ? rootSymbol->type() : nullptr;
+
+  auto addByteOffset = [&](std::uintmax_t byteOffset) {
+    if (result.byteOffset >
+        std::numeric_limits<std::uintmax_t>::max() - byteOffset)
+      return false;
+    result.byteOffset += byteOffset;
+    return true;
+  };
+
+  auto addScaledOffset = [&](std::uintmax_t index, std::uintmax_t elementSize) {
+    if (elementSize != 0 &&
+        index > std::numeric_limits<std::uintmax_t>::max() / elementSize)
+      return false;
+    return addByteOffset(index * elementSize);
+  };
+
+  auto addElementOffset = [&](std::uintmax_t index, const Type* elementType) {
+    auto size = memoryLayout.sizeOf(elementType);
+    return size && addScaledOffset(index, *size);
+  };
+
+  for (auto step = reversePath.rbegin(); step != reversePath.rend(); ++step) {
+    auto current = *step;
+    if (current->offset() < 0) return std::nullopt;
+    const auto index = static_cast<std::uintmax_t>(current->offset());
+
+    if (current->isArrayElement()) {
+      auto array = unqualified_cast<BoundedArrayType>(selectedType);
+      auto unbounded = unqualified_cast<UnboundedArrayType>(selectedType);
+      auto elementType = array       ? array->elementType()
+                         : unbounded ? unbounded->elementType()
+                                     : nullptr;
+      if (elementType) {
+        if (!addElementOffset(index, elementType)) return std::nullopt;
+        selectedType = elementType;
+      } else if (rootStringLiteral) {
+        if (!addScaledOffset(index, rootStringLiteral->codeUnitSize()))
+          return std::nullopt;
+      } else {
+        return std::nullopt;
+      }
+      result.designatesSubobject = true;
+      continue;
+    }
+
+    auto symbol = current->symbol();
+    if (symbol && symbol != rootSymbol) {
+      if (auto field = symbol_cast<FieldSymbol>(symbol)) {
+        auto offset = field->offsetInClass();
+        if (!offset || !addByteOffset(*offset)) return std::nullopt;
+      } else if (auto base = symbol_cast<BaseClassSymbol>(symbol)) {
+        auto selectedClass = unqualified_cast<ClassType>(selectedType);
+        auto selectedSymbol = selectedClass ? selectedClass->symbol() : nullptr;
+        auto selectedDefinition =
+            selectedSymbol ? selectedSymbol->resolvedDefinition() : nullptr;
+        auto selectedLayout =
+            selectedDefinition ? selectedDefinition->layout() : nullptr;
+        auto baseSymbol = resolved_base_class(base);
+        auto info =
+            selectedLayout && baseSymbol
+                ? selectedLayout->getBaseInfo(baseSymbol, base->isVirtual())
+                : std::nullopt;
+        if (!info || !addByteOffset(info->offset)) return std::nullopt;
+      } else {
+        return std::nullopt;
+      }
+      selectedType = symbol->type();
+      result.designatesSubobject = true;
+    }
+
+    if (index == 0) continue;
+    auto array = unqualified_cast<BoundedArrayType>(selectedType);
+    auto elementType = array ? array->elementType() : selectedType;
+    if (elementType) {
+      if (!addElementOffset(index, elementType)) return std::nullopt;
+      if (array) selectedType = elementType;
+    } else if (rootStringLiteral) {
+      if (!addScaledOffset(index, rootStringLiteral->codeUnitSize()))
+        return std::nullopt;
+    } else {
+      return std::nullopt;
+    }
+    result.designatesSubobject = true;
+  }
+
+  return result;
 }
 
 auto ConstObject::operator==(const ConstObject& other) const -> bool {

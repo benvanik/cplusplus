@@ -32,6 +32,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <variant>
@@ -39,6 +40,7 @@
 
 namespace cxx {
 class Meta;
+class MemoryLayout;
 class InitializerList;
 class ConstComplex;
 class ConstObject;
@@ -47,6 +49,16 @@ class ConstLifetimeStorage;
 class ConstAddress;
 class ConstLabelAddress;
 class ASTInterpreter;
+
+// ABI interpretation of a retained constant-address path.
+struct ConstAddressPath {
+  // Root storage node from which the path selects.
+  const ConstAddress* rootAddress = nullptr;
+  // Byte offset of the selected object from its root storage.
+  std::uintmax_t byteOffset = 0;
+  // Whether the path selects within its root object.
+  bool designatesSubobject = false;
+};
 
 struct DefaultInitializerContext {
   SourceLocation location;
@@ -289,6 +301,12 @@ class ConstAddress {
       const std::shared_ptr<ConstLifetimeStorage>& storage,
       std::intmax_t offset = 0) -> std::shared_ptr<ConstAddress>;
 
+  // Array element addresses retain the containing array as a distinct path
+  // step. Pointer arithmetic changes the offset of this leaf only.
+  [[nodiscard]] static auto arrayElement(std::shared_ptr<ConstAddress> parent,
+                                         std::intmax_t offset)
+      -> std::shared_ptr<ConstAddress>;
+
   // Subobject addresses retain the containing address that selected them.
   ConstAddress(std::shared_ptr<ConstAddress> parent, Symbol* symbol);
 
@@ -317,6 +335,10 @@ class ConstAddress {
   [[nodiscard]] auto rootSymbol() const -> Symbol*;
 
   [[nodiscard]] auto sameTarget(const ConstAddress& other) const -> bool;
+
+  [[nodiscard]] auto isArrayElement() const -> bool {
+    return parent() && !symbol();
+  }
 
   [[nodiscard]] auto denotesWholeOwner() const -> bool {
     return owner() && !symbol();
@@ -352,6 +374,9 @@ class ConstAddress {
                         std::intmax_t offset)
       : origin_(std::move(storage)), offset_(offset) {}
 
+  ConstAddress(std::shared_ptr<ConstAddress> parent, std::intmax_t offset)
+      : origin_(std::move(parent)), offset_(offset) {}
+
   Symbol* symbol_ = nullptr;
   // Mutually exclusive root of this address. Pointer arithmetic clones the
   // leaf while subobject paths retain their immutable parent address.
@@ -378,6 +403,11 @@ class ConstLabelAddress {
  private:
   std::string name_;
 };
+
+// Resolves a retained address path against the active target data layout.
+[[nodiscard]] auto constAddressPath(const ConstAddress& address,
+                                    const MemoryLayout& memoryLayout)
+    -> std::optional<ConstAddressPath>;
 
 [[nodiscard]] auto isFullyInitialized(const ConstValue& value) -> bool;
 
