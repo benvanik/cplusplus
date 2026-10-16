@@ -33,6 +33,7 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 namespace cxx {
@@ -168,9 +169,6 @@ class ASTInterpreter {
   using ExpressionResult = std::optional<ConstValue>;
 
   [[nodiscard]] static auto sameObjectOperand(ExpressionAST* ast)
-      -> ExpressionAST*;
-
-  [[nodiscard]] static auto materializedTemporary(ExpressionAST* ast)
       -> ExpressionAST*;
 
   [[nodiscard]] static auto initializingStringLiteral(
@@ -452,6 +450,21 @@ class ASTInterpreter {
   void registerAutomaticObject(Symbol* symbol);
   [[nodiscard]] auto destroyValue(const Type* type, ConstValue& value) -> bool;
 
+  struct Temporary {
+    // Source type governing destruction of the retained value.
+    const Type* type = nullptr;
+    // Value or lifetime owner retained through its C++ lifetime boundary.
+    ConstValue owner;
+  };
+
+  void retainTemporary(const Type* type, ConstValue owner);
+  void adoptTemporary(const ConstValue& value);
+  [[nodiscard]] auto destroyTemporary(Temporary& temporary) -> bool;
+  [[nodiscard]] static auto owningLifetimeStorage(const ConstValue& value)
+      -> std::shared_ptr<ConstLifetimeStorage>;
+  [[nodiscard]] static auto sameTemporary(const ConstValue& left,
+                                          const ConstValue& right) -> bool;
+
   [[nodiscard]] auto initializeDefaultedObject(
       const std::shared_ptr<ConstObject>& obj, ClassSymbol* classSymbol)
       -> bool;
@@ -538,8 +551,6 @@ class ASTInterpreter {
 
   [[nodiscard]] auto receiverFor(ExpressionAST* base, TokenKind accessOp)
       -> Receiver;
-
-  void retainMaterializedTemporary(std::shared_ptr<ConstObject> object);
 
   [[nodiscard]] auto memberReceiver(MemberExpressionAST* ast) -> Receiver;
 
@@ -720,8 +731,8 @@ class ASTInterpreter {
     // Reference identities, including referents without a readable value.
     // Every binding shadows the same parameter in an outer recursive call.
     std::unordered_map<const Symbol*, ConstValue> referenceAddresses;
-    // Local objects whose lifetimes end with this invocation.
-    std::vector<Symbol*> automaticObjects;
+    // Named objects and lifetime-extended temporaries in construction order.
+    std::vector<std::variant<Symbol*, Temporary>> automaticLifetimes;
   };
 
   // Stack-resident runtime lifetime region. Storage identities are allocated
@@ -742,10 +753,8 @@ class ASTInterpreter {
     ASTInterpreter& interp_;
     AutomaticScope* parent_ = nullptr;
     std::size_t frameIndex_ = 0;
-    std::size_t automaticObjectMark_ = 0;
+    std::size_t automaticLifetimeMark_ = 0;
     std::shared_ptr<ConstStorage> storageHead_;
-    // Temporaries whose references extend through this automatic scope.
-    std::vector<std::shared_ptr<ConstAddress>> lifetimeOwners_;
     bool active_ = false;
   };
   std::deque<Frame> frames_;
@@ -770,23 +779,28 @@ class ASTInterpreter {
   };
 
   int activeEvaluations_ = 0;
-  // Values retained until their containing C++ full-expression completes.
-  std::vector<ConstValue> fullExpressionStorage_;
+  // Temporaries retained until their containing C++ full-expression completes.
+  std::vector<Temporary> fullExpressionStorage_;
 
   class FullExpressionScope {
    public:
     explicit FullExpressionScope(ASTInterpreter& interp)
         : interp_(interp), storageMark_(interp.fullExpressionStorage_.size()) {}
 
-    ~FullExpressionScope() {
-      interp_.fullExpressionStorage_.resize(storageMark_);
-    }
+    ~FullExpressionScope();
+
+    FullExpressionScope(const FullExpressionScope&) = delete;
+    auto operator=(const FullExpressionScope&) -> FullExpressionScope& = delete;
+
+    void transfer(const ConstValue& value);
+    void end();
 
    private:
     // Interpreter whose full-expression stack this scope restores.
     ASTInterpreter& interp_;
     // Stack size on entry, preserving owners from an enclosing expression.
     std::size_t storageMark_ = 0;
+    bool active_ = true;
   };
 
   std::optional<ConstValue> returnValue_;

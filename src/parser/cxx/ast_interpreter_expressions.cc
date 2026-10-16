@@ -884,7 +884,16 @@ auto ASTInterpreter::expression(ExpressionAST* ast) -> ExpressionResult {
   if (!ast) return ExpressionResult{std::nullopt};
   if (aborted_) return ExpressionResult{std::nullopt};
   if (isDependent(unit_, ast->type)) return ExpressionResult{std::nullopt};
-  return visit(ExpressionVisitor{*this}, ast);
+  auto result = visit(ExpressionVisitor{*this}, ast);
+  const bool isAggregateValue =
+      result &&
+      (std::holds_alternative<std::shared_ptr<ConstObject>>(*result) ||
+       std::holds_alternative<std::shared_ptr<InitializerList>>(*result));
+  if (isAggregateValue && ast->type && !is_glvalue(ast) &&
+      !traits.has_trivial_destructor(ast->type)) {
+    retainTemporary(ast->type, *result);
+  }
+  return result;
 }
 
 auto ASTInterpreter::evaluateStaticField(FieldSymbol* field)
@@ -1593,11 +1602,6 @@ auto ASTInterpreter::implicitObjectFor(Symbol* member)
   return objectDesignatedByThis();
 }
 
-void ASTInterpreter::retainMaterializedTemporary(
-    std::shared_ptr<ConstObject> object) {
-  if (object) fullExpressionStorage_.emplace_back(std::move(object));
-}
-
 auto ASTInterpreter::receiverFor(ExpressionAST* base, TokenKind accessOp)
     -> Receiver {
   Receiver receiver;
@@ -1627,7 +1631,7 @@ auto ASTInterpreter::receiverFor(ExpressionAST* base, TokenKind accessOp)
   if (auto object = std::get_if<std::shared_ptr<ConstObject>>(&*value)) {
     receiver.object = *object;
     if (receiver.object && !is_glvalue(base)) {
-      retainMaterializedTemporary(receiver.object);
+      retainTemporary(base->type, receiver.object);
       receiver.address = ConstAddress::materialized(receiver.object);
     }
   }
@@ -1728,31 +1732,38 @@ auto ASTInterpreter::initializationValue(const Type* type,
                                          ExpressionAST* initializer,
                                          ConstValue* storage)
     -> std::optional<ConstValue> {
-  FullExpressionScope fullExpressionScope{*this};
   EvaluationScope evaluationScope{*this};
-  if (traits.is_reference(type)) return referenceBinding(initializer);
-  Initializer init{initializer};
-  if (!constructor || ast_cast<ConstExpressionAST>(init.clause())) {
-    return initializer ? evaluateInitializer(type, initializer)
-                       : defaultConstruct(type, storage);
+  FullExpressionScope fullExpressionScope{*this};
+  std::optional<ConstValue> value;
+  if (traits.is_reference(type)) {
+    value = referenceBinding(initializer);
+  } else {
+    Initializer init{initializer};
+    if (!constructor || ast_cast<ConstExpressionAST>(init.clause())) {
+      value = initializer ? evaluateInitializer(type, initializer)
+                          : defaultConstruct(type, storage);
+    } else {
+      auto retained = storage
+                          ? std::get_if<std::shared_ptr<ConstObject>>(storage)
+                          : nullptr;
+      auto object = retained ? *retained : nullptr;
+      auto arguments = init.arguments();
+      if (!object && arguments.empty() &&
+          (init.form() == InitializerForm::kList ||
+           init.form() == InitializerForm::kParen) &&
+          traits.requires_zero_initialization(type, constructor)) {
+        auto zero = zeroInitialize(type);
+        if (!zero) return std::nullopt;
+        auto zeroObject = std::get_if<std::shared_ptr<ConstObject>>(&*zero);
+        if (!zeroObject || !*zeroObject) return std::nullopt;
+        object = *zeroObject;
+      }
+      value = evaluateConstructorFromExprs(constructor, type, arguments,
+                                           std::move(object));
+    }
   }
-
-  auto retained =
-      storage ? std::get_if<std::shared_ptr<ConstObject>>(storage) : nullptr;
-  auto object = retained ? *retained : nullptr;
-  auto arguments = init.arguments();
-  if (!object && arguments.empty() &&
-      (init.form() == InitializerForm::kList ||
-       init.form() == InitializerForm::kParen) &&
-      traits.requires_zero_initialization(type, constructor)) {
-    auto zero = zeroInitialize(type);
-    if (!zero) return std::nullopt;
-    auto zeroObject = std::get_if<std::shared_ptr<ConstObject>>(&*zero);
-    if (!zeroObject || !*zeroObject) return std::nullopt;
-    object = *zeroObject;
-  }
-  return evaluateConstructorFromExprs(constructor, type, arguments,
-                                      std::move(object));
+  if (value) adoptTemporary(*value);
+  return value;
 }
 
 auto ASTInterpreter::evaluateInitializer(const Type* type,
@@ -1760,7 +1771,7 @@ auto ASTInterpreter::evaluateInitializer(const Type* type,
     -> std::optional<ConstValue> {
   auto arrayType = type_cast<BoundedArrayType>(traits.remove_cv(type));
   auto literal = arrayType ? initializingStringLiteral(initializer) : nullptr;
-  if (!literal) return evaluate(initializer);
+  if (!literal) return expression(initializer);
   return stringLiteralArray(arrayType, literal);
 }
 
@@ -1805,16 +1816,23 @@ auto ASTInterpreter::referenceBinding(ExpressionAST* initializer)
   }
 
   EvaluationScope evaluationScope{*this};
-  if (auto temporary = materializedTemporary(referent)) {
-    auto value = evaluate(temporary);
+  auto temporary = ::cxx::materializedTemporary(traits, referent);
+  if (auto address = addressOfLvalue(referent)) {
+    auto pointer = std::get_if<std::shared_ptr<ConstAddress>>(&*address);
+    if (!pointer || !*pointer) return std::nullopt;
+    if (temporary) {
+      if (auto lifetime = materializeAddressLifetime(*pointer))
+        return ConstValue{std::move(lifetime->owner)};
+    }
+    return address;
+  }
+  if (temporary) {
+    auto value = expression(referent);
     if (!value) return std::nullopt;
+    adoptTemporary(*value);
     return ConstValue{materializeLifetime(std::move(*value)).owner};
   }
-  auto address = addressOfLvalue(referent);
-  if (!address) return std::nullopt;
-  auto pointer = std::get_if<std::shared_ptr<ConstAddress>>(&*address);
-  if (!pointer || !*pointer) return std::nullopt;
-  return address;
+  return std::nullopt;
 }
 
 auto ASTInterpreter::memberValue(const std::shared_ptr<ConstObject>& object,
@@ -4035,7 +4053,7 @@ auto ASTInterpreter::ExpressionVisitor::aggregateObject(
     ++elementIndex;
 
     auto evaluateClause = [&] {
-      if (subobjectDesignators) return interp.evaluate(clause);
+      if (subobjectDesignators) return interp.expression(clause);
       return interp.initialValue(
           unit()->typeTraits().aggregate_element_type(element), clause);
     };
@@ -4066,6 +4084,7 @@ auto ASTInterpreter::ExpressionVisitor::aggregateObject(
       auto slot = designatedSlot(interp, interp.subobjectSlot(object, element),
                                  subobjectDesignators);
       if (!slot) return std::nullopt;
+      interp.adoptTemporary(*value);
       *slot = std::move(*value);
       if (auto completed = object->subobject(element))
         interp.attachMaterializedSubobject(object, element, *completed);
@@ -4124,7 +4143,7 @@ auto ASTInterpreter::ExpressionVisitor::arrayValue(BracedInitListAST* ast,
     }
 
     if (elementIndex < type->size() && clause) {
-      auto value = interp.evaluate(clause);
+      auto value = interp.expression(clause);
       if (!value) return std::nullopt;
       auto slot =
           designatedSlot(interp, &std::get<0>(list->elements[elementIndex]),
@@ -4175,7 +4194,7 @@ auto ASTInterpreter::ExpressionVisitor::vectorValue(BracedInitListAST* ast,
   std::size_t index = 0;
   for (auto node : ListView{ast->expressionList}) {
     if (index >= list->elements.size()) return std::nullopt;
-    auto element = interp.evaluate(node);
+    auto element = interp.expression(node);
     if (!element) return std::nullopt;
     std::get<0>(list->elements[index++]) = std::move(*element);
   }
@@ -4196,7 +4215,7 @@ auto ASTInterpreter::ExpressionVisitor::complexValue(
 
   for (auto node : ListView{ast->expressionList}) {
     if (index >= 2) break;
-    auto value = interp.evaluate(node);
+    auto value = interp.expression(node);
     if (!value) return std::nullopt;
     auto converted = interp.toArithmeticType(*value, elementType);
     if (!converted) return std::nullopt;
@@ -4227,12 +4246,12 @@ auto ASTInterpreter::ExpressionVisitor::operator()(BracedInitListAST* ast)
   } else if (!traits.is_class(ast->type)) {
     if (!ast->expressionList) return interp.zeroInitialize(ast->type);
     if (!ast->expressionList->next)
-      return interp.evaluate(ast->expressionList->value);
+      return interp.expression(ast->expressionList->value);
   }
 
   auto values = std::vector<std::tuple<ConstValue, const Type*>>();
   for (auto node : ListView{ast->expressionList}) {
-    auto value = interp.evaluate(node);
+    auto value = interp.expression(node);
     if (!value) return std::nullopt;
     values.emplace_back(*value, node->type);
   }

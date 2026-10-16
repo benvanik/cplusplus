@@ -39,6 +39,7 @@
 #include <format>
 #include <iterator>
 #include <limits>
+#include <type_traits>
 #include <utility>
 
 namespace cxx {
@@ -312,6 +313,7 @@ auto ASTInterpreter::materializeAddressLifetime(
   }
   if (!value) return std::nullopt;
 
+  adoptTemporary(*value);
   auto lifetime = materializeLifetime(std::move(*value));
   auto rebuildPath = [&](std::shared_ptr<ConstAddress> newRoot) {
     newRoot->setOffset(reversePath.back().offset);
@@ -338,6 +340,7 @@ auto ASTInterpreter::materializeAddressLifetime(
 void ASTInterpreter::attachMaterializedSubobject(
     const std::shared_ptr<ConstObject>& object, Symbol* member,
     const ConstValue& value) {
+  adoptTemporary(value);
   if (!object || !member) return;
   std::shared_ptr<ConstMaterializedStorage> childStorage;
   if (auto child = std::get_if<std::shared_ptr<ConstObject>>(&value);
@@ -362,6 +365,7 @@ void ASTInterpreter::attachMaterializedSubobject(
 void ASTInterpreter::attachMaterializedElement(
     const std::shared_ptr<InitializerList>& elements, std::size_t index,
     const ConstValue& value) {
+  adoptTemporary(value);
   if (!elements) return;
   std::shared_ptr<ConstMaterializedStorage> childStorage;
   if (auto child = std::get_if<std::shared_ptr<ConstObject>>(&value);
@@ -426,7 +430,9 @@ auto ASTInterpreter::control() const -> Control* { return unit_->control(); }
 
 auto ASTInterpreter::evaluate(ExpressionAST* ast) -> std::optional<ConstValue> {
   EvaluationScope evaluationScope{*this};
+  FullExpressionScope fullExpressionScope{*this};
   auto result = expression(ast);
+  if (result) adoptTemporary(*result);
   return result;
 }
 
@@ -690,53 +696,40 @@ auto ASTInterpreter::lookupLocalSlot(const Symbol* sym) -> ConstValue* {
   return nullptr;
 }
 
-auto ASTInterpreter::materializedTemporary(ExpressionAST* ast)
-    -> ExpressionAST* {
-  auto temporary = ast;
-  while (ast) {
-    while (auto nested = ast_cast<NestedExpressionAST>(ast))
-      ast = nested->expression;
-    if (!is_glvalue(ast)) return temporary;
-
-    auto cast = ast_cast<ImplicitCastExpressionAST>(ast);
-    if (cast &&
-        cast->castKind == ImplicitCastKind::kTemporaryMaterializationConversion)
-      return temporary;
-
-    ast = sameObjectOperand(ast);
-  }
-  return nullptr;
-}
-
 auto ASTInterpreter::bindReferenceTo(Frame& frame, Symbol* reference,
                                      ExpressionAST* initializer) -> bool {
-  if (auto temporary = materializedTemporary(initializer)) {
-    auto value = evaluate(temporary);
-    if (!value) return false;
-    auto lifetime = materializeLifetime(std::move(*value));
+  auto temporary = ::cxx::materializedTemporary(traits, initializer);
+  auto temporaryType = temporary ? temporary.expression->type : nullptr;
+
+  auto retainLifetime = [&](MaterializedLifetime lifetime) {
+    auto destructionType = temporaryType
+                               ? temporaryType
+                               : traits.remove_reference(reference->type());
+    Temporary retained{destructionType, lifetime.owner};
     if (symbol_cast<ParameterSymbol>(reference)) {
-      fullExpressionStorage_.emplace_back(lifetime.owner);
+      retainTemporary(retained.type, std::move(retained.owner));
     } else {
       if (!currentAutomaticScope_) return false;
-      currentAutomaticScope_->lifetimeOwners_.push_back(lifetime.owner);
+      frames_[currentAutomaticScope_->frameIndex_]
+          .automaticLifetimes.emplace_back(std::move(retained));
     }
     return bindReferenceAddress(frame, reference, lifetime.borrower);
-  }
+  };
 
   if (auto value = addressOfLvalue(initializer)) {
     auto address = std::get_if<std::shared_ptr<ConstAddress>>(&*value);
     if (address && *address) {
-      if (auto lifetime = materializeAddressLifetime(*address)) {
-        if (symbol_cast<ParameterSymbol>(reference)) {
-          fullExpressionStorage_.emplace_back(lifetime->owner);
-        } else {
-          if (!currentAutomaticScope_) return false;
-          currentAutomaticScope_->lifetimeOwners_.push_back(lifetime->owner);
-        }
-        return bindReferenceAddress(frame, reference, lifetime->borrower);
-      }
+      if (auto lifetime = materializeAddressLifetime(*address))
+        return retainLifetime(std::move(*lifetime));
     }
     if (bindReferenceAddress(frame, reference, std::move(*value))) return true;
+  }
+
+  if (temporary) {
+    auto value = expression(initializer);
+    if (!value) return false;
+    adoptTemporary(*value);
+    return retainLifetime(materializeLifetime(std::move(*value)));
   }
 
   auto slot = lvalue(initializer);
@@ -850,9 +843,13 @@ auto ASTInterpreter::bindOneParameter(Frame& frame, Symbol* paramSymbol,
       bindReferenceTo(frame, param, argExpr)) {
     return true;
   }
-  if (auto value = evaluate(argExpr)) {
-    frame.locals.insert_or_assign(paramSymbol,
-                                  Frame::Local{cloneValue(*value)});
+  if (auto value = expression(argExpr)) {
+    const bool movesPrvalue =
+        !is_glvalue(argExpr) && traits.is_class(paramSymbol->type());
+    if (movesPrvalue) adoptTemporary(*value);
+    frame.locals.insert_or_assign(
+        paramSymbol,
+        Frame::Local{movesPrvalue ? std::move(*value) : cloneValue(*value)});
     return true;
   }
 
@@ -1210,7 +1207,8 @@ ASTInterpreter::AutomaticScope::AutomaticScope(ASTInterpreter& interp)
     : interp_(interp), parent_(interp.currentAutomaticScope_) {
   if (interp_.frames_.empty()) return;
   frameIndex_ = interp_.frames_.size() - 1;
-  automaticObjectMark_ = interp_.frames_[frameIndex_].automaticObjects.size();
+  automaticLifetimeMark_ =
+      interp_.frames_[frameIndex_].automaticLifetimes.size();
   interp_.currentAutomaticScope_ = this;
   active_ = true;
 }
@@ -1221,21 +1219,29 @@ void ASTInterpreter::AutomaticScope::end() {
   if (!active_) return;
 
   auto& interp = interp_;
-  while (interp.frames_[frameIndex_].automaticObjects.size() >
-         automaticObjectMark_) {
-    auto variable = interp.frames_[frameIndex_].automaticObjects.back();
-    interp.frames_[frameIndex_].automaticObjects.pop_back();
-    auto found = interp.frames_[frameIndex_].locals.find(variable);
-    if (found == interp.frames_[frameIndex_].locals.end() ||
-        interp.destroyValue(variable->type(), found->second.value))
-      continue;
+  auto& lifetimes = interp.frames_[frameIndex_].automaticLifetimes;
+  while (lifetimes.size() > automaticLifetimeMark_) {
+    auto lifetime = std::move(lifetimes.back());
+    lifetimes.pop_back();
+    auto destroyed = std::visit(
+        [&](auto&& value) {
+          using T = std::decay_t<decltype(value)>;
+          if constexpr (std::is_same_v<T, Symbol*>) {
+            auto found = interp.frames_[frameIndex_].locals.find(value);
+            return found == interp.frames_[frameIndex_].locals.end() ||
+                   interp.destroyValue(value->type(), found->second.value);
+          } else {
+            return interp.destroyTemporary(value);
+          }
+        },
+        lifetime);
+    if (destroyed) continue;
     interp.aborted_ = true;
-    interp.frames_[frameIndex_].automaticObjects.resize(automaticObjectMark_);
+    lifetimes.resize(automaticLifetimeMark_);
     break;
   }
 
   interp.retireAutomaticStorage(*this);
-  lifetimeOwners_.clear();
 
   interp.currentAutomaticScope_ = parent_;
   active_ = false;
@@ -1249,7 +1255,98 @@ void ASTInterpreter::registerAutomaticObject(Symbol* symbol) {
   if (frames_.empty()) return;
   auto type = traits.remove_cv(symbol->type());
   if (!traits.is_class(type) && !traits.is_array(type)) return;
-  frames_.back().automaticObjects.push_back(symbol);
+  frames_.back().automaticLifetimes.emplace_back(symbol);
+}
+
+auto ASTInterpreter::owningLifetimeStorage(const ConstValue& value)
+    -> std::shared_ptr<ConstLifetimeStorage> {
+  auto address = std::get_if<std::shared_ptr<ConstAddress>>(&value);
+  if (!address || !*address) return {};
+  auto root = *address;
+  while (root->parent()) root = root->parent();
+  return root->ownedLifetimeStorage();
+}
+
+auto ASTInterpreter::sameTemporary(const ConstValue& left,
+                                   const ConstValue& right) -> bool {
+  if (auto leftObject = std::get_if<std::shared_ptr<ConstObject>>(&left)) {
+    auto rightObject = std::get_if<std::shared_ptr<ConstObject>>(&right);
+    return rightObject && *leftObject == *rightObject;
+  }
+  if (auto leftElements =
+          std::get_if<std::shared_ptr<InitializerList>>(&left)) {
+    auto rightElements = std::get_if<std::shared_ptr<InitializerList>>(&right);
+    return rightElements && *leftElements == *rightElements;
+  }
+  auto leftAddress = std::get_if<std::shared_ptr<ConstAddress>>(&left);
+  auto rightAddress = std::get_if<std::shared_ptr<ConstAddress>>(&right);
+  if (!leftAddress || !*leftAddress || !rightAddress || !*rightAddress)
+    return false;
+  auto leftLifetime = owningLifetimeStorage(left);
+  auto rightLifetime = owningLifetimeStorage(right);
+  if (leftLifetime || rightLifetime)
+    return leftLifetime && rightLifetime && leftLifetime == rightLifetime;
+  return *leftAddress == *rightAddress;
+}
+
+void ASTInterpreter::retainTemporary(const Type* type, ConstValue owner) {
+  if (!type) return;
+  if (std::ranges::any_of(fullExpressionStorage_, [&](const Temporary& entry) {
+        return sameTemporary(entry.owner, owner);
+      }))
+    return;
+  fullExpressionStorage_.push_back({type, std::move(owner)});
+}
+
+void ASTInterpreter::adoptTemporary(const ConstValue& value) {
+  auto found = std::ranges::find_if(fullExpressionStorage_.rbegin(),
+                                    fullExpressionStorage_.rend(),
+                                    [&](const Temporary& entry) {
+                                      return sameTemporary(entry.owner, value);
+                                    });
+  if (found == fullExpressionStorage_.rend()) return;
+  fullExpressionStorage_.erase(std::next(found).base());
+}
+
+auto ASTInterpreter::destroyTemporary(Temporary& temporary) -> bool {
+  if (!temporary.type) return false;
+  auto value = &temporary.owner;
+  if (auto storage = owningLifetimeStorage(temporary.owner))
+    value = storage->mutableValue();
+  if (traits.has_trivial_destructor(temporary.type)) return true;
+  return destroyValue(temporary.type, *value);
+}
+
+ASTInterpreter::FullExpressionScope::~FullExpressionScope() { end(); }
+
+void ASTInterpreter::FullExpressionScope::transfer(const ConstValue& value) {
+  auto begin = interp_.fullExpressionStorage_.begin() + storageMark_;
+  auto found = std::find_if(
+      std::make_reverse_iterator(interp_.fullExpressionStorage_.end()),
+      std::make_reverse_iterator(begin), [&](const Temporary& entry) {
+        return ASTInterpreter::sameTemporary(entry.owner, value);
+      });
+  if (found == std::make_reverse_iterator(begin)) return;
+
+  auto temporary = std::move(*found);
+  interp_.fullExpressionStorage_.erase(std::next(found).base());
+  interp_.fullExpressionStorage_.insert(
+      interp_.fullExpressionStorage_.begin() + storageMark_,
+      std::move(temporary));
+  ++storageMark_;
+}
+
+void ASTInterpreter::FullExpressionScope::end() {
+  if (!active_) return;
+  while (interp_.fullExpressionStorage_.size() > storageMark_) {
+    auto temporary = std::move(interp_.fullExpressionStorage_.back());
+    interp_.fullExpressionStorage_.pop_back();
+    if (interp_.destroyTemporary(temporary)) continue;
+    interp_.aborted_ = true;
+    interp_.fullExpressionStorage_.resize(storageMark_);
+    break;
+  }
+  active_ = false;
 }
 
 auto ASTInterpreter::destroyValue(const Type* type, ConstValue& value) -> bool {

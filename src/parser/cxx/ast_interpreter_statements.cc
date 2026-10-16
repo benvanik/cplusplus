@@ -654,6 +654,7 @@ auto ASTInterpreter::StatementVisitor::operator()(ReturnStatementAST* ast)
 
   auto expressionResult = interp.expression(ast->expression);
   if (expressionResult.has_value()) {
+    fullExpressionScope.transfer(*expressionResult);
     interp.setReturnValue(*expressionResult);
   } else if (ast->expression) {
     interp.aborted_ = true;
