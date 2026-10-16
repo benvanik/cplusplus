@@ -199,9 +199,12 @@ auto ASTInterpreter::zeroInitialize(const Type* type)
 
   auto object = std::make_shared<ConstObject>(classType);
   for (auto element : traits.aggregate_elements(classSymbol)) {
-    auto elementZero = zeroInitialize(traits.aggregate_element_type(element));
-    if (!elementZero) return std::nullopt;
-    object->addMember(element, std::move(*elementZero));
+    auto elementType = traits.aggregate_element_type(element);
+    if (!traits.is_reference(elementType)) {
+      auto elementZero = zeroInitialize(elementType);
+      if (!elementZero) return std::nullopt;
+      object->addMember(element, std::move(*elementZero));
+    }
     if (classSymbol->isUnion()) break;
   }
   return ConstValue{object};
