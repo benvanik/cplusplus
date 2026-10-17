@@ -1530,25 +1530,31 @@ auto ASTInterpreter::executeFunction(
   if (object && object->lifetimeEnded()) return {};
   if (allocatorElementType(function))
     return {evaluateAllocatorCall(function, frame), nullptr};
-  Reflection reflection{unit_};
-  auto builtin = reflection.builtin(function);
-  if (builtin != WellKnownName::T_NONE) {
-    auto parameters = function->parameters();
+  auto boundArguments = [&](const std::vector<ParameterSymbol*>& parameters)
+      -> std::optional<std::vector<ConstValue>> {
     std::vector<ConstValue> arguments;
     arguments.reserve(parameters.size());
     for (auto parameter : parameters) {
       if (traits.is_reference(parameter->type())) {
         auto binding = frame.references.find(parameter);
         if (binding == frame.references.end() || !binding->second.address)
-          return {};
+          return std::nullopt;
         arguments.push_back(*binding->second.address);
         continue;
       }
       auto argument = frame.locals.find(parameter);
-      if (argument == frame.locals.end()) return {};
+      if (argument == frame.locals.end()) return std::nullopt;
       arguments.push_back(argument->second->value());
     }
-    auto value = reflection.call(builtin, arguments, evaluationScope_, this,
+    return arguments;
+  };
+  Reflection reflection{unit_};
+  auto builtin = reflection.builtin(function);
+  if (builtin != WellKnownName::T_NONE) {
+    auto parameters = function->parameters();
+    auto arguments = boundArguments(parameters);
+    if (!arguments) return {};
+    auto value = reflection.call(builtin, *arguments, evaluationScope_, this,
                                  object, function);
     if (!value) {
       if (!aborted_) reflection.throwFailure(function, evaluationScope_, this);
@@ -1583,7 +1589,26 @@ auto ASTInterpreter::executeFunction(
   auto definition = definingDeclarationOf(function);
   auto declaration = definition->declaration();
   auto body = declaration ? body_statement(declaration->functionBody) : nullptr;
-  if (!body) return {};
+  if (!body) {
+    auto provider = unit_->constexprCallProvider();
+    auto functionType = type_cast<FunctionType>(function->type());
+    if (declaration || !provider || !functionType ||
+        functionType->isVariadic() || constructor ||
+        function->isImplicitObjectMemberFunction()) {
+      return {};
+    }
+    auto returnType = functionType->returnType();
+    if (kind != CallResultKind::kValue && !traits.is_reference(returnType))
+      return {};
+    auto parameters = definition->parameters();
+    auto arguments = boundArguments(parameters);
+    if (!arguments) return {};
+    auto value = provider->evaluate(*this, function, *arguments);
+    if (!value) return {};
+    if (traits.is_reference(returnType))
+      return builtinReferenceResult(kind, *value, returnType);
+    return {std::move(value), nullptr};
+  }
 
   auto functionType = type_cast<FunctionType>(function->type());
   const auto returnsReference =
