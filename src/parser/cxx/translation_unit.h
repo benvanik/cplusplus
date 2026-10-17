@@ -46,6 +46,8 @@
 #include <vector>
 
 namespace cxx {
+class ConstexprCallProvider;
+
 class TranslationUnit {
  public:
   explicit TranslationUnit(DiagnosticsClient* diagosticsClient = nullptr);
@@ -59,6 +61,16 @@ class TranslationUnit {
   [[nodiscard]] auto control() const -> Control* { return control_.get(); }
 
   [[nodiscard]] auto arena() const -> Arena* { return arena_.get(); }
+
+  [[nodiscard]] auto constexprCallProvider() const -> ConstexprCallProvider* {
+    return constexprCallProvider_;
+  }
+
+  // Installs a non-owning provider for constant evaluation of constexpr
+  // function declarations without a source definition.
+  void setConstexprCallProvider(ConstexprCallProvider* provider) {
+    constexprCallProvider_ = provider;
+  }
 
   [[nodiscard]] auto typeTraits() -> TypeTraits;
 
@@ -471,6 +483,8 @@ class TranslationUnit {
   std::unique_ptr<Arena> arena_;
   std::unique_ptr<Preprocessor> preprocessor_;
   std::unique_ptr<Parser> parser_;
+  // Semantic host extension retained while this unit is evaluated.
+  ConstexprCallProvider* constexprCallProvider_ = nullptr;
   std::vector<Token> tokens_;
   std::string fileName_;
   UnitAST* ast_ = nullptr;

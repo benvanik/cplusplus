@@ -1413,7 +1413,21 @@ auto ASTInterpreter::executeFunction(FunctionSymbol* function, Frame frame,
   auto body = declaration ? ast_cast<CompoundStatementFunctionBodyAST>(
                                 declaration->functionBody)
                           : nullptr;
-  if (!body) return {};
+  if (!body) {
+    auto provider = unit_->constexprCallProvider();
+    if (!provider || kind != CallResultKind::kValue || constructor ||
+        function->isImplicitObjectMemberFunction()) {
+      return {};
+    }
+    std::vector<ConstValue> arguments;
+    arguments.reserve(definition->parameters().size());
+    for (auto parameter : definition->parameters()) {
+      auto local = frame.locals.find(parameter);
+      if (local == frame.locals.end()) return {};
+      arguments.push_back(local->second.value);
+    }
+    return {provider->evaluate(*this, function, arguments), nullptr};
+  }
 
   auto functionType = type_cast<FunctionType>(function->type());
   const bool readReferenceResult =

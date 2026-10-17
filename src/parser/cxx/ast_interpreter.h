@@ -39,6 +39,20 @@
 namespace cxx {
 class TranslationUnit;
 class Control;
+class ASTInterpreter;
+
+// Supplies constant semantics for constexpr function declarations that have no
+// source definition. Providers receive already-bound value parameters and are
+// owned by the semantic host that installs them on a translation unit.
+class ConstexprCallProvider {
+ public:
+  virtual ~ConstexprCallProvider() = default;
+
+  [[nodiscard]] virtual auto evaluate(ASTInterpreter& interpreter,
+                                      FunctionSymbol* function,
+                                      std::span<const ConstValue> arguments)
+      -> std::optional<ConstValue> = 0;
+};
 
 class ASTInterpreter {
  public:
