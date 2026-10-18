@@ -257,7 +257,8 @@ auto ObjectRepresentation::valueBits(const Type* type, const ConstValue& value)
     -> std::optional<ConstInt::UWide> {
   if (auto format = memoryLayout()->floatingPointFormat(type)) {
     if (auto stored = std::get_if<ConstFloat>(&value)) {
-      auto expected = ConstFloat::formatFor(unqualified_type(type)->kind());
+      auto expected = ConstFloat::formatFor(
+          unaligned_type(traits_.remove_cv(type))->kind());
       if (expected && stored->format() == *expected) return stored->bits();
     }
     if (auto real = std::get_if<long double>(&value))
@@ -279,7 +280,8 @@ auto ObjectRepresentation::valueBits(const Type* type, const ConstValue& value)
 
 auto ObjectRepresentation::scalarValue(const Type* type, ConstInt::UWide bits)
     -> std::optional<ConstValue> {
-  if (auto format = ConstFloat::formatFor(unqualified_type(type)->kind())) {
+  if (auto format = ConstFloat::formatFor(
+          unaligned_type(traits_.remove_cv(type))->kind())) {
     auto value =
         ConstFloat::fromBits(*format, static_cast<std::uint64_t>(bits));
     if (!value) return std::nullopt;

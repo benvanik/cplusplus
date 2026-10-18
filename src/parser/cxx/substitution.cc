@@ -744,7 +744,7 @@ auto Substitution::MakeDefaultTemplateArgument::operator()(
     return std::nullopt;
   }
 
-  return control()->getTypeArgumentSymbol(typeId->type);
+  return subst.typeArgumentSymbol(typeId->type);
 }
 
 auto Substitution::MakeDefaultTemplateArgument::operator()(
@@ -769,7 +769,7 @@ auto Substitution::MakeDefaultTemplateArgument::operator()(
     typeId = substituted;
   }
 
-  return control()->getTypeArgumentSymbol(typeId->type);
+  return subst.typeArgumentSymbol(typeId->type);
 }
 
 auto Substitution::CollectRawTemplateArgument::operator()(
@@ -880,7 +880,7 @@ auto Substitution::CollectRawTemplateArgument::operator()(
   if (cxx::isPackExpansion(ast->typeId))
     type = control->getPackExpansionType(type);
 
-  return control->getTypeArgumentSymbol(type);
+  return subst.typeArgumentSymbol(type);
 }
 
 Substitution::Substitution(TranslationUnit* unit,
@@ -923,6 +923,19 @@ auto Substitution::collectWrittenArguments() -> bool {
          .isPackExpansion = TemplateArguments::isPackExpansion(argument)});
   }
   return true;
+}
+
+auto Substitution::typeArgumentSymbol(const Type* type) const
+    -> TypeAliasSymbol* {
+  auto control = unit_->control();
+  if (!templateDecl_ ||
+      !ast_cast<AliasDeclarationAST>(templateDecl_->declaration)) {
+    return control->getTypeArgumentSymbol(type);
+  }
+
+  auto argument = control->newTypeAliasSymbol(nullptr, {});
+  argument->setType(type);
+  return argument;
 }
 
 auto Substitution::make(TranslationUnit* unit,

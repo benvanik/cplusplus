@@ -346,6 +346,16 @@ struct GetDeclaratorType {
   }
 
   [[nodiscard]] auto arrayTypeOf(ArrayDeclaratorChunkAST* ast) -> const Type* {
+    auto elementSize = control()->memoryLayout()->sizeOf(type_);
+    auto elementAlignment = control()->memoryLayout()->alignmentOf(type_);
+    if (elementSize && elementAlignment && *elementAlignment != 0 &&
+        *elementSize % *elementAlignment != 0) {
+      unit->error(ast->firstSourceLocation(),
+                  std::format("array element size {} is not a multiple of "
+                              "its alignment {}",
+                              *elementSize, *elementAlignment));
+    }
+
     if (!ast->expression) return control()->getUnboundedArrayType(type_);
 
     ASTInterpreter interp{unit, ast->evaluationScope};

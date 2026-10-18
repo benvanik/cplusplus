@@ -279,6 +279,9 @@ class Binder {
   void applyAlignedAttribute(Symbol* symbol,
                              List<AttributeSpecifierAST*>* attributeList);
 
+  void applyAlignedAttribute(Symbol* symbol,
+                             std::optional<int> requestedAlignment);
+
   void applyExplicitAlignment(FieldSymbol* field, const Decl& decl);
   void applyExplicitAlignment(VariableSymbol* variable, const Decl& decl);
 

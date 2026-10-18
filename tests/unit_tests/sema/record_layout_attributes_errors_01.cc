@@ -68,6 +68,11 @@ struct PackedMemberPlacement {
   [[gnu::packed]] static unsigned value;
 };
 
+typedef unsigned AlignedAlias __attribute__((aligned(16)));
+
+// expected-error@+1 {{array element size 4 is not a multiple of its alignment 16}}
+AlignedAlias invalidArray[2];
+
 // expected-error@+1 {{'aligned' attribute takes at most one argument}}
 struct [[gnu::aligned(8, 16)]] MultipleAlignments { char value; };
 

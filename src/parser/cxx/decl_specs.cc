@@ -665,7 +665,7 @@ void DeclSpecs::finish() {
     type_ = control()->getSignedCharType();
 
   if (isUnsigned) {
-    switch (type_->kind()) {
+    switch (unaligned_type(type_)->kind()) {
       case TypeKind::kChar:
         type_ = control()->getUnsignedCharType();
         break;

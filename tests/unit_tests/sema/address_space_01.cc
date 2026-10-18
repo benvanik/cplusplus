@@ -6,11 +6,17 @@ using One = int __attribute__((address_space(1)));
 using Two = int __attribute__((__address_space__(2)));
 using ClangOne = int [[clang::address_space(1)]];
 using VoidOne = void __attribute__((address_space(1)));
+typedef unsigned AlignedUnsigned __attribute__((aligned(16)));
+using UnsignedOne = unsigned __attribute__((address_space(1)));
+using AlignedUnsignedOne =
+    AlignedUnsigned __attribute__((address_space(1)));
 
 static_assert(!__is_same(Zero, int));
 static_assert(!__is_same(Zero, One));
 static_assert(!__is_same(One, Two));
 static_assert(__is_same(ClangOne, One));
+static_assert(__is_same(AlignedUnsignedOne, UnsignedOne));
+static_assert(alignof(AlignedUnsignedOne) == 16);
 static_assert(__is_integral(One));
 static_assert(__is_same(__remove_cv(const volatile One), One));
 static_assert(__is_same(__remove_const(const One), One));
@@ -40,6 +46,13 @@ constexpr bool captures_space(T*) {
   return __is_same(T, One);
 }
 static_assert(captures_space((One*)nullptr));
+
+template <class T>
+struct TypeIdentity {};
+static_assert(__is_same(TypeIdentity<AlignedUnsignedOne>,
+                        TypeIdentity<UnsignedOne>));
+static_assert(!__is_same(TypeIdentity<AlignedUnsignedOne>,
+                         TypeIdentity<unsigned>));
 
 template <class T>
 constexpr bool consumes_space(T __attribute__((address_space(1))) *) {

@@ -159,6 +159,9 @@ class Substitution {
 
   [[nodiscard]] auto collectWrittenArguments() -> bool;
 
+  [[nodiscard]] auto typeArgumentSymbol(const Type* type) const
+      -> TypeAliasSymbol*;
+
   struct NonTypeArgumentValue {
     const Type* type = nullptr;
     ExpressionAST* initializer = nullptr;

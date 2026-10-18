@@ -315,7 +315,7 @@ struct ASTInterpreter::ExpressionVisitor {
                                         const ExpressionResult& left,
                                         const ExpressionResult& right,
                                         auto&& op) -> ExpressionResult {
-    switch (type->kind()) {
+    switch (unaligned_type(type)->kind()) {
       case TypeKind::kBFloat16:
       case TypeKind::kFloat8E4M3FN:
       case TypeKind::kFloat8E5M2:
@@ -374,7 +374,7 @@ struct ASTInterpreter::ExpressionVisitor {
     if (!converted) return std::nullopt;
     if (auto stored = std::get_if<ConstFloat>(&*converted))
       return ConstValue{stored->negated()};
-    if (type->kind() == TypeKind::kLongDouble)
+    if (unaligned_type(type)->kind() == TypeKind::kLongDouble)
       return ConstValue{-toLongDouble(*converted)};
     return std::nullopt;
   }
