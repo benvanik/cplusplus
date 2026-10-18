@@ -5647,7 +5647,7 @@ auto TypeChecker::Visitor::vector_comparison_type(const Type* type)
   auto elementType = vectorType->elementType();
 
   if (vectorType->vectorKind() == VectorKind::kExt &&
-      elementType->kind() == TypeKind::kBool)
+      unaligned_type(elementType)->kind() == TypeKind::kBool)
     return vectorType;
 
   auto elementSize = control()->memoryLayout()->sizeOf(elementType);
@@ -5832,7 +5832,8 @@ auto TypeChecker::Visitor::check_arithmetic_operands(BinaryExpressionAST* ast)
     -> bool {
   if (!ast->type) return false;
   if (!traits.is_vector(ast->type)) return true;
-  if (element_type_of(ast->type)->kind() != TypeKind::kBool) return true;
+  if (unaligned_type(element_type_of(ast->type))->kind() != TypeKind::kBool)
+    return true;
 
   error(ast->firstSourceLocation(),
         std::format("invalid operands to binary expression ('{}' and '{}')",
@@ -5973,7 +5974,8 @@ void TypeChecker::Visitor::operator()(BinaryExpressionAST* ast) {
         auto common = stdconv_.usualArithmeticConversion(ast->leftExpression,
                                                          ast->rightExpression);
         auto resultType = common ? vector_comparison_type(common) : nullptr;
-        if (resultType && element_type_of(common)->kind() == TypeKind::kBool)
+        if (resultType &&
+            unaligned_type(element_type_of(common))->kind() == TypeKind::kBool)
           resultType = nullptr;
         if (!resultType) {
           error(ast->firstSourceLocation(),

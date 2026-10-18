@@ -34,6 +34,7 @@
 #include <cstdlib>
 #include <format>
 #include <forward_list>
+#include <optional>
 #include <set>
 #include <tuple>
 #include <unordered_map>
@@ -252,6 +253,7 @@ struct Control::Private {
   Float8E4M3FNType float8E4M3FNType;
   Float8E5M2Type float8E5M2Type;
 
+  TypeSet<AlignedType> alignedTypes;
   TypeSet<QualType> qualTypes;
   TypeSet<BoundedArrayType> boundedArrayTypes;
   TypeSet<UnboundedArrayType> unboundedArrayTypes;
@@ -429,6 +431,180 @@ struct Control::Private {
   }
 };
 
+auto Control::canonicalTypeIdentities(const std::vector<const Type*>& types)
+    -> std::optional<std::vector<const Type*>> {
+  std::optional<std::vector<const Type*>> canonicalTypes;
+  for (std::size_t i = 0; i < types.size(); ++i) {
+    auto canonical = canonicalTypeIdentity(types[i]);
+    if (canonical == types[i]) continue;
+    if (!canonicalTypes) canonicalTypes = types;
+    (*canonicalTypes)[i] = canonical;
+  }
+  return canonicalTypes;
+}
+
+auto Control::canonicalTypeIdentity(const Type* type) -> const Type* {
+  if (!type || d->alignedTypes.empty()) return type;
+
+  if (auto alignedType = type_cast<AlignedType>(type)) {
+    return canonicalTypeIdentity(alignedType->elementType());
+  }
+
+  if (auto qualType = type_cast<QualType>(type)) {
+    auto elementType = canonicalTypeIdentity(qualType->elementType());
+    if (elementType == qualType->elementType()) return type;
+    return getQualType(elementType, qualType->cvQualifiers());
+  }
+
+  if (auto arrayType = type_cast<BoundedArrayType>(type)) {
+    auto elementType = canonicalTypeIdentity(arrayType->elementType());
+    if (elementType == arrayType->elementType()) return type;
+    return getBoundedArrayType(elementType, arrayType->size());
+  }
+
+  if (auto arrayType = type_cast<UnboundedArrayType>(type)) {
+    auto elementType = canonicalTypeIdentity(arrayType->elementType());
+    if (elementType == arrayType->elementType()) return type;
+    return getUnboundedArrayType(elementType);
+  }
+
+  if (auto arrayType = type_cast<UnresolvedBoundedArrayType>(type)) {
+    auto elementType = canonicalTypeIdentity(arrayType->elementType());
+    if (elementType == arrayType->elementType()) return type;
+    return getUnresolvedBoundedArrayType(arrayType->translationUnit(),
+                                         elementType, arrayType->size());
+  }
+
+  if (auto pointerType = type_cast<PointerType>(type)) {
+    auto elementType = canonicalTypeIdentity(pointerType->elementType());
+    if (elementType == pointerType->elementType()) return type;
+    return getPointerType(elementType);
+  }
+
+  if (auto referenceType = type_cast<LvalueReferenceType>(type)) {
+    auto elementType = canonicalTypeIdentity(referenceType->elementType());
+    if (elementType == referenceType->elementType()) return type;
+    return getLvalueReferenceType(elementType);
+  }
+
+  if (auto referenceType = type_cast<RvalueReferenceType>(type)) {
+    auto elementType = canonicalTypeIdentity(referenceType->elementType());
+    if (elementType == referenceType->elementType()) return type;
+    return getRvalueReferenceType(elementType);
+  }
+
+  if (auto functionType = type_cast<FunctionType>(type)) {
+    auto returnType = canonicalTypeIdentity(functionType->returnType());
+    auto canonicalParameters =
+        canonicalTypeIdentities(functionType->parameterTypes());
+    if (returnType == functionType->returnType() && !canonicalParameters)
+      return type;
+    auto parameterTypes = canonicalParameters ? std::move(*canonicalParameters)
+                                              : functionType->parameterTypes();
+    return getFunctionType(
+        returnType, std::move(parameterTypes), functionType->isVariadic(),
+        functionType->cvQualifiers(), functionType->refQualifier(),
+        functionType->exceptionSpecification());
+  }
+
+  if (auto pointerType = type_cast<MemberObjectPointerType>(type)) {
+    auto classType = canonicalTypeIdentity(pointerType->classType());
+    auto elementType = canonicalTypeIdentity(pointerType->elementType());
+    if (classType == pointerType->classType() &&
+        elementType == pointerType->elementType())
+      return type;
+    return getMemberObjectPointerType(classType, elementType);
+  }
+
+  if (auto pointerType = type_cast<MemberFunctionPointerType>(type)) {
+    auto classType = canonicalTypeIdentity(pointerType->classType());
+    auto functionType = canonicalTypeIdentity(pointerType->functionType());
+    if (classType == pointerType->classType() &&
+        functionType == pointerType->functionType())
+      return type;
+    return getMemberFunctionPointerType(classType,
+                                        type_cast<FunctionType>(functionType));
+  }
+
+  if (auto parameterType = type_cast<TemplateTypeParameterType>(type)) {
+    auto canonicalParameters =
+        canonicalTypeIdentities(parameterType->templateParameters());
+    if (!canonicalParameters) return type;
+    return getTemplateTypeParameterType(
+        parameterType->index(), parameterType->depth(),
+        parameterType->isParameterPack(), std::move(*canonicalParameters));
+  }
+
+  if (auto specialization =
+          type_cast<TemplateTypeParameterSpecializationType>(type)) {
+    auto templateParameter = type_cast<TemplateTypeParameterType>(
+        canonicalTypeIdentity(specialization->templateParameter()));
+    bool changed = templateParameter != specialization->templateParameter();
+    std::optional<std::vector<TemplateArgument>> canonicalArguments;
+    const auto& templateArguments = specialization->templateArguments();
+    for (std::size_t i = 0; i < templateArguments.size(); ++i) {
+      auto argumentType = std::get_if<const Type*>(&templateArguments[i]);
+      if (!argumentType) continue;
+      auto canonical = canonicalTypeIdentity(*argumentType);
+      if (canonical == *argumentType) continue;
+      if (!canonicalArguments) canonicalArguments = templateArguments;
+      (*canonicalArguments)[i] = canonical;
+      changed = true;
+    }
+    if (!changed) return type;
+    auto arguments =
+        canonicalArguments ? std::move(*canonicalArguments) : templateArguments;
+    return getTemplateTypeParameterSpecializationType(
+        specialization->translationUnit(), templateParameter,
+        std::move(arguments));
+  }
+
+  if (auto expansionType = type_cast<PackExpansionType>(type)) {
+    auto pattern = canonicalTypeIdentity(expansionType->pattern());
+    if (pattern == expansionType->pattern()) return type;
+    return getPackExpansionType(pattern);
+  }
+
+  if (auto vectorType = type_cast<VectorType>(type)) {
+    auto elementType = canonicalTypeIdentity(vectorType->elementType());
+    if (elementType == vectorType->elementType()) return type;
+    return getVectorType(elementType, vectorType->elementCount(),
+                         vectorType->vectorKind());
+  }
+
+  if (auto vectorType = type_cast<UnresolvedVectorType>(type)) {
+    auto elementType = canonicalTypeIdentity(vectorType->elementType());
+    if (elementType == vectorType->elementType()) return type;
+    return getUnresolvedVectorType(vectorType->translationUnit(), elementType,
+                                   vectorType->sizeExpression(),
+                                   vectorType->vectorKind(),
+                                   vectorType->sizeKind());
+  }
+
+  if (auto complexType = type_cast<ComplexType>(type)) {
+    auto elementType = canonicalTypeIdentity(complexType->elementType());
+    if (elementType == complexType->elementType()) return type;
+    return getComplexType(elementType);
+  }
+
+  if (auto atomicType = type_cast<AtomicType>(type)) {
+    auto elementType = canonicalTypeIdentity(atomicType->elementType());
+    if (elementType == atomicType->elementType()) return type;
+    return getAtomicType(elementType);
+  }
+
+  return type;
+}
+
+void Control::canonicalizeTypeArguments(
+    std::vector<TemplateArgument>& arguments) {
+  if (d->alignedTypes.empty()) return;
+  for (auto& argument : arguments) {
+    auto type = std::get_if<const Type*>(&argument);
+    if (type) *type = canonicalTypeIdentity(*type);
+  }
+}
+
 Control::Control() : d(std::make_unique<Private>(this)) {
   d->initBuiltinTypeTraits();
   d->initBuiltinFunctions();
@@ -560,12 +736,14 @@ auto Control::getLiteralOperatorId(std::string_view name)
 
 auto Control::getConversionFunctionId(const Type* type)
     -> const ConversionFunctionId* {
+  type = canonicalTypeIdentity(type);
   return &*d->conversionFunctionIds.emplace(type).first;
 }
 
 auto Control::getTemplateId(const Name* name,
                             std::vector<TemplateArgument> arguments)
     -> const TemplateId* {
+  canonicalizeTypeArguments(arguments);
   return &*d->templateIds.emplace(name, std::move(arguments)).first;
 }
 
@@ -671,6 +849,14 @@ auto Control::getFloat8E4M3FNType() -> const Float8E4M3FNType* {
 
 auto Control::getFloat8E5M2Type() -> const Float8E5M2Type* {
   return &d->float8E5M2Type;
+}
+
+auto Control::getAlignedType(const Type* elementType, std::size_t alignment)
+    -> const AlignedType* {
+  if (auto alignedType = type_cast<AlignedType>(elementType)) {
+    elementType = alignedType->elementType();
+  }
+  return internType(d->alignedTypes, elementType, alignment);
 }
 
 auto Control::getQualType(const Type* elementType, CvQualifiers cvQualifiers)
@@ -1035,6 +1221,7 @@ auto Control::newTypeAliasSymbol(ScopeSymbol* enclosingScope,
 }
 
 auto Control::getTypeArgumentSymbol(const Type* type) -> TypeAliasSymbol* {
+  type = canonicalTypeIdentity(type);
   auto& symbol = d->typeArgumentSymbols[type];
   if (symbol) return symbol;
   symbol = newTypeAliasSymbol(nullptr, {});
@@ -1055,6 +1242,7 @@ auto Control::getPackArgumentSymbol(std::span<Symbol* const> elements)
 auto Control::getConstantArgumentSymbol(const Type* type,
                                         const ConstValue& value)
     -> VariableSymbol* {
+  type = canonicalTypeIdentity(type);
   auto integer = std::get_if<ConstInt>(&value);
   if (!integer) return newConstantArgumentSymbol(this, type, value);
 

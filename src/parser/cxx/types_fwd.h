@@ -106,8 +106,12 @@ class Type;
 CXX_FOR_EACH_TYPE_KIND(PROCESS_TYPE)
 #undef PROCESS_TYPE
 
+// AlignedType is layout sugar. Semantic type visitors intentionally see its
+// underlying type, so it is not part of CXX_FOR_EACH_TYPE_KIND.
+class AlignedType;
+
 #define PROCESS_TYPE(K) k##K,
-enum class TypeKind { CXX_FOR_EACH_TYPE_KIND(PROCESS_TYPE) };
+enum class TypeKind { CXX_FOR_EACH_TYPE_KIND(PROCESS_TYPE) kAligned };
 #undef PROCESS_TYPE
 
 enum class CvQualifiers {

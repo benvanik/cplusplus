@@ -1291,6 +1291,8 @@ auto Binder::declareTypeAlias(SourceLocation identifierLoc,
   if (typeId) {
     symbol->setType(
         aliasedType(identifierLoc, typeId, attributeList, gnuAttributeList));
+    validateLayoutAttributes(symbol, attributeList);
+    applyAlignedAttribute(symbol, alignedAttribute(attributeList));
   }
   setTemplateHead(symbol, templateHead);
   checkTemplateParameterDefaultOrder(symbol->canonical()->templateParameters());
@@ -1970,9 +1972,16 @@ void Binder::applyDeclarationAttributes(
   collected = mergeAttributes(std::move(collected), &gnuAttributes);
   applyAttributeMap(symbol, std::move(collected));
 
-  applyAlignedAttribute(symbol, attributes);
-  applyAlignedAttribute(symbol, declaratorIdAttributes(declarator));
-  applyAlignedAttribute(symbol, terminatingAttributes(declarator));
+  std::optional<int> requestedAlignment;
+  auto mergeAlignment = [&](List<AttributeSpecifierAST*>* attributeList) {
+    auto requested = alignedAttribute(attributeList);
+    if (!requested) return;
+    requestedAlignment = std::max(requestedAlignment.value_or(0), *requested);
+  };
+  mergeAlignment(attributes);
+  mergeAlignment(declaratorIdAttributes(declarator));
+  mergeAlignment(terminatingAttributes(declarator));
+  applyAlignedAttribute(symbol, requestedAlignment);
 }
 
 void Binder::inheritDeclarationAttributes(Symbol* symbol, Symbol* pattern) {
@@ -2944,8 +2953,8 @@ void Binder::bind(UsingEnumDeclarationAST* ast) {
   }
 }
 
-void Binder::bind(TypeIdAST* ast, const Decl& decl) {
-  validateDeclaratorLayoutAttributes(nullptr, decl);
+void Binder::bind(TypeIdAST* ast, const Decl& decl, bool namesTypeAlias) {
+  validateDeclaratorLayoutAttributes(nullptr, decl, namesTypeAlias);
   ast->type = getDeclaratorType(unit_, ast->declarator, decl.specs.type());
 }
 
@@ -3104,7 +3113,9 @@ auto redeclarationTypesEquivalent(TranslationUnit* unit,
   auto incomingReferencedType = indirectElementType(incomingType);
   if (existingReferencedType || incomingReferencedType) {
     if (!existingReferencedType || !incomingReferencedType) return false;
-    if (existingType->kind() != incomingType->kind()) return false;
+    if (unaligned_type(existingType)->kind() !=
+        unaligned_type(incomingType)->kind())
+      return false;
     return redeclarationTypesEquivalent(unit, existingReferencedType,
                                         incomingReferencedType,
                                         /*ignoresArrayBound=*/false);
@@ -3385,8 +3396,23 @@ auto Binder::alignedAttribute(List<AttributeSpecifierAST*>* attributeList)
 
 void Binder::applyAlignedAttribute(
     Symbol* symbol, List<AttributeSpecifierAST*>* attributeList) {
-  auto requested = alignedAttribute(attributeList);
+  applyAlignedAttribute(symbol, alignedAttribute(attributeList));
+}
+
+void Binder::applyAlignedAttribute(Symbol* symbol,
+                                   std::optional<int> requested) {
   if (!requested) return;
+
+  if (auto typeAlias = symbol_cast<TypeAliasSymbol>(symbol)) {
+    auto type = typeAlias->type();
+    if (!type || traits.is_void(type) || traits.is_function(type) ||
+        traits.is_reference(type))
+      return;
+    if (auto alignedType = type_cast<AlignedType>(type))
+      type = alignedType->elementType();
+    typeAlias->setType(control()->getAlignedType(type, *requested));
+    return;
+  }
 
   if (auto field = symbol_cast<FieldSymbol>(symbol)) {
     field->setExplicitAlignment(

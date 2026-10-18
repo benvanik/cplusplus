@@ -26,8 +26,9 @@
 
 namespace cxx {
 
-void Binder::validateLayoutAttributes(
-    Symbol* symbol, List<AttributeSpecifierAST*>* attributes) {
+void Binder::validateLayoutAttributes(Symbol* symbol,
+                                      List<AttributeSpecifierAST*>* attributes,
+                                      bool namesTypeAlias) {
   static constexpr AttributeSpelling kLayoutAttributeSpellings[] = {
       {AttributeSyntax::kGnu, "", "packed"},
       {AttributeSyntax::kCxx, "gnu", "packed"},
@@ -59,22 +60,26 @@ void Binder::validateLayoutAttributes(
 
         const auto field = symbol_cast<FieldSymbol>(symbol);
         const bool validEntity = symbol_cast<ClassSymbol>(symbol) ||
+                                 symbol_cast<TypeAliasSymbol>(symbol) ||
+                                 namesTypeAlias ||
                                  symbol_cast<VariableSymbol>(symbol) ||
                                  (field && !field->isStatic());
         if (!validEntity) {
           error(attribute.location,
-                "'aligned' attribute requires a record, non-static data "
-                "member, or variable");
+                "'aligned' attribute requires a record, type alias, "
+                "non-static data member, or variable");
         }
         return true;
       });
 }
 
 void Binder::validateDeclaratorLayoutAttributes(Symbol* symbol,
-                                                const Decl& decl) {
-  validateLayoutAttributes(symbol, decl.specs.attributeList);
+                                                const Decl& decl,
+                                                bool namesTypeAlias) {
+  validateLayoutAttributes(symbol, decl.specs.attributeList, namesTypeAlias);
   if (decl.declaratorId) {
-    validateLayoutAttributes(symbol, decl.declaratorId->attributeList);
+    validateLayoutAttributes(symbol, decl.declaratorId->attributeList,
+                             namesTypeAlias);
   }
 }
 

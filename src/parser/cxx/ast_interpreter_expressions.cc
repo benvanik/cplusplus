@@ -297,7 +297,7 @@ struct ASTInterpreter::ExpressionVisitor {
                                         const ExpressionResult& left,
                                         const ExpressionResult& right,
                                         auto&& op) -> ExpressionResult {
-    switch (type->kind()) {
+    switch (unaligned_type(type)->kind()) {
       case TypeKind::kFloat:
         return interp.toArithmeticType(ConstValue{static_cast<long double>(op(
                                            toFloat(*left), toFloat(*right)))},
@@ -350,7 +350,7 @@ struct ASTInterpreter::ExpressionVisitor {
     if (!converted) return std::nullopt;
     if (auto stored = std::get_if<ConstFloat>(&*converted))
       return ConstValue{stored->negated()};
-    if (type->kind() == TypeKind::kLongDouble)
+    if (unaligned_type(type)->kind() == TypeKind::kLongDouble)
       return ConstValue{-toLongDouble(*converted)};
     return std::nullopt;
   }

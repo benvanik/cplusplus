@@ -378,6 +378,9 @@ void SemanticEncoder::writeType(ByteWriter& out, const cxx::Type* type) {
     case cxx::TypeKind::kSve:
       writeTypeSveType(out, static_cast<const cxx::SveType*>(type));
       break;
+    case cxx::TypeKind::kAligned:
+      writeTypeAlignedType(out, static_cast<const cxx::AlignedType*>(type));
+      break;
   }
 }
 
@@ -2011,6 +2014,14 @@ void SemanticEncoder::writeTypeSveType(
     ByteWriter& out, [[maybe_unused]] const cxx::SveType* self) {
   // sveKind
   out.varU32(static_cast<std::uint32_t>(self->sveKind()));
+}
+
+void SemanticEncoder::writeTypeAlignedType(
+    ByteWriter& out, [[maybe_unused]] const cxx::AlignedType* self) {
+  // elementType
+  out.varU32(static_cast<std::uint32_t>(typeRef(self->elementType())));
+  // alignment
+  out.varU64(static_cast<std::uint64_t>(self->alignment()));
 }
 
 void SemanticEncoder::writeSymbolSymbol(ByteWriter& out,
@@ -7638,7 +7649,7 @@ auto SemanticDecoder::typeAt(TypeRef ref) -> const cxx::Type* {
   if (typeDecoded_[index - 1]) return types_[index - 1];
   typeDecoded_[index - 1] = true;
   ByteReader in{typeRecords_[index - 1].bytes};
-  const auto kind = static_cast<cxx::TypeKind>(readEnum(in, 62));
+  const auto kind = static_cast<cxx::TypeKind>(readEnum(in, 63));
   const cxx::Type* type = nullptr;
   switch (kind) {
     case cxx::TypeKind::kVoid:
@@ -7826,6 +7837,9 @@ auto SemanticDecoder::typeAt(TypeRef ref) -> const cxx::Type* {
       break;
     case cxx::TypeKind::kSve:
       type = readTypeSveType(in);
+      break;
+    case cxx::TypeKind::kAligned:
+      type = readTypeAlignedType(in);
       break;
   }
   types_[index - 1] = type;
@@ -9557,6 +9571,12 @@ auto SemanticDecoder::readTypeSveType(ByteReader& in) -> const cxx::Type* {
   ::cxx::SveTypeKind argument1 =
       static_cast<::cxx::SveTypeKind>(readEnum(in, 15));
   return control()->getSveType(std::move(argument1));
+}
+
+auto SemanticDecoder::readTypeAlignedType(ByteReader& in) -> const cxx::Type* {
+  const cxx::Type* argument1 = typeAt(TypeRef{in.varU32()});
+  unsigned long argument2 = static_cast<unsigned long>(in.varU64());
+  return control()->getAlignedType(std::move(argument1), std::move(argument2));
 }
 
 void SemanticDecoder::readSymbolSymbol([[maybe_unused]] ByteReader& in,

@@ -786,8 +786,36 @@ class SveType final : public Type, public std::tuple<SveTypeKind> {
   }
 };
 
+/**
+ * A source type carrying an exact GNU typedef alignment.
+ *
+ * The requested alignment affects object layout without creating a distinct
+ * C++ type. Semantic visitors and type casts therefore desugar this node, while
+ * MemoryLayout and persistence inspect it directly.
+ */
+class AlignedType final : public Type,
+                          public std::tuple<const Type*, std::size_t> {
+ public:
+  static constexpr TypeKind Kind = TypeKind::kAligned;
+
+  AlignedType(const Type* elementType, std::size_t alignment)
+      : Type(Kind), tuple(elementType, alignment) {}
+
+  [[nodiscard]] auto elementType() const -> const Type* {
+    return std::get<0>(*this);
+  }
+
+  [[nodiscard]] auto alignment() const -> std::size_t {
+    return std::get<1>(*this);
+  }
+};
+
 template <typename Visitor>
 auto visit(Visitor&& visitor, const Type* type) {
+  while (type && type->kind() == TypeKind::kAligned) {
+    type = static_cast<const AlignedType*>(type)->elementType();
+  }
+
 #define PROCESS_TYPE(K) \
   case TypeKind::k##K:  \
     return std::forward<Visitor>(visitor)(static_cast<const K##Type*>(type));
@@ -803,9 +831,17 @@ auto visit(Visitor&& visitor, const Type* type) {
 
 template <typename T>
 [[nodiscard]] auto type_cast(const Type* type) -> const T* {
+  if constexpr (T::Kind != TypeKind::kAligned) {
+    while (type && type->kind() == TypeKind::kAligned) {
+      type = static_cast<const AlignedType*>(type)->elementType();
+    }
+  }
   return type && type->kind() == T::Kind ? static_cast<const T*>(type)
                                          : nullptr;
 }
+
+/** Removes outer GNU typedef alignment sugar without changing the type. */
+[[nodiscard]] auto unaligned_type(const Type* type) -> const Type*;
 
 [[nodiscard]] inline auto isPlaceholderType(const Type* type) -> bool {
   return type_cast<AutoType>(type) || type_cast<DecltypeAutoType>(type);

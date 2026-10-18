@@ -245,7 +245,8 @@ auto ObjectRepresentation::valueRange(const Type* type, std::uint64_t offset)
 
 auto ObjectRepresentation::valueBits(const Type* type, const ConstValue& value)
     -> std::optional<ConstInt::UWide> {
-  if (auto expectedFormat = ConstFloat::formatFor(type->kind())) {
+  if (auto expectedFormat =
+          ConstFloat::formatFor(unaligned_type(type)->kind())) {
     auto floating = std::get_if<ConstFloat>(&value);
     if (!floating || floating->format() != *expectedFormat) return std::nullopt;
     return static_cast<ConstInt::UWide>(floating->bits());
@@ -264,7 +265,8 @@ auto ObjectRepresentation::valueBits(const Type* type, const ConstValue& value)
 
 auto ObjectRepresentation::scalarValue(const Type* type, ConstInt::UWide bits)
     -> std::optional<ConstValue> {
-  if (auto expectedFormat = ConstFloat::formatFor(type->kind())) {
+  if (auto expectedFormat =
+          ConstFloat::formatFor(unaligned_type(type)->kind())) {
     auto floating =
         ConstFloat::fromBits(*expectedFormat, static_cast<std::uint64_t>(bits));
     if (!floating) return std::nullopt;

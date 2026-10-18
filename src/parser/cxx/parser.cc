@@ -7684,7 +7684,7 @@ auto Parser::parse_defining_type_id(TypeIdAST*& yyast) -> bool {
   ast->attributeList = specs.attributeList;
   ast->declarator = declarator;
 
-  binder_.bind(ast, decl);
+  binder_.bind(ast, decl, /*namesTypeAlias=*/true);
 
   return true;
 }

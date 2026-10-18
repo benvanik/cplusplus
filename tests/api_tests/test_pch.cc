@@ -594,6 +594,7 @@ struct Packet {
   unsigned char tag;
   unsigned value;
 };
+typedef unsigned AlignedValue __attribute__((aligned(16)));
 )"};
 
   const auto data = prefix.emit();
@@ -622,6 +623,14 @@ struct Packet {
   auto info = packet->layout()->getFieldInfo(value);
   ASSERT_TRUE(info);
   ASSERT_EQ(info->offset, 1u);
+
+  auto alignedValue = symbol_cast<TypeAliasSymbol>(
+      findMember(consumer.globalScope(), "AlignedValue"));
+  ASSERT_TRUE(alignedValue);
+  auto alignedType = type_cast<AlignedType>(alignedValue->type());
+  ASSERT_TRUE(alignedType);
+  EXPECT_EQ(alignedType->alignment(), 16u);
+  EXPECT_TRUE(type_cast<UnsignedIntType>(alignedType->elementType()));
 }
 
 TEST(PrecompiledHeader, RestoresPackedEnumSemantics) {

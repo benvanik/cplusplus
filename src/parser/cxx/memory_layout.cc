@@ -107,7 +107,7 @@ struct FloatingPointFormatOf {
                                      const VectorType* type)
     -> std::optional<std::size_t> {
   if (type->vectorKind() == VectorKind::kExt &&
-      type->elementType()->kind() == TypeKind::kBool)
+      unaligned_type(type->elementType())->kind() == TypeKind::kBool)
     return type->elementCount();
 
   auto elementSize = memoryLayout.sizeOf(type->elementType());
@@ -634,6 +634,8 @@ auto MemoryLayout::sizeOf(const Type* type) const
 auto MemoryLayout::alignmentOf(const Type* type) const
     -> std::optional<std::size_t> {
   if (!type) return std::nullopt;
+  if (auto alignedType = type_cast<AlignedType>(type))
+    return alignedType->alignment();
   return visit(AlignmentOf{*this}, type);
 }
 

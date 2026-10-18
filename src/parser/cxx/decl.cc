@@ -322,6 +322,16 @@ struct GetDeclaratorType {
   }
 
   [[nodiscard]] auto arrayTypeOf(ArrayDeclaratorChunkAST* ast) -> const Type* {
+    auto elementSize = control()->memoryLayout()->sizeOf(type_);
+    auto elementAlignment = control()->memoryLayout()->alignmentOf(type_);
+    if (elementSize && elementAlignment && *elementAlignment != 0 &&
+        *elementSize % *elementAlignment != 0) {
+      unit->error(ast->firstSourceLocation(),
+                  std::format("array element size {} is not a multiple of "
+                              "its alignment {}",
+                              *elementSize, *elementAlignment));
+    }
+
     if (!ast->expression) return control()->getUnboundedArrayType(type_);
 
     ASTInterpreter interp{unit};
@@ -432,7 +442,8 @@ constexpr AttributeSpelling kVectorSizeSpellings[] = {
   auto traits = unit->typeTraits();
   if (traits.is_floating_point(type)) return true;
   if (!traits.is_integral(type)) return false;
-  if (type->kind() == TypeKind::kBool) return vectorKind == VectorKind::kExt;
+  if (unaligned_type(type)->kind() == TypeKind::kBool)
+    return vectorKind == VectorKind::kExt;
   return true;
 }
 

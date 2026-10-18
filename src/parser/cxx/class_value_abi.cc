@@ -296,7 +296,8 @@ auto ClassValueAbiRules::homogeneousAggregate(const Type* type,
     if (!traits.is_floating_point(sub.type)) return false;
     if (!base) {
       base = sub.type;
-    } else if (base->kind() != sub.type->kind()) {
+    } else if (unaligned_type(base)->kind() !=
+               unaligned_type(sub.type)->kind()) {
       return false;
     }
     if (first || sub.offset != lastOffset) {

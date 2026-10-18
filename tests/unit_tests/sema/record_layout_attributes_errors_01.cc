@@ -54,8 +54,10 @@ struct PackedMemberPlacement {
   [[gnu::packed]] static unsigned value;
 };
 
-// expected-error@+1 {{'aligned' attribute requires a record, non-static data member, or variable}}
 typedef unsigned AlignedAlias __attribute__((aligned(16)));
+
+// expected-error@+1 {{array element size 4 is not a multiple of its alignment 16}}
+AlignedAlias invalidArray[2];
 
 // GNU aligned without parentheses requests the target's preferred alignment.
 struct [[gnu::aligned]] DefaultAligned { char value; };

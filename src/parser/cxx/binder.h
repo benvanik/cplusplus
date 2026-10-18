@@ -256,6 +256,9 @@ class Binder {
   void applyAlignedAttribute(Symbol* symbol,
                              List<AttributeSpecifierAST*>* attributeList);
 
+  void applyAlignedAttribute(Symbol* symbol,
+                             std::optional<int> requestedAlignment);
+
   void applyExplicitAlignment(FieldSymbol* field, const Decl& decl);
   void applyExplicitAlignment(VariableSymbol* variable, const Decl& decl);
 
@@ -492,7 +495,7 @@ class Binder {
 
   void bind(UsingEnumDeclarationAST* ast);
 
-  void bind(TypeIdAST* ast, const Decl& decl);
+  void bind(TypeIdAST* ast, const Decl& decl, bool namesTypeAlias = false);
 
   void bind(IdExpressionAST* ast, bool mayUseArgumentDependentLookup);
 
@@ -630,9 +633,11 @@ class Binder {
   void applyDeclarationAttributes(SimpleDeclarationAST* ast);
 
   void validateLayoutAttributes(Symbol* symbol,
-                                List<AttributeSpecifierAST*>* attributes);
+                                List<AttributeSpecifierAST*>* attributes,
+                                bool namesTypeAlias = false);
 
-  void validateDeclaratorLayoutAttributes(Symbol* symbol, const Decl& decl);
+  void validateDeclaratorLayoutAttributes(Symbol* symbol, const Decl& decl,
+                                          bool namesTypeAlias = false);
 
   void inheritDeclarationAttributes(Symbol* symbol, Symbol* pattern);
 

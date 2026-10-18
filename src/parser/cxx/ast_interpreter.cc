@@ -525,7 +525,7 @@ auto ASTInterpreter::convertArithmetic(const ConstValue& value,
     const auto signedValue = integer->toWide();
     const bool isUnsigned = !representation->isSigned;
 
-    switch (targetType->kind()) {
+    switch (unaligned_type(targetType)->kind()) {
       case TypeKind::kFloat: {
         const auto number = isUnsigned ? static_cast<float>(bits)
                                        : static_cast<float>(signedValue);
@@ -626,7 +626,7 @@ auto ASTInterpreter::toArithmeticType(const ConstValue& value, const Type* type)
     return ConstValue{std::make_shared<ConstComplex>(*real, *zero)};
   }
 
-  if (auto format = ConstFloat::formatFor(type->kind())) {
+  if (auto format = ConstFloat::formatFor(unaligned_type(type)->kind())) {
     if (auto stored = std::get_if<ConstFloat>(&value);
         stored && stored->format() == *format) {
       return value;
@@ -637,7 +637,7 @@ auto ASTInterpreter::toArithmeticType(const ConstValue& value, const Type* type)
     return ConstValue{ConstFloat::fromValue(*format, *result)};
   }
 
-  switch (type->kind()) {
+  switch (unaligned_type(type)->kind()) {
     case TypeKind::kLongDouble: {
       auto result = toLongDouble(value);
       if (!result) return std::nullopt;
