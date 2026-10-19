@@ -2081,9 +2081,10 @@ auto TypeChecker::Visitor::ResolveCallOperator::operator()()
 }
 
 auto TypeChecker::Visitor::ResolveCallOperator::bindObjectOperand() -> bool {
-  baseType = traits.remove_cvref(ast->baseExpression->type);
+  baseType = traits.remove_reference(ast->baseExpression->type);
+  objectCv = cv_qualifiers(baseType);
 
-  auto classType = type_cast<ClassType>(baseType);
+  auto classType = unqualified_cast<ClassType>(baseType);
   if (!classType) return false;
 
   classSymbol = classType->symbol();
@@ -2101,7 +2102,6 @@ auto TypeChecker::Visitor::ResolveCallOperator::bindObjectOperand() -> bool {
 
   if (allFunctions.empty()) return false;
 
-  objectCv = cv_qualifiers(baseType);
   baseType = unqualified_type(baseType);
   objectValueCategory = ast->baseExpression->valueCategory;
 

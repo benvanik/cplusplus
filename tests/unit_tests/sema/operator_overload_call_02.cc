@@ -7,6 +7,8 @@ struct G {
 };
 
 static_assert(G{}(1) == 1);
+constexpr G const_g;
+static_assert(const_g(1) == 101);
 
 void test_const_overload() {
   const G cg;
