@@ -74,6 +74,10 @@ class ObjectRepresentation {
   [[nodiscard]] auto load(const Type* type, std::uint64_t offset)
       -> std::optional<ConstValue>;
 
+  [[nodiscard]] auto takeBytes() && -> std::vector<std::uint8_t> {
+    return std::move(bytes_);
+  }
+
  private:
   struct BitRange {
     // Byte offset of the storage containing the range.
@@ -336,7 +340,7 @@ auto ObjectRepresentation::storeArray(const BoundedArrayType* type,
                                       const ConstValue& value,
                                       std::uint64_t offset) -> bool {
   auto list = std::get_if<std::shared_ptr<InitializerList>>(&value);
-  if (!list || !*list) return false;
+  if (!list || !*list || (*list)->elements.size() != type->size()) return false;
   auto stride = memoryLayout()->sizeOf(type->elementType());
   if (!stride) return false;
   std::uint64_t elementOffset = offset;
@@ -413,10 +417,17 @@ auto ObjectRepresentation::storeObject(const ClassType* type,
                                        std::uint64_t offset) -> bool {
   auto object = std::get_if<std::shared_ptr<ConstObject>>(&value);
   if (!object || !*object || (*object)->isConstexprUnknown()) return false;
-  auto layout = type->symbol()->resolvedDefinition()->layout();
+  auto classSymbol = type->symbol()->resolvedDefinition();
+  auto layout = classSymbol->layout();
   if (!layout) return false;
-  for (const auto& member : (*object)->members()) {
-    auto where = placement(*layout, const_cast<Symbol*>(member.symbol), offset);
+  auto elements = traits_.aggregate_elements(classSymbol);
+  const auto& members = (*object)->members();
+  if (members.size() != elements.size()) return false;
+  for (std::size_t index = 0; index < elements.size(); ++index) {
+    auto element = elements[index];
+    const auto& member = members[index];
+    if (member.symbol != element) return false;
+    auto where = placement(*layout, element, offset);
     if (!where || !storeElement(*where, member.value)) return false;
   }
   return true;
@@ -958,6 +969,19 @@ auto ASTInterpreter::bitCast(const ConstValue& value, const Type* sourceType,
   ObjectRepresentation representation{*this, *size};
   if (!representation.store(sourceType, value, 0)) return std::nullopt;
   return representation.load(targetType, 0);
+}
+
+auto ASTInterpreter::objectRepresentation(const ConstValue& value,
+                                          const Type* type)
+    -> std::optional<std::vector<std::uint8_t>> {
+  if (!isFullyInitialized(value)) return std::nullopt;
+  if (!traits.is_trivially_copyable(type)) return std::nullopt;
+  if (traits.has_constexpr_unknown_representation(type)) return std::nullopt;
+  auto size = control()->memoryLayout()->sizeOf(type);
+  if (!size) return std::nullopt;
+  ObjectRepresentation representation{*this, *size};
+  if (!representation.store(type, value, 0)) return std::nullopt;
+  return std::move(representation).takeBytes();
 }
 
 }  // namespace cxx

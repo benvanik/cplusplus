@@ -125,6 +125,13 @@ class ASTInterpreter {
                              const Type* targetType)
       -> std::optional<ConstValue>;
 
+  // Returns one concrete target object representation for an address-free,
+  // fully initialized, trivially copyable constant value. Padding bytes are
+  // zero-filled; semantic value bits must all be defined.
+  [[nodiscard]] auto objectRepresentation(const ConstValue& value,
+                                          const Type* type)
+      -> std::optional<std::vector<std::uint8_t>>;
+
   [[nodiscard]] auto toFloat(const ConstValue& value) -> std::optional<float>;
 
   [[nodiscard]] auto toDouble(const ConstValue& value) -> std::optional<double>;
