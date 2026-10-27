@@ -3655,6 +3655,9 @@ auto stringLiteralInitialization(const TypeTraits& traits, bool isCxx,
     -> std::optional<StringLiteralInitialization> {
   if (!traits.is_array(destinationType)) return std::nullopt;
 
+  while (auto nested = ast_cast<NestedExpressionAST>(source))
+    source = nested->expression;
+
   auto literal = ast_cast<StringLiteralExpressionAST>(source);
   if (!literal || !literal->type) return std::nullopt;
 
