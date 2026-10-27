@@ -3068,9 +3068,8 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
 
 auto ASTInterpreter::ExpressionVisitor::operator()(IdExpressionAST* ast)
     -> ExpressionResult {
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
 
   if (auto enumerator = symbol_cast<EnumeratorSymbol>(ast->symbol)) {
     return enumerator->value();
@@ -3295,7 +3294,7 @@ auto ASTInterpreter::isRequirementSatisfied(RequirementAST* ast,
 auto ASTInterpreter::ExpressionVisitor::operator()(VaArgExpressionAST* ast)
     -> ExpressionResult {
   auto expressionResult = interp.expression(ast->expression);
-  auto typeIdResult = interp.typeId(ast->typeId);
+  (void)interp.typeId(ast->typeId);
 
   return ExpressionResult{std::nullopt};
 }
@@ -3552,7 +3551,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(CallExpressionAST* ast)
 
 auto ASTInterpreter::ExpressionVisitor::operator()(TypeConstructionAST* ast)
     -> ExpressionResult {
-  auto typeSpecifierResult = interp.specifier(ast->typeSpecifier);
+  (void)interp.specifier(ast->typeSpecifier);
 
   if (!ast->type) return std::nullopt;
   if (is_glvalue(ast)) {
@@ -3593,7 +3592,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(TypeConstructionAST* ast)
 
 auto ASTInterpreter::ExpressionVisitor::operator()(
     BracedTypeConstructionAST* ast) -> ExpressionResult {
-  auto typeSpecifierResult = interp.specifier(ast->typeSpecifier);
+  (void)interp.specifier(ast->typeSpecifier);
 
   auto classType = unqualified_cast<ClassType>(ast->type);
   auto classSymbol = classType ? classType->symbol() : nullptr;
@@ -3632,9 +3631,8 @@ auto ASTInterpreter::ExpressionVisitor::operator()(MemberExpressionAST* ast)
       return fieldVal;
   }
 
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
 
   if (object && ast->symbol) {
     if (auto field = symbol_cast<FieldSymbol>(ast->symbol);
@@ -3732,7 +3730,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(TypeidExpressionAST* ast)
 
 auto ASTInterpreter::ExpressionVisitor::operator()(
     TypeidOfTypeExpressionAST* ast) -> ExpressionResult {
-  auto typeIdResult = interp.typeId(ast->typeId);
+  (void)interp.typeId(ast->typeId);
 
   return ExpressionResult{std::nullopt};
 }

@@ -159,9 +159,8 @@ auto ASTInterpreter::usingDeclarator(UsingDeclaratorAST* ast)
     -> UsingDeclaratorResult {
   if (!ast) return {};
 
-  auto nestedNameSpecifierResult =
-      nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = unqualifiedId(ast->unqualifiedId);
+  (void)nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)unqualifiedId(ast->unqualifiedId);
 
   return {};
 }
@@ -195,11 +194,10 @@ auto ASTInterpreter::typeConstraint(TypeConstraintAST* ast)
     -> TypeConstraintResult {
   if (!ast) return {};
 
-  auto nestedNameSpecifierResult =
-      nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)nestedNameSpecifier(ast->nestedNameSpecifier);
 
   for (auto node : ListView{ast->templateArgumentList}) {
-    auto value = templateArgument(node);
+    (void)templateArgument(node);
   }
 
   return {};
@@ -215,18 +213,18 @@ auto ASTInterpreter::lambdaSpecifier(LambdaSpecifierAST* ast)
 auto ASTInterpreter::DeclarationVisitor::operator()(SimpleDeclarationAST* ast)
     -> DeclarationResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   for (auto node : ListView{ast->declSpecifierList}) {
-    auto value = interp.specifier(node);
+    (void)interp.specifier(node);
   }
 
   for (auto node : ListView{ast->initDeclaratorList}) {
-    auto value = interp.initDeclarator(node);
+    (void)interp.initDeclarator(node);
   }
 
-  auto requiresClauseResult = interp.requiresClause(ast->requiresClause);
+  (void)interp.requiresClause(ast->requiresClause);
 
   return {};
 }
@@ -234,27 +232,27 @@ auto ASTInterpreter::DeclarationVisitor::operator()(SimpleDeclarationAST* ast)
 auto ASTInterpreter::DeclarationVisitor::operator()(AsmDeclarationAST* ast)
     -> DeclarationResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   for (auto node : ListView{ast->asmQualifierList}) {
-    auto value = interp.asmQualifier(node);
+    (void)interp.asmQualifier(node);
   }
 
   for (auto node : ListView{ast->outputOperandList}) {
-    auto value = interp.asmOperand(node);
+    (void)interp.asmOperand(node);
   }
 
   for (auto node : ListView{ast->inputOperandList}) {
-    auto value = interp.asmOperand(node);
+    (void)interp.asmOperand(node);
   }
 
   for (auto node : ListView{ast->clobberList}) {
-    auto value = interp.asmClobber(node);
+    (void)interp.asmClobber(node);
   }
 
   for (auto node : ListView{ast->gotoLabelList}) {
-    auto value = interp.asmGotoLabel(node);
+    (void)interp.asmGotoLabel(node);
   }
 
   return {};
@@ -262,9 +260,8 @@ auto ASTInterpreter::DeclarationVisitor::operator()(AsmDeclarationAST* ast)
 
 auto ASTInterpreter::DeclarationVisitor::operator()(
     NamespaceAliasDefinitionAST* ast) -> DeclarationResult {
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
 
   return {};
 }
@@ -272,7 +269,7 @@ auto ASTInterpreter::DeclarationVisitor::operator()(
 auto ASTInterpreter::DeclarationVisitor::operator()(UsingDeclarationAST* ast)
     -> DeclarationResult {
   for (auto node : ListView{ast->usingDeclaratorList}) {
-    auto value = interp.usingDeclarator(node);
+    (void)interp.usingDeclarator(node);
   }
 
   return {};
@@ -280,7 +277,7 @@ auto ASTInterpreter::DeclarationVisitor::operator()(UsingDeclarationAST* ast)
 
 auto ASTInterpreter::DeclarationVisitor::operator()(
     UsingEnumDeclarationAST* ast) -> DeclarationResult {
-  auto enumTypeSpecifierResult = interp.specifier(ast->enumTypeSpecifier);
+  (void)interp.specifier(ast->enumTypeSpecifier);
 
   return {};
 }
@@ -288,12 +285,11 @@ auto ASTInterpreter::DeclarationVisitor::operator()(
 auto ASTInterpreter::DeclarationVisitor::operator()(UsingDirectiveAST* ast)
     -> DeclarationResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
 
   return {};
 }
@@ -311,14 +307,14 @@ auto ASTInterpreter::DeclarationVisitor::operator()(
 auto ASTInterpreter::DeclarationVisitor::operator()(AliasDeclarationAST* ast)
     -> DeclarationResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   for (auto node : ListView{ast->gnuAttributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
-  auto typeIdResult = interp.typeId(ast->typeId);
+  (void)interp.typeId(ast->typeId);
 
   return {};
 }
@@ -326,15 +322,14 @@ auto ASTInterpreter::DeclarationVisitor::operator()(AliasDeclarationAST* ast)
 auto ASTInterpreter::DeclarationVisitor::operator()(
     OpaqueEnumDeclarationAST* ast) -> DeclarationResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
 
   for (auto node : ListView{ast->typeSpecifierList}) {
-    auto value = interp.specifier(node);
+    (void)interp.specifier(node);
   }
 
   return {};
@@ -343,15 +338,15 @@ auto ASTInterpreter::DeclarationVisitor::operator()(
 auto ASTInterpreter::DeclarationVisitor::operator()(FunctionDefinitionAST* ast)
     -> DeclarationResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   for (auto node : ListView{ast->declSpecifierList}) {
-    auto value = interp.specifier(node);
+    (void)interp.specifier(node);
   }
 
-  auto declaratorResult = interp.declarator(ast->declarator);
-  auto requiresClauseResult = interp.requiresClause(ast->requiresClause);
+  (void)interp.declarator(ast->declarator);
+  (void)interp.requiresClause(ast->requiresClause);
 
   return {};
 }
@@ -359,11 +354,11 @@ auto ASTInterpreter::DeclarationVisitor::operator()(FunctionDefinitionAST* ast)
 auto ASTInterpreter::DeclarationVisitor::operator()(TemplateDeclarationAST* ast)
     -> DeclarationResult {
   for (auto node : ListView{ast->templateParameterList}) {
-    auto value = interp.templateParameter(node);
+    (void)interp.templateParameter(node);
   }
 
-  auto requiresClauseResult = interp.requiresClause(ast->requiresClause);
-  auto declarationResult = interp.declaration(ast->declaration);
+  (void)interp.requiresClause(ast->requiresClause);
+  (void)interp.declaration(ast->declaration);
 
   return {};
 }
@@ -377,24 +372,23 @@ auto ASTInterpreter::DeclarationVisitor::operator()(ConceptDefinitionAST* ast)
 
 auto ASTInterpreter::DeclarationVisitor::operator()(DeductionGuideAST* ast)
     -> DeclarationResult {
-  auto explicitSpecifierResult = interp.specifier(ast->explicitSpecifier);
-  auto parameterDeclarationClauseResult =
-      interp.parameterDeclarationClause(ast->parameterDeclarationClause);
-  auto templateIdResult = interp.unqualifiedId(ast->templateId);
+  (void)interp.specifier(ast->explicitSpecifier);
+  (void)interp.parameterDeclarationClause(ast->parameterDeclarationClause);
+  (void)interp.unqualifiedId(ast->templateId);
 
   return {};
 }
 
 auto ASTInterpreter::DeclarationVisitor::operator()(
     ExplicitInstantiationAST* ast) -> DeclarationResult {
-  auto declarationResult = interp.declaration(ast->declaration);
+  (void)interp.declaration(ast->declaration);
 
   return {};
 }
 
 auto ASTInterpreter::DeclarationVisitor::operator()(ExportDeclarationAST* ast)
     -> DeclarationResult {
-  auto declarationResult = interp.declaration(ast->declaration);
+  (void)interp.declaration(ast->declaration);
 
   return {};
 }
@@ -402,7 +396,7 @@ auto ASTInterpreter::DeclarationVisitor::operator()(ExportDeclarationAST* ast)
 auto ASTInterpreter::DeclarationVisitor::operator()(
     ExportCompoundDeclarationAST* ast) -> DeclarationResult {
   for (auto node : ListView{ast->declarationList}) {
-    auto value = interp.declaration(node);
+    (void)interp.declaration(node);
   }
 
   return {};
@@ -411,7 +405,7 @@ auto ASTInterpreter::DeclarationVisitor::operator()(
 auto ASTInterpreter::DeclarationVisitor::operator()(
     LinkageSpecificationAST* ast) -> DeclarationResult {
   for (auto node : ListView{ast->declarationList}) {
-    auto value = interp.declaration(node);
+    (void)interp.declaration(node);
   }
 
   return {};
@@ -420,19 +414,19 @@ auto ASTInterpreter::DeclarationVisitor::operator()(
 auto ASTInterpreter::DeclarationVisitor::operator()(NamespaceDefinitionAST* ast)
     -> DeclarationResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   for (auto node : ListView{ast->nestedNamespaceSpecifierList}) {
-    auto value = interp.nestedNamespaceSpecifier(node);
+    (void)interp.nestedNamespaceSpecifier(node);
   }
 
   for (auto node : ListView{ast->extraAttributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   for (auto node : ListView{ast->declarationList}) {
-    auto value = interp.declaration(node);
+    (void)interp.declaration(node);
   }
 
   return {};
@@ -446,7 +440,7 @@ auto ASTInterpreter::DeclarationVisitor::operator()(EmptyDeclarationAST* ast)
 auto ASTInterpreter::DeclarationVisitor::operator()(
     AttributeDeclarationAST* ast) -> DeclarationResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   return {};
@@ -454,10 +448,10 @@ auto ASTInterpreter::DeclarationVisitor::operator()(
 
 auto ASTInterpreter::DeclarationVisitor::operator()(
     ModuleImportDeclarationAST* ast) -> DeclarationResult {
-  auto importNameResult = interp.importName(ast->importName);
+  (void)interp.importName(ast->importName);
 
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   return {};
@@ -466,14 +460,14 @@ auto ASTInterpreter::DeclarationVisitor::operator()(
 auto ASTInterpreter::DeclarationVisitor::operator()(
     ParameterDeclarationAST* ast) -> DeclarationResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   for (auto node : ListView{ast->typeSpecifierList}) {
-    auto value = interp.specifier(node);
+    (void)interp.specifier(node);
   }
 
-  auto declaratorResult = interp.declarator(ast->declarator);
+  (void)interp.declarator(ast->declarator);
   auto expressionResult = interp.expression(ast->expression);
 
   return {};
@@ -492,15 +486,15 @@ auto ASTInterpreter::DeclarationVisitor::operator()(ForRangeDeclarationAST* ast)
 auto ASTInterpreter::DeclarationVisitor::operator()(
     StructuredBindingDeclarationAST* ast) -> DeclarationResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   for (auto node : ListView{ast->declSpecifierList}) {
-    auto value = interp.specifier(node);
+    (void)interp.specifier(node);
   }
 
   for (auto node : ListView{ast->bindingList}) {
-    auto value = interp.unqualifiedId(node);
+    (void)interp.unqualifiedId(node);
   }
 
   auto initializerResult = interp.expression(ast->initializer);
@@ -511,10 +505,10 @@ auto ASTInterpreter::DeclarationVisitor::operator()(
 auto ASTInterpreter::TemplateParameterVisitor::operator()(
     TemplateTypeParameterAST* ast) -> TemplateParameterResult {
   for (auto node : ListView{ast->templateParameterList}) {
-    auto value = interp.templateParameter(node);
+    (void)interp.templateParameter(node);
   }
 
-  auto requiresClauseResult = interp.requiresClause(ast->requiresClause);
+  (void)interp.requiresClause(ast->requiresClause);
   auto idExpressionResult = interp.expression(ast->idExpression);
 
   return {};
@@ -522,22 +516,22 @@ auto ASTInterpreter::TemplateParameterVisitor::operator()(
 
 auto ASTInterpreter::TemplateParameterVisitor::operator()(
     NonTypeTemplateParameterAST* ast) -> TemplateParameterResult {
-  auto declarationResult = interp.declaration(ast->declaration);
+  (void)interp.declaration(ast->declaration);
 
   return {};
 }
 
 auto ASTInterpreter::TemplateParameterVisitor::operator()(
     TypenameTypeParameterAST* ast) -> TemplateParameterResult {
-  auto typeIdResult = interp.typeId(ast->typeId);
+  (void)interp.typeId(ast->typeId);
 
   return {};
 }
 
 auto ASTInterpreter::TemplateParameterVisitor::operator()(
     ConstraintTypeParameterAST* ast) -> TemplateParameterResult {
-  auto typeConstraintResult = interp.typeConstraint(ast->typeConstraint);
-  auto typeIdResult = interp.typeId(ast->typeId);
+  (void)interp.typeConstraint(ast->typeConstraint);
+  (void)interp.typeId(ast->typeId);
 
   return {};
 }
@@ -550,10 +544,10 @@ auto ASTInterpreter::FunctionBodyVisitor::operator()(
 auto ASTInterpreter::FunctionBodyVisitor::operator()(
     CompoundStatementFunctionBodyAST* ast) -> FunctionBodyResult {
   for (auto node : ListView{ctor_initializers(interp.currentFunction_)}) {
-    auto value = interp.memInitializer(node);
+    (void)interp.memInitializer(node);
   }
 
-  auto statementResult = interp.statement(ast->statement);
+  (void)interp.statement(ast->statement);
 
   return {};
 }
@@ -561,13 +555,13 @@ auto ASTInterpreter::FunctionBodyVisitor::operator()(
 auto ASTInterpreter::FunctionBodyVisitor::operator()(
     TryStatementFunctionBodyAST* ast) -> FunctionBodyResult {
   for (auto node : ListView{ctor_initializers(interp.currentFunction_)}) {
-    auto value = interp.memInitializer(node);
+    (void)interp.memInitializer(node);
   }
 
-  auto statementResult = interp.statement(ast->statement);
+  (void)interp.statement(ast->statement);
 
   for (auto node : ListView{ast->handlerList}) {
-    auto value = interp.handler(node);
+    (void)interp.handler(node);
   }
 
   return {};

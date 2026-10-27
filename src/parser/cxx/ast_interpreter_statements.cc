@@ -113,9 +113,8 @@ auto ASTInterpreter::statement(StatementAST* ast) -> StatementResult {
 auto ASTInterpreter::handler(HandlerAST* ast) -> HandlerResult {
   if (!ast) return {};
 
-  auto exceptionDeclarationResult =
-      exceptionDeclaration(ast->exceptionDeclaration);
-  auto statementResult = statement(ast->statement);
+  (void)exceptionDeclaration(ast->exceptionDeclaration);
+  (void)statement(ast->statement);
 
   return {};
 }
@@ -520,7 +519,7 @@ void ASTInterpreter::interpretStructuredBinding(
 
 auto ASTInterpreter::StatementVisitor::operator()(DeclarationStatementAST* ast)
     -> StatementResult {
-  auto declarationResult = interp.declaration(ast->declaration);
+  (void)interp.declaration(ast->declaration);
 
   if (auto simpleDecl = ast_cast<SimpleDeclarationAST>(ast->declaration)) {
     for (auto initDecl : ListView{simpleDecl->initDeclaratorList}) {
@@ -555,14 +554,14 @@ auto ASTInterpreter::ExceptionDeclarationVisitor::operator()(
 auto ASTInterpreter::ExceptionDeclarationVisitor::operator()(
     TypeExceptionDeclarationAST* ast) -> ExceptionDeclarationResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   for (auto node : ListView{ast->typeSpecifierList}) {
-    auto value = interp.specifier(node);
+    (void)interp.specifier(node);
   }
 
-  auto declaratorResult = interp.declarator(ast->declarator);
+  (void)interp.declarator(ast->declarator);
 
   return {};
 }

@@ -122,14 +122,14 @@ auto ASTInterpreter::UnqualifiedIdVisitor::operator()(NameIdAST* ast)
 
 auto ASTInterpreter::UnqualifiedIdVisitor::operator()(DestructorIdAST* ast)
     -> UnqualifiedIdResult {
-  auto idResult = interp.unqualifiedId(ast->id);
+  (void)interp.unqualifiedId(ast->id);
 
   return {};
 }
 
 auto ASTInterpreter::UnqualifiedIdVisitor::operator()(DecltypeIdAST* ast)
     -> UnqualifiedIdResult {
-  auto decltypeSpecifierResult = interp.specifier(ast->decltypeSpecifier);
+  (void)interp.specifier(ast->decltypeSpecifier);
 
   return {};
 }
@@ -146,7 +146,7 @@ auto ASTInterpreter::UnqualifiedIdVisitor::operator()(LiteralOperatorIdAST* ast)
 
 auto ASTInterpreter::UnqualifiedIdVisitor::operator()(
     ConversionFunctionIdAST* ast) -> UnqualifiedIdResult {
-  auto typeIdResult = interp.typeId(ast->typeId);
+  (void)interp.typeId(ast->typeId);
 
   return {};
 }
@@ -154,7 +154,7 @@ auto ASTInterpreter::UnqualifiedIdVisitor::operator()(
 auto ASTInterpreter::UnqualifiedIdVisitor::operator()(SimpleTemplateIdAST* ast)
     -> UnqualifiedIdResult {
   for (auto node : ListView{ast->templateArgumentList}) {
-    auto value = interp.templateArgument(node);
+    (void)interp.templateArgument(node);
   }
 
   return {};
@@ -162,10 +162,10 @@ auto ASTInterpreter::UnqualifiedIdVisitor::operator()(SimpleTemplateIdAST* ast)
 
 auto ASTInterpreter::UnqualifiedIdVisitor::operator()(
     LiteralOperatorTemplateIdAST* ast) -> UnqualifiedIdResult {
-  auto literalOperatorIdResult = interp.unqualifiedId(ast->literalOperatorId);
+  (void)interp.unqualifiedId(ast->literalOperatorId);
 
   for (auto node : ListView{ast->templateArgumentList}) {
-    auto value = interp.templateArgument(node);
+    (void)interp.templateArgument(node);
   }
 
   return {};
@@ -173,10 +173,10 @@ auto ASTInterpreter::UnqualifiedIdVisitor::operator()(
 
 auto ASTInterpreter::UnqualifiedIdVisitor::operator()(
     OperatorFunctionTemplateIdAST* ast) -> UnqualifiedIdResult {
-  auto operatorFunctionIdResult = interp.unqualifiedId(ast->operatorFunctionId);
+  (void)interp.unqualifiedId(ast->operatorFunctionId);
 
   for (auto node : ListView{ast->templateArgumentList}) {
-    auto value = interp.templateArgument(node);
+    (void)interp.templateArgument(node);
   }
 
   return {};
@@ -189,31 +189,29 @@ auto ASTInterpreter::NestedNameSpecifierVisitor::operator()(
 
 auto ASTInterpreter::NestedNameSpecifierVisitor::operator()(
     SimpleNestedNameSpecifierAST* ast) -> NestedNameSpecifierResult {
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
 
   return {};
 }
 
 auto ASTInterpreter::NestedNameSpecifierVisitor::operator()(
     DecltypeNestedNameSpecifierAST* ast) -> NestedNameSpecifierResult {
-  auto decltypeSpecifierResult = interp.specifier(ast->decltypeSpecifier);
+  (void)interp.specifier(ast->decltypeSpecifier);
 
   return {};
 }
 
 auto ASTInterpreter::NestedNameSpecifierVisitor::operator()(
     TemplateNestedNameSpecifierAST* ast) -> NestedNameSpecifierResult {
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto templateIdResult = interp.unqualifiedId(ast->templateId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->templateId);
 
   return {};
 }
 
 auto ASTInterpreter::TemplateArgumentVisitor::operator()(
     TypeTemplateArgumentAST* ast) -> TemplateArgumentResult {
-  auto typeIdResult = interp.typeId(ast->typeId);
+  (void)interp.typeId(ast->typeId);
 
   return {};
 }

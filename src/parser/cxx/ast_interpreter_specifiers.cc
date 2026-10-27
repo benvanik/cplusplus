@@ -188,12 +188,11 @@ auto ASTInterpreter::baseSpecifier(BaseSpecifierAST* ast)
   if (!ast) return {};
 
   for (auto node : ListView{ast->attributeList}) {
-    auto value = attributeSpecifier(node);
+    (void)attributeSpecifier(node);
   }
 
-  auto nestedNameSpecifierResult =
-      nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = unqualifiedId(ast->unqualifiedId);
+  (void)nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)unqualifiedId(ast->unqualifiedId);
 
   return {};
 }
@@ -202,7 +201,7 @@ auto ASTInterpreter::enumerator(EnumeratorAST* ast) -> EnumeratorResult {
   if (!ast) return {};
 
   for (auto node : ListView{ast->attributeList}) {
-    auto value = attributeSpecifier(node);
+    (void)attributeSpecifier(node);
   }
 
   auto expressionResult = expression(ast->expression);
@@ -214,10 +213,10 @@ auto ASTInterpreter::typeId(TypeIdAST* ast) -> TypeIdResult {
   if (!ast) return {};
 
   for (auto node : ListView{ast->typeSpecifierList}) {
-    auto value = specifier(node);
+    (void)specifier(node);
   }
 
-  auto declaratorResult = declarator(ast->declarator);
+  (void)declarator(ast->declarator);
 
   return {};
 }
@@ -232,9 +231,8 @@ auto ASTInterpreter::attributeArgumentClause(AttributeArgumentClauseAST* ast)
 auto ASTInterpreter::attribute(AttributeAST* ast) -> AttributeResult {
   if (!ast) return {};
 
-  auto attributeTokenResult = attributeToken(ast->attributeToken);
-  auto attributeArgumentClauseResult =
-      attributeArgumentClause(ast->attributeArgumentClause);
+  (void)attributeToken(ast->attributeToken);
+  (void)attributeArgumentClause(ast->attributeArgumentClause);
 
   return {};
 }
@@ -383,16 +381,15 @@ auto ASTInterpreter::SpecifierVisitor::operator()(ComplexTypeSpecifierAST* ast)
 
 auto ASTInterpreter::SpecifierVisitor::operator()(NamedTypeSpecifierAST* ast)
     -> SpecifierResult {
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
 
   return {};
 }
 
 auto ASTInterpreter::SpecifierVisitor::operator()(AtomicTypeSpecifierAST* ast)
     -> SpecifierResult {
-  auto typeIdResult = interp.typeId(ast->typeId);
+  (void)interp.typeId(ast->typeId);
 
   return {};
 }
@@ -406,7 +403,7 @@ auto ASTInterpreter::SpecifierVisitor::operator()(BitIntTypeSpecifierAST* ast)
 
 auto ASTInterpreter::SpecifierVisitor::operator()(
     UnderlyingTypeSpecifierAST* ast) -> SpecifierResult {
-  auto typeIdResult = interp.typeId(ast->typeId);
+  (void)interp.typeId(ast->typeId);
 
   return {};
 }
@@ -414,12 +411,11 @@ auto ASTInterpreter::SpecifierVisitor::operator()(
 auto ASTInterpreter::SpecifierVisitor::operator()(
     ElaboratedTypeSpecifierAST* ast) -> SpecifierResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
 
   return {};
 }
@@ -436,8 +432,8 @@ auto ASTInterpreter::SpecifierVisitor::operator()(DecltypeSpecifierAST* ast)
 
 auto ASTInterpreter::SpecifierVisitor::operator()(
     PlaceholderTypeSpecifierAST* ast) -> SpecifierResult {
-  auto typeConstraintResult = interp.typeConstraint(ast->typeConstraint);
-  auto specifierResult = interp.specifier(ast->specifier);
+  (void)interp.typeConstraint(ast->typeConstraint);
+  (void)interp.specifier(ast->specifier);
 
   return {};
 }
@@ -465,19 +461,18 @@ auto ASTInterpreter::SpecifierVisitor::operator()(AtomicQualifierAST* ast)
 auto ASTInterpreter::SpecifierVisitor::operator()(EnumSpecifierAST* ast)
     -> SpecifierResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
 
   for (auto node : ListView{ast->typeSpecifierList}) {
-    auto value = interp.specifier(node);
+    (void)interp.specifier(node);
   }
 
   for (auto node : ListView{ast->enumeratorList}) {
-    auto value = interp.enumerator(node);
+    (void)interp.enumerator(node);
   }
 
   return {};
@@ -486,19 +481,18 @@ auto ASTInterpreter::SpecifierVisitor::operator()(EnumSpecifierAST* ast)
 auto ASTInterpreter::SpecifierVisitor::operator()(ClassSpecifierAST* ast)
     -> SpecifierResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
 
   for (auto node : ListView{ast->baseSpecifierList}) {
-    auto value = interp.baseSpecifier(node);
+    (void)interp.baseSpecifier(node);
   }
 
   for (auto node : ListView{ast->declarationList}) {
-    auto value = interp.declaration(node);
+    (void)interp.declaration(node);
   }
 
   return {};
@@ -506,9 +500,8 @@ auto ASTInterpreter::SpecifierVisitor::operator()(ClassSpecifierAST* ast)
 
 auto ASTInterpreter::SpecifierVisitor::operator()(TypenameSpecifierAST* ast)
     -> SpecifierResult {
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
 
   return {};
 }
@@ -522,11 +515,10 @@ auto ASTInterpreter::SpecifierVisitor::operator()(SplicerTypeSpecifierAST* ast)
 
 auto ASTInterpreter::AttributeSpecifierVisitor::operator()(CxxAttributeAST* ast)
     -> AttributeSpecifierResult {
-  auto attributeUsingPrefixResult =
-      interp.attributeUsingPrefix(ast->attributeUsingPrefix);
+  (void)interp.attributeUsingPrefix(ast->attributeUsingPrefix);
 
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attribute(node);
+    (void)interp.attribute(node);
   }
 
   return {};
@@ -546,7 +538,7 @@ auto ASTInterpreter::AttributeSpecifierVisitor::operator()(
 
 auto ASTInterpreter::AttributeSpecifierVisitor::operator()(
     AlignasTypeAttributeAST* ast) -> AttributeSpecifierResult {
-  auto typeIdResult = interp.typeId(ast->typeId);
+  (void)interp.typeId(ast->typeId);
 
   return {};
 }

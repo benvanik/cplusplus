@@ -166,8 +166,8 @@ auto ASTInterpreter::initDeclarator(InitDeclaratorAST* ast)
     -> InitDeclaratorResult {
   if (!ast) return {};
 
-  auto declaratorResult = declarator(ast->declarator);
-  auto requiresClauseResult = requiresClause(ast->requiresClause);
+  (void)declarator(ast->declarator);
+  (void)requiresClause(ast->requiresClause);
 
   return {};
 }
@@ -176,13 +176,13 @@ auto ASTInterpreter::declarator(DeclaratorAST* ast) -> DeclaratorResult {
   if (!ast) return {};
 
   for (auto node : ListView{ast->ptrOpList}) {
-    auto value = ptrOperator(node);
+    (void)ptrOperator(node);
   }
 
-  auto coreDeclaratorResult = coreDeclarator(ast->coreDeclarator);
+  (void)coreDeclarator(ast->coreDeclarator);
 
   for (auto node : ListView{ast->declaratorChunkList}) {
-    auto value = declaratorChunk(node);
+    (void)declaratorChunk(node);
   }
 
   return {};
@@ -202,7 +202,7 @@ auto ASTInterpreter::parameterDeclarationClause(
   if (!ast) return {};
 
   for (auto node : ListView{ast->parameterDeclarationList}) {
-    auto value = declaration(node);
+    (void)declaration(node);
   }
 
   return {};
@@ -212,7 +212,7 @@ auto ASTInterpreter::trailingReturnType(TrailingReturnTypeAST* ast)
     -> TrailingReturnTypeResult {
   if (!ast) return {};
 
-  auto typeIdResult = typeId(ast->typeId);
+  (void)typeId(ast->typeId);
 
   return {};
 }
@@ -220,11 +220,11 @@ auto ASTInterpreter::trailingReturnType(TrailingReturnTypeAST* ast)
 auto ASTInterpreter::PtrOperatorVisitor::operator()(PointerOperatorAST* ast)
     -> PtrOperatorResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   for (auto node : ListView{ast->cvQualifierList}) {
-    auto value = interp.specifier(node);
+    (void)interp.specifier(node);
   }
 
   return {};
@@ -233,7 +233,7 @@ auto ASTInterpreter::PtrOperatorVisitor::operator()(PointerOperatorAST* ast)
 auto ASTInterpreter::PtrOperatorVisitor::operator()(ReferenceOperatorAST* ast)
     -> PtrOperatorResult {
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   return {};
@@ -241,15 +241,14 @@ auto ASTInterpreter::PtrOperatorVisitor::operator()(ReferenceOperatorAST* ast)
 
 auto ASTInterpreter::PtrOperatorVisitor::operator()(PtrToMemberOperatorAST* ast)
     -> PtrOperatorResult {
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
 
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   for (auto node : ListView{ast->cvQualifierList}) {
-    auto value = interp.specifier(node);
+    (void)interp.specifier(node);
   }
 
   return {};
@@ -257,7 +256,7 @@ auto ASTInterpreter::PtrOperatorVisitor::operator()(PtrToMemberOperatorAST* ast)
 
 auto ASTInterpreter::CoreDeclaratorVisitor::operator()(
     BitfieldDeclaratorAST* ast) -> CoreDeclaratorResult {
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
   auto sizeExpressionResult = interp.expression(ast->sizeExpression);
 
   return {};
@@ -265,19 +264,18 @@ auto ASTInterpreter::CoreDeclaratorVisitor::operator()(
 
 auto ASTInterpreter::CoreDeclaratorVisitor::operator()(ParameterPackAST* ast)
     -> CoreDeclaratorResult {
-  auto coreDeclaratorResult = interp.coreDeclarator(ast->coreDeclarator);
+  (void)interp.coreDeclarator(ast->coreDeclarator);
 
   return {};
 }
 
 auto ASTInterpreter::CoreDeclaratorVisitor::operator()(IdDeclaratorAST* ast)
     -> CoreDeclaratorResult {
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
 
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   return {};
@@ -285,29 +283,26 @@ auto ASTInterpreter::CoreDeclaratorVisitor::operator()(IdDeclaratorAST* ast)
 
 auto ASTInterpreter::CoreDeclaratorVisitor::operator()(NestedDeclaratorAST* ast)
     -> CoreDeclaratorResult {
-  auto declaratorResult = interp.declarator(ast->declarator);
+  (void)interp.declarator(ast->declarator);
 
   return {};
 }
 
 auto ASTInterpreter::DeclaratorChunkVisitor::operator()(
     FunctionDeclaratorChunkAST* ast) -> DeclaratorChunkResult {
-  auto parameterDeclarationClauseResult =
-      interp.parameterDeclarationClause(ast->parameterDeclarationClause);
+  (void)interp.parameterDeclarationClause(ast->parameterDeclarationClause);
 
   for (auto node : ListView{ast->cvQualifierList}) {
-    auto value = interp.specifier(node);
+    (void)interp.specifier(node);
   }
 
-  auto exceptionSpecifierResult =
-      interp.exceptionSpecifier(ast->exceptionSpecifier);
+  (void)interp.exceptionSpecifier(ast->exceptionSpecifier);
 
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
-  auto trailingReturnTypeResult =
-      interp.trailingReturnType(ast->trailingReturnType);
+  (void)interp.trailingReturnType(ast->trailingReturnType);
 
   return {};
 }
@@ -317,7 +312,7 @@ auto ASTInterpreter::DeclaratorChunkVisitor::operator()(
   auto expressionResult = interp.expression(ast->expression);
 
   for (auto node : ListView{ast->attributeList}) {
-    auto value = interp.attributeSpecifier(node);
+    (void)interp.attributeSpecifier(node);
   }
 
   return {};
@@ -345,14 +340,14 @@ auto ASTInterpreter::RequirementVisitor::operator()(SimpleRequirementAST* ast)
 auto ASTInterpreter::RequirementVisitor::operator()(CompoundRequirementAST* ast)
     -> RequirementResult {
   auto expressionResult = interp.expression(ast->expression);
-  auto typeConstraintResult = interp.typeConstraint(ast->typeConstraint);
+  (void)interp.typeConstraint(ast->typeConstraint);
 
   return {};
 }
 
 auto ASTInterpreter::RequirementVisitor::operator()(TypeRequirementAST* ast)
     -> RequirementResult {
-  auto typeIdResult = interp.typeId(ast->typeId);
+  (void)interp.typeId(ast->typeId);
 
   return {};
 }
@@ -366,18 +361,16 @@ auto ASTInterpreter::RequirementVisitor::operator()(NestedRequirementAST* ast)
 
 auto ASTInterpreter::MemInitializerVisitor::operator()(
     ParenMemInitializerAST* ast) -> MemInitializerResult {
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
 
   return initialize(ast);
 }
 
 auto ASTInterpreter::MemInitializerVisitor::operator()(
     BracedMemInitializerAST* ast) -> MemInitializerResult {
-  auto nestedNameSpecifierResult =
-      interp.nestedNameSpecifier(ast->nestedNameSpecifier);
-  auto unqualifiedIdResult = interp.unqualifiedId(ast->unqualifiedId);
+  (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
+  (void)interp.unqualifiedId(ast->unqualifiedId);
 
   return initialize(ast);
 }
