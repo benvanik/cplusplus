@@ -96,7 +96,18 @@ void TypeDeducer::deduceArraySize(S* var) {
   }
 
   if (Initializer{initializer}.form() == InitializerForm::kParen) {
-    auto elementCount = Initializer{initializer}.arguments().size();
+    auto arguments = Initializer{initializer}.arguments();
+    if (arguments.size() == 1) {
+      if (auto stringInit = stringLiteralInitialization(ctx.traits, ctx.isCxx(),
+                                                        ty, arguments.front());
+          stringInit && stringInit->compatible) {
+        var->setType(ctx.control->getBoundedArrayType(
+            ty->elementType(), stringInit->elementCount));
+        return;
+      }
+    }
+
+    auto elementCount = arguments.size();
     if (elementCount)
       var->setType(
           ctx.control->getBoundedArrayType(ty->elementType(), elementCount));
