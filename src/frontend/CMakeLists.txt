@@ -119,3 +119,5 @@ add_custom_command(
 add_custom_target(link_wasi_sysroot ALL
     DEPENDS wasi-sysroot.timestamp
 )
+
+add_dependencies(cxx link_cxx_include link_wasi_sysroot)
