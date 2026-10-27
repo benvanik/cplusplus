@@ -52,7 +52,7 @@ auto ASTInterpreter::globalModuleFragment(GlobalModuleFragmentAST* ast)
   if (!ast) return {};
 
   for (auto node : ListView{ast->declarationList}) {
-    auto value = declaration(node);
+    (void)declaration(node);
   }
 
   return {};
@@ -63,7 +63,7 @@ auto ASTInterpreter::privateModuleFragment(PrivateModuleFragmentAST* ast)
   if (!ast) return {};
 
   for (auto node : ListView{ast->declarationList}) {
-    auto value = declaration(node);
+    (void)declaration(node);
   }
 
   return {};
@@ -73,11 +73,11 @@ auto ASTInterpreter::moduleDeclaration(ModuleDeclarationAST* ast)
     -> ModuleDeclarationResult {
   if (!ast) return {};
 
-  auto moduleNameResult = moduleName(ast->moduleName);
-  auto modulePartitionResult = modulePartition(ast->modulePartition);
+  (void)moduleName(ast->moduleName);
+  (void)modulePartition(ast->modulePartition);
 
   for (auto node : ListView{ast->attributeList}) {
-    auto value = attributeSpecifier(node);
+    (void)attributeSpecifier(node);
   }
 
   return {};
@@ -86,7 +86,7 @@ auto ASTInterpreter::moduleDeclaration(ModuleDeclarationAST* ast)
 auto ASTInterpreter::moduleName(ModuleNameAST* ast) -> ModuleNameResult {
   if (!ast) return {};
 
-  auto moduleQualifierResult = moduleQualifier(ast->moduleQualifier);
+  (void)moduleQualifier(ast->moduleQualifier);
 
   return {};
 }
@@ -95,7 +95,7 @@ auto ASTInterpreter::moduleQualifier(ModuleQualifierAST* ast)
     -> ModuleQualifierResult {
   if (!ast) return {};
 
-  auto moduleQualifierResult = moduleQualifier(ast->moduleQualifier);
+  (void)moduleQualifier(ast->moduleQualifier);
 
   return {};
 }
@@ -104,7 +104,7 @@ auto ASTInterpreter::modulePartition(ModulePartitionAST* ast)
     -> ModulePartitionResult {
   if (!ast) return {};
 
-  auto moduleNameResult = moduleName(ast->moduleName);
+  (void)moduleName(ast->moduleName);
 
   return {};
 }
@@ -112,8 +112,8 @@ auto ASTInterpreter::modulePartition(ModulePartitionAST* ast)
 auto ASTInterpreter::importName(ImportNameAST* ast) -> ImportNameResult {
   if (!ast) return {};
 
-  auto modulePartitionResult = modulePartition(ast->modulePartition);
-  auto moduleNameResult = moduleName(ast->moduleName);
+  (void)modulePartition(ast->modulePartition);
+  (void)moduleName(ast->moduleName);
 
   return {};
 }
@@ -121,24 +121,21 @@ auto ASTInterpreter::importName(ImportNameAST* ast) -> ImportNameResult {
 auto ASTInterpreter::UnitVisitor::operator()(TranslationUnitAST* ast)
     -> UnitResult {
   for (auto node : ListView{ast->declarationList}) {
-    auto value = interp.declaration(node);
+    (void)interp.declaration(node);
   }
 
   return {};
 }
 
 auto ASTInterpreter::UnitVisitor::operator()(ModuleUnitAST* ast) -> UnitResult {
-  auto globalModuleFragmentResult =
-      interp.globalModuleFragment(ast->globalModuleFragment);
-  auto moduleDeclarationResult =
-      interp.moduleDeclaration(ast->moduleDeclaration);
+  (void)interp.globalModuleFragment(ast->globalModuleFragment);
+  (void)interp.moduleDeclaration(ast->moduleDeclaration);
 
   for (auto node : ListView{ast->declarationList}) {
-    auto value = interp.declaration(node);
+    (void)interp.declaration(node);
   }
 
-  auto privateModuleFragmentResult =
-      interp.privateModuleFragment(ast->privateModuleFragment);
+  (void)interp.privateModuleFragment(ast->privateModuleFragment);
 
   return {};
 }

@@ -90,13 +90,13 @@ export function new_ast_op_cc({
     members.forEach((m) => {
       switch (m.kind) {
         case "node": {
-          emit(`  auto ${m.name}Result = operator()(ast->${m.name});`);
+          emit(`  (void)operator()(ast->${m.name});`);
           break;
         }
         case "node-list": {
           emit();
           emit(`  for (auto node : ListView{ast->${m.name}}) {`);
-          emit(`    auto value = operator()(node);`);
+          emit(`    (void)operator()(node);`);
           emit(`  }`);
           emit();
           break;
@@ -121,13 +121,13 @@ export function new_ast_op_cc({
       members.forEach((m) => {
         switch (m.kind) {
           case "node": {
-            emit(`  auto ${m.name}Result = accept(ast->${m.name});`);
+            emit(`  (void)accept(ast->${m.name});`);
             break;
           }
           case "node-list": {
             emit();
             emit(`  for (auto node : ListView{ast->${m.name}}) {`);
-            emit(`    auto value = accept(node);`);
+            emit(`    (void)accept(node);`);
             emit(`  }`);
             emit();
             break;
