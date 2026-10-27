@@ -21,9 +21,11 @@
 #include <cxx/floating_point.h>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <string_view>
 #include <utility>
 
 namespace cxx {
@@ -108,6 +110,103 @@ auto encoding(ConstFloat::Format format) -> FloatEncoding {
   std::unreachable();
 }
 
+[[nodiscard]] auto nanPayloadDigit(char ch) -> int {
+  if (ch >= '0' && ch <= '9') return ch - '0';
+  if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+  if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+  return -1;
+}
+
+[[nodiscard]] auto isAsciiSpace(char ch) -> bool {
+  return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f' ||
+         ch == '\v';
+}
+
+struct NanPayload {
+  std::uint64_t low = 0;
+  std::uint64_t high = 0;
+};
+
+void truncateNanPayload(NanPayload& payload, unsigned width) {
+  if (width <= 64) {
+    payload.high = 0;
+    if (width < 64) payload.low &= (std::uint64_t{1} << width) - 1;
+  } else if (width < 128) {
+    payload.high &= (std::uint64_t{1} << (width - 64)) - 1;
+  }
+}
+
+// Multiplies the unsigned 128-bit payload by a base no larger than 16, adds a
+// digit, and discards overflow above the selected significand width.
+void appendNanPayloadDigit(NanPayload& payload, unsigned base, unsigned digit,
+                           unsigned width) {
+  const auto lowHalf = static_cast<std::uint32_t>(payload.low);
+  const auto highHalf = static_cast<std::uint32_t>(payload.low >> 32);
+  const auto lowProduct = static_cast<std::uint64_t>(lowHalf) * base + digit;
+  const auto highProduct =
+      static_cast<std::uint64_t>(highHalf) * base + (lowProduct >> 32);
+
+  payload.low = (highProduct << 32) | static_cast<std::uint32_t>(lowProduct);
+  payload.high = payload.high * base + (highProduct >> 32);
+  truncateNanPayload(payload, width);
+}
+
+// Parses the integer-tag grammar used by __builtin_nan. Accumulating modulo
+// the requested width implements the specified truncation without making the
+// result depend on the host integer width or strtol overflow behavior.
+[[nodiscard]] auto parseNanPayload(std::string_view tag, unsigned width)
+    -> std::optional<NanPayload> {
+  if (width == 0 || width > 128) return std::nullopt;
+  if (tag.empty()) return NanPayload{};
+
+  std::size_t position = 0;
+  while (position < tag.size() && isAsciiSpace(tag[position])) ++position;
+
+  bool negative = false;
+  if (position < tag.size() && (tag[position] == '+' || tag[position] == '-')) {
+    negative = tag[position] == '-';
+    ++position;
+  }
+  if (position == tag.size()) return std::nullopt;
+
+  unsigned base = 10;
+  if (position + 2 <= tag.size() && tag[position] == '0' &&
+      (tag[position + 1] == 'x' || tag[position + 1] == 'X')) {
+    base = 16;
+    position += 2;
+  } else if (tag[position] == '0') {
+    base = 8;
+  }
+
+  NanPayload payload;
+  bool hasDigit = false;
+  for (; position < tag.size(); ++position) {
+    const int digit = nanPayloadDigit(tag[position]);
+    if (digit < 0 || static_cast<unsigned>(digit) >= base) return std::nullopt;
+    hasDigit = true;
+    appendNanPayloadDigit(payload, base, static_cast<unsigned>(digit), width);
+  }
+  if (!hasDigit) return std::nullopt;
+  if (negative) {
+    payload.low = ~payload.low + 1;
+    payload.high = ~payload.high + (payload.low == 0);
+    truncateNanPayload(payload, width);
+  }
+  return payload;
+}
+
+void storeNativeWord(std::array<unsigned char, sizeof(long double)>& bytes,
+                     std::size_t offset, std::uint64_t word) {
+  if constexpr (std::endian::native == std::endian::little) {
+    for (std::size_t i = 0; i < sizeof(word); ++i)
+      bytes[offset + i] = static_cast<unsigned char>(word >> (i * 8));
+  } else {
+    for (std::size_t i = 0; i < sizeof(word); ++i)
+      bytes[offset + i] =
+          static_cast<unsigned char>(word >> ((sizeof(word) - i - 1) * 8));
+  }
+}
+
 }  // namespace
 
 auto ConstFloat::formatFor(TypeKind kind) -> std::optional<Format> {
@@ -188,6 +287,67 @@ auto ConstFloat::fromValue(Format format, long double value) -> ConstFloat {
   return ConstFloat(
       format, sign | (static_cast<std::uint64_t>(exponent) << shape.fraction) |
                   (significand - (std::uint64_t{1} << shape.fraction)));
+}
+
+auto ConstFloat::fromNanPayload(Format format, std::string_view tag)
+    -> std::optional<ConstFloat> {
+  const auto shape = encoding(format);
+  auto payload = parseNanPayload(tag, shape.fraction);
+  if (!payload) return std::nullopt;
+
+  // E4M3FN has one positive NaN representation and no infinity. Its fraction
+  // does not carry a distinct quiet payload.
+  if (format == Format::kFloat8E4M3FN) return ConstFloat(format, 0x7f);
+
+  const auto exponentBits = shape.width - shape.fraction - 1;
+  const auto exponent = ((std::uint64_t{1} << exponentBits) - 1)
+                        << shape.fraction;
+  const auto quiet = std::uint64_t{1} << (shape.fraction - 1);
+  return ConstFloat(format, exponent | quiet | payload->low);
+}
+
+auto longDoubleNanFromPayload(std::string_view tag)
+    -> std::optional<long double> {
+  std::array<unsigned char, sizeof(long double)> bytes{};
+
+  if constexpr (std::numeric_limits<long double>::digits == 53 &&
+                std::numeric_limits<long double>::max_exponent == 1024 &&
+                sizeof(long double) == 8) {
+    auto payload = parseNanPayload(tag, 52);
+    if (!payload) return std::nullopt;
+    const auto bits = std::uint64_t{0x7ff8000000000000ULL} | payload->low;
+    storeNativeWord(bytes, 0, bits);
+  } else if constexpr (std::numeric_limits<long double>::digits == 64 &&
+                       std::numeric_limits<long double>::max_exponent ==
+                           16384 &&
+                       sizeof(long double) >= 10 &&
+                       std::endian::native == std::endian::little) {
+    auto payload = parseNanPayload(tag, 63);
+    if (!payload) return std::nullopt;
+    const auto significand =
+        std::uint64_t{0xc000000000000000ULL} | payload->low;
+    storeNativeWord(bytes, 0, significand);
+    bytes[8] = 0xff;
+    bytes[9] = 0x7f;
+  } else if constexpr (std::numeric_limits<long double>::digits == 113 &&
+                       std::numeric_limits<long double>::max_exponent ==
+                           16384 &&
+                       sizeof(long double) == 16) {
+    auto payload = parseNanPayload(tag, 112);
+    if (!payload) return std::nullopt;
+    const auto high = std::uint64_t{0x7fff800000000000ULL} | payload->high;
+    if constexpr (std::endian::native == std::endian::little) {
+      storeNativeWord(bytes, 0, payload->low);
+      storeNativeWord(bytes, 8, high);
+    } else {
+      storeNativeWord(bytes, 0, high);
+      storeNativeWord(bytes, 8, payload->low);
+    }
+  } else {
+    return std::nullopt;
+  }
+
+  return std::bit_cast<long double>(bytes);
 }
 
 auto ConstFloat::fromBits(Format format, std::uint64_t bits)

@@ -791,23 +791,28 @@ auto ASTInterpreter::evaluateBuiltinNan(CallExpressionAST* ast)
     -> std::optional<ConstValue> {
   auto payload = evaluateBuiltinNanPayload(ast);
   if (!payload) return std::nullopt;
-  return ConstValue{ConstFloat::fromValue(ConstFloat::Format::kDouble,
-                                          std::nan(payload->c_str()))};
+  auto value =
+      ConstFloat::fromNanPayload(ConstFloat::Format::kDouble, *payload);
+  if (!value) return std::nullopt;
+  return ConstValue{*value};
 }
 
 auto ASTInterpreter::evaluateBuiltinNanf(CallExpressionAST* ast)
     -> std::optional<ConstValue> {
   auto payload = evaluateBuiltinNanPayload(ast);
   if (!payload) return std::nullopt;
-  return ConstValue{ConstFloat::fromValue(ConstFloat::Format::kFloat,
-                                          std::nanf(payload->c_str()))};
+  auto value = ConstFloat::fromNanPayload(ConstFloat::Format::kFloat, *payload);
+  if (!value) return std::nullopt;
+  return ConstValue{*value};
 }
 
 auto ASTInterpreter::evaluateBuiltinNanl(CallExpressionAST* ast)
     -> std::optional<ConstValue> {
   auto payload = evaluateBuiltinNanPayload(ast);
   if (!payload) return std::nullopt;
-  return ConstValue{std::nanl(payload->c_str())};
+  auto value = longDoubleNanFromPayload(*payload);
+  if (!value) return std::nullopt;
+  return ConstValue{*value};
 }
 
 auto ASTInterpreter::evaluateBuiltinLockFree(CallExpressionAST* ast,

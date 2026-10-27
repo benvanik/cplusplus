@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <string_view>
 
 using namespace cxx;
 
@@ -272,6 +273,53 @@ TEST(FloatingPoint, ConstFloatRejectsExcessRepresentationBits) {
   EXPECT_FALSE(ConstFloat::fromBits(Format::kBFloat16, 0x10000));
   EXPECT_FALSE(ConstFloat::fromBits(Format::kFloat, std::uint64_t{1} << 32));
   EXPECT_TRUE(ConstFloat::fromBits(Format::kDouble, ~std::uint64_t{0}));
+}
+
+TEST(FloatingPoint, ConstFloatConstructsPortableNanPayloads) {
+  using Format = ConstFloat::Format;
+
+  const auto expectBits = [](Format format, std::string_view tag,
+                             std::uint64_t expected) {
+    auto value = ConstFloat::fromNanPayload(format, tag);
+    ASSERT_TRUE(value);
+    EXPECT_EQ(value->bits(), expected);
+    EXPECT_TRUE(value->isNaN());
+  };
+
+  struct Expected {
+    Format format;
+    std::uint64_t bits;
+  };
+  const Expected expected[] = {
+      {Format::kFloat16, 0x7e01},    {Format::kBFloat16, 0x7fc1},
+      {Format::kFloat8E4M3FN, 0x7f}, {Format::kFloat8E5M2, 0x7f},
+      {Format::kFloat, 0x7fc00001},  {Format::kDouble, 0x7ff8000000000001},
+  };
+  for (const auto& [format, bits] : expected) {
+    expectBits(format, "1", bits);
+  }
+
+  expectBits(Format::kFloat, "077", 0x7fc0003f);
+  expectBits(Format::kFloat, "0x800001", 0x7fc00001);
+  expectBits(Format::kFloat, "-1", 0x7fffffff);
+  expectBits(Format::kDouble, "  +0x123", 0x7ff8000000000123);
+  expectBits(Format::kDouble, "", 0x7ff8000000000000);
+
+  EXPECT_FALSE(ConstFloat::fromNanPayload(Format::kFloat, "08"));
+  EXPECT_FALSE(ConstFloat::fromNanPayload(Format::kFloat, "0x"));
+  EXPECT_FALSE(ConstFloat::fromNanPayload(Format::kFloat, "1tail"));
+}
+
+TEST(FloatingPoint, ConstructsSupportedHostLongDoubleNan) {
+  const auto value = longDoubleNanFromPayload("0x123");
+  ASSERT_TRUE(value);
+  EXPECT_TRUE(std::isnan(*value));
+
+  const auto empty = longDoubleNanFromPayload("");
+  ASSERT_TRUE(empty);
+  EXPECT_TRUE(std::isnan(*empty));
+
+  EXPECT_FALSE(longDoubleNanFromPayload("not-an-integer"));
 }
 
 TEST(FloatingPoint, ConstFloatPreservesWideRepresentations) {

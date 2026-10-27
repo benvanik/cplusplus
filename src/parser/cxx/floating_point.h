@@ -24,6 +24,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string_view>
 
 namespace cxx {
 
@@ -47,6 +48,12 @@ class ConstFloat {
 
   [[nodiscard]] static auto fromValue(Format format, long double value)
       -> ConstFloat;
+
+  // Constructs a quiet NaN whose trailing significand contains the integer
+  // tag. The tag follows the __builtin_nan base-prefix grammar and is
+  // truncated to the selected format's fraction field.
+  [[nodiscard]] static auto fromNanPayload(Format format, std::string_view tag)
+      -> std::optional<ConstFloat>;
 
   // Constructs a constant when bits contains exactly the selected format's
   // representation, with no set bits above that representation.
@@ -79,6 +86,12 @@ class ConstFloat {
   // Floating format used to interpret bits_.
   Format format_ = Format::kFloat;
 };
+
+// Constructs a quiet host long double NaN without delegating tag parsing to
+// the host C runtime. Returns no value when the host long-double object format
+// is unsupported or the complete tag is not an integer.
+[[nodiscard]] auto longDoubleNanFromPayload(std::string_view tag)
+    -> std::optional<long double>;
 
 // Rounds to IEEE binary16 using round-to-nearest, ties-to-even. Every binary16
 // value is represented exactly in the returned float; host half support is not
