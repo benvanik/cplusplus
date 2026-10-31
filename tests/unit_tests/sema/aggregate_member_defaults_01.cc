@@ -52,6 +52,37 @@ struct Batch {
 static_assert(Batch{}.total == 6);
 static_assert(Batch{.elements = 32}.total == 12);
 
+struct EosState {
+  double xn[4]{};
+};
+
+template <typename T>
+constexpr double updateEosState(const T* input, int index) {
+  EosState state{};
+  state.xn[index % 4] = input[index];
+  return state.xn[index % 4];
+}
+
+constexpr double eosInput[4]{1.0, 2.0, 3.0, 4.0};
+static_assert(updateEosState(eosInput, 2) == 3.0);
+
+struct ArrayDefaults {
+  unsigned values[3]{3, 5};
+  unsigned nested[2][2]{{7}, {11, 13}};
+  Descriptor descriptors[2]{};
+};
+
+template <typename T>
+constexpr unsigned readArrayDefaults(T bias) {
+  ArrayDefaults value{};
+  return value.values[0] + value.values[1] + value.values[2] +
+         value.nested[0][0] + value.nested[0][1] + value.nested[1][0] +
+         value.nested[1][1] + value.descriptors[0].words +
+         value.descriptors[1].pairs + bias;
+}
+
+static_assert(readArrayDefaults(1u) == 52);
+
 struct WithMethod {
   unsigned elements = 32;
   constexpr unsigned wordCount() const { return elements / 8; }

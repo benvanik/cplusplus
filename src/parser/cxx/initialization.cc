@@ -455,6 +455,14 @@ template <typename Description>
 void ElementInitChecker::initializeElement(
     ExpressionAST*& expr, const Type* type, const Description& description,
     InitializationKind initializationKind) {
+  if (auto initializer = ast_cast<DefaultInitializerExpressionAST>(expr)) {
+    initializeElement(initializer->expression, type, description,
+                      initializationKind);
+    initializer->type = initializer->expression->type;
+    initializer->valueCategory = initializer->expression->valueCategory;
+    return;
+  }
+
   if (ctx.traits.is_class_or_union(type)) {
     if (ast_cast<BracedInitListAST>(expr)) {
       ctx.checker.check_list_initialization(type, expr, initializationKind);
