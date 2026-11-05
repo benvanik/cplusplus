@@ -46,6 +46,7 @@ add_executable(test_api
     test_preprocessor.cc
     test_runtime_errors.cc
     test_translation_unit.cc
+    test_type_traits.cc
     test_type_printer.cc
     test_utf8.cc
 )
