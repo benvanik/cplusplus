@@ -1687,7 +1687,7 @@ namespace {
     return true;
   if (is_unnamed_namespace_scope_type(classSymbol)) return true;
   if (is_local_entity_with_internal_linkage(classSymbol)) return true;
-  return is_specialized_on_internal_type(classSymbol);
+  return has_internal_template_argument(classSymbol);
 }
 
 [[nodiscard]] auto enum_has_internal_linkage(Symbol* enumSymbol) -> bool {
@@ -1896,7 +1896,7 @@ auto has_c_language_linkage(Symbol* symbol) -> bool {
   return visit(HasCLanguageLinkage{}, symbol);
 }
 
-auto is_specialized_on_internal_type(Symbol* symbol) -> bool {
+auto has_internal_template_argument(Symbol* symbol) -> bool {
   for (auto scope = symbol; scope; scope = scope->parent()) {
     auto arguments = visit(GetTemplateArguments{}, scope);
     if (std::ranges::any_of(arguments, argument_has_internal_linkage))

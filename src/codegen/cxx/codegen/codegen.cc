@@ -191,7 +191,7 @@ auto Codegen::hasInternalLinkage(Symbol* symbol) const -> bool {
   if (!symbol) return false;
   if (isMaterializedTemporary(symbol)) return true;
   if (has_internal_linkage(symbol, unit_->language())) return true;
-  if (is_specialized_on_internal_type(symbol)) return true;
+  if (has_internal_template_argument(symbol)) return true;
   if (is_declared_with_internal_type(symbol)) return true;
 
   auto enclosingFunction = symbol->enclosingFunction();

@@ -239,7 +239,7 @@ void rebuild_specialization_index(Symbol* symbol);
 
 [[nodiscard]] auto type_has_internal_linkage(const Type* type) -> bool;
 
-[[nodiscard]] auto is_specialized_on_internal_type(Symbol* symbol) -> bool;
+[[nodiscard]] auto has_internal_template_argument(Symbol* symbol) -> bool;
 
 [[nodiscard]] auto is_declared_with_internal_type(Symbol* symbol) -> bool;
 

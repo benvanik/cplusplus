@@ -18,6 +18,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import os
+import platform
 import shutil
 import subprocess
 
@@ -38,6 +39,14 @@ config.substitutions.append(("%filecheck", config.filecheck))
 # The 'lld' feature is available when cxx was built with an embedded lld linker.
 if getattr(config, "have_lld", False):
     config.available_features.add("lld")
+
+# Native ELF execution uses the frontend's default GNU linker driver.
+if (
+    platform.system() == "Linux"
+    and platform.machine() == "x86_64"
+    and shutil.which("g++")
+):
+    config.available_features.add("native-x86_64-linux")
 
 # The 'int128' feature is available when cxx itself was built on a host with a
 # 128-bit integer type, which is what makes __int128 a usable type specifier.
