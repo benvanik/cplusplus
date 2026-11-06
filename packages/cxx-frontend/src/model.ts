@@ -960,7 +960,7 @@ const TypeConstructionASTSlotBase = CallExpressionASTSlotBase + 7;
 const BracedTypeConstructionASTSlotBase = TypeConstructionASTSlotBase + 5;
 const SpliceMemberExpressionASTSlotBase = BracedTypeConstructionASTSlotBase + 4;
 const MemberExpressionASTSlotBase = SpliceMemberExpressionASTSlotBase + 8;
-const PostIncrExpressionASTSlotBase = MemberExpressionASTSlotBase + 8;
+const PostIncrExpressionASTSlotBase = MemberExpressionASTSlotBase + 9;
 const CppCastExpressionASTSlotBase = PostIncrExpressionASTSlotBase + 5;
 const BuiltinBitCastExpressionASTSlotBase = CppCastExpressionASTSlotBase + 8;
 const BuiltinConvertVectorExpressionASTSlotBase =
@@ -5183,13 +5183,18 @@ export class MemberExpressionAST extends ExpressionAST {
       this.modelOwner,
     );
   }
-  get accessOp(): TokenKind {
-    return tokenKindNames[
+  get vectorComponentKind(): VectorComponentKind {
+    return vectorComponentKindNames[
       cxx.readAST(this.handle, MemberExpressionASTSlotBase + 6)
     ]!;
   }
+  get accessOp(): TokenKind {
+    return tokenKindNames[
+      cxx.readAST(this.handle, MemberExpressionASTSlotBase + 7)
+    ]!;
+  }
   get isTemplateIntroduced(): boolean {
-    return cxx.readAST(this.handle, MemberExpressionASTSlotBase + 7) !== 0;
+    return cxx.readAST(this.handle, MemberExpressionASTSlotBase + 8) !== 0;
   }
 }
 /** @category AST Nodes */
@@ -12542,6 +12547,19 @@ const valueCategoryNames: Record<number, ValueCategory> = {
   1: "LValue",
   2: "XValue",
   3: "PrValue",
+};
+/** @category Enumerations */
+export type VectorComponentKind =
+  "None" | "Xyzw" | "Rgba" | "Hexadecimal" | "Low" | "High" | "Even" | "Odd";
+const vectorComponentKindNames: Record<number, VectorComponentKind> = {
+  0: "None",
+  1: "Xyzw",
+  2: "Rgba",
+  3: "Hexadecimal",
+  4: "Low",
+  5: "High",
+  6: "Even",
+  7: "Odd",
 };
 /** @category Enumerations */
 export type ImplicitCastKind =

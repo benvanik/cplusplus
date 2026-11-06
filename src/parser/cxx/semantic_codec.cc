@@ -4764,6 +4764,8 @@ void SemanticEncoder::writeAstMemberExpressionAST(
   out.varU32(static_cast<std::uint32_t>(astRef(self->unqualifiedId)));
   // ::cxx::MemberExpressionAST::symbol
   out.varU32(static_cast<std::uint32_t>(symbolRef(self->symbol)));
+  // ::cxx::MemberExpressionAST::vectorComponentKind
+  out.varU32(static_cast<std::uint32_t>(self->vectorComponentKind));
   // ::cxx::MemberExpressionAST::accessOp
   out.varU32(static_cast<std::uint32_t>(self->accessOp));
   // ::cxx::MemberExpressionAST::isTemplateIntroduced
@@ -14204,12 +14206,18 @@ void SemanticDecoder::readAstMemberExpressionAST(
   // ::cxx::MemberExpressionAST::symbol
   cxx::Symbol* value6 = symbolAt(SymbolRef{in.varU32()});
   self->symbol = std::move(value6);
+  // ::cxx::MemberExpressionAST::vectorComponentKind
+  static_assert(
+      static_cast<std::uint32_t>(::cxx::VectorComponentKind::kOdd) + 1 == 8);
+  ::cxx::VectorComponentKind value7 =
+      static_cast<::cxx::VectorComponentKind>(readEnum(in, 8));
+  self->vectorComponentKind = std::move(value7);
   // ::cxx::MemberExpressionAST::accessOp
-  ::cxx::TokenKind value7 = static_cast<::cxx::TokenKind>(readEnum(in, 240));
-  self->accessOp = std::move(value7);
+  ::cxx::TokenKind value8 = static_cast<::cxx::TokenKind>(readEnum(in, 240));
+  self->accessOp = std::move(value8);
   // ::cxx::MemberExpressionAST::isTemplateIntroduced
-  bool value8 = in.boolean();
-  self->isTemplateIntroduced = std::move(value8);
+  bool value9 = in.boolean();
+  self->isTemplateIntroduced = std::move(value9);
 }
 
 void SemanticDecoder::readAstPostIncrExpressionAST(

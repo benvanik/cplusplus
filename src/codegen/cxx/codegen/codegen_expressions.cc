@@ -1745,7 +1745,7 @@ auto Codegen::ExpressionVisitor::emitVectorElementAccess(ExpressionAST* ast)
         .vectorAddress = address,
         .vectorType = access->vectorType,
         .access = gen.objectAccess(member->type, alignment),
-        .lanes = std::move(access->components.lanes),
+        .lanes = *access,
     };
   }
   auto subscript = ast_cast<SubscriptExpressionAST>(ast);
@@ -1769,16 +1769,20 @@ auto Codegen::ExpressionVisitor::extractLanes(
   if (auto lane = std::get_if<DynamicLane>(&lanes))
     return gen.emitter_.vectorExtract(loc, resultType, vector, lane->index,
                                       lane->isSigned);
-  const auto& constant = std::get<std::vector<std::int64_t>>(lanes);
-  if (constant.size() == 1) {
+  const auto& access = std::get<VectorComponentAccess>(lanes);
+  if (access.elementCount == 1) {
     auto index = gen.emitter_.constantInt(loc, gen.emitter_.integerType(32),
-                                          constant.front());
+                                          vectorComponentIndex(access, 0));
     return gen.emitter_.vectorExtract(loc, resultType, vector, index,
                                       /*indexIsSigned=*/false);
   }
+  std::vector<std::int64_t> mask;
+  mask.reserve(access.elementCount);
+  for (std::size_t position = 0; position < access.elementCount; ++position)
+    mask.push_back(vectorComponentIndex(access, position));
   auto padding = gen.emitter_.constant(loc, gen.convertType(vectorType),
                                        ir::Initializer::undef());
-  return gen.emitter_.vectorShuffle(loc, vector, padding, constant);
+  return gen.emitter_.vectorShuffle(loc, vector, padding, mask);
 }
 
 auto Codegen::ExpressionVisitor::insertLanes(
@@ -1787,21 +1791,22 @@ auto Codegen::ExpressionVisitor::insertLanes(
   if (auto lane = std::get_if<DynamicLane>(&lanes))
     return gen.emitter_.vectorInsert(loc, vector, value, lane->index,
                                      lane->isSigned);
-  const auto& constant = std::get<std::vector<std::int64_t>>(lanes);
+  const auto& access = std::get<VectorComponentAccess>(lanes);
   const auto laneCount = static_cast<std::int64_t>(
       unqualified_cast<VectorType>(vectorType)->elementCount());
   auto indexType = gen.emitter_.integerType(32);
   auto laneType = gen.emitter_.elementType(gen.convertType(vectorType));
-  for (std::size_t source = 0; source < constant.size(); ++source) {
-    if (constant[source] >= laneCount) continue;
+  for (std::size_t source = 0; source < access.elementCount; ++source) {
+    const auto targetLane = vectorComponentIndex(access, source);
+    if (targetLane >= laneCount) continue;
     auto element = value;
-    if (constant.size() > 1) {
+    if (access.elementCount > 1) {
       auto position = gen.emitter_.constantInt(
           loc, indexType, static_cast<std::int64_t>(source));
       element = gen.emitter_.vectorExtract(loc, laneType, value, position,
                                            /*indexIsSigned=*/false);
     }
-    auto target = gen.emitter_.constantInt(loc, indexType, constant[source]);
+    auto target = gen.emitter_.constantInt(loc, indexType, targetLane);
     vector = gen.emitter_.vectorInsert(loc, vector, element, target,
                                        /*indexIsSigned=*/false);
   }
@@ -1881,9 +1886,8 @@ auto Codegen::ExpressionVisitor::operator()(MemberExpressionAST* ast)
                             loc, gen.convertType(access->vectorType),
                             base.value, gen.getAlignment(access->vectorType))
                       : vectorValue(ast->baseExpression, base);
-    auto value =
-        extractLanes(loc, gen.convertType(ast->type), access->vectorType,
-                     vector, VectorLanes{access->components.lanes});
+    auto value = extractLanes(loc, gen.convertType(ast->type),
+                              access->vectorType, vector, VectorLanes{*access});
     return {value, ValueCategory::kPrValue, /*isRValueMaterialized=*/true};
   }
 

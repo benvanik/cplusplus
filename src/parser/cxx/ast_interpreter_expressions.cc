@@ -1072,10 +1072,12 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
   }
 
   if (auto member = ast_cast<MemberExpressionAST>(ast)) {
-    if (auto lane = componentLane(member)) {
+    if (auto access = vectorComponentAccess(member);
+        access && access->elementCount == 1) {
+      const auto lane = vectorComponentIndex(*access, 0);
       auto lanes = componentVector(member);
-      if (!lanes || *lane >= lanes->size()) return nullptr;
-      return &std::get<0>(lanes->mutableElement(*lane));
+      if (!lanes || lane >= lanes->size()) return nullptr;
+      return &std::get<0>(lanes->mutableElement(lane));
     }
     if (!member->symbol) return nullptr;
     auto field = symbol_cast<FieldSymbol>(member->symbol);
@@ -1516,13 +1518,6 @@ auto ASTInterpreter::designatedObject(ExpressionAST* ast)
   if (!value) return {};
   auto object = std::get_if<std::shared_ptr<ConstObject>>(&*value);
   return object ? *object : nullptr;
-}
-
-auto ASTInterpreter::componentLane(MemberExpressionAST* ast)
-    -> std::optional<std::size_t> {
-  auto access = vectorComponentAccess(ast);
-  if (!access || access->components.lanes.size() != 1) return std::nullopt;
-  return access->components.lanes.front();
 }
 
 auto ASTInterpreter::componentVector(MemberExpressionAST* ast)
@@ -3614,11 +3609,12 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
 
 auto ASTInterpreter::ExpressionVisitor::operator()(MemberExpressionAST* ast)
     -> ExpressionResult {
-  if (vectorComponentAccess(ast)) {
-    auto lane = interp.componentLane(ast);
-    auto lanes = lane ? interp.componentVector(ast) : nullptr;
-    if (!lanes || *lane >= lanes->size()) return std::nullopt;
-    return std::get<0>(lanes->element(*lane));
+  if (auto access = vectorComponentAccess(ast)) {
+    auto lanes =
+        access->elementCount == 1 ? interp.componentVector(ast) : nullptr;
+    const auto lane = vectorComponentIndex(*access, 0);
+    if (!lanes || lane >= lanes->size()) return std::nullopt;
+    return std::get<0>(lanes->element(lane));
   }
 
   auto object = interp.memberObject(ast);

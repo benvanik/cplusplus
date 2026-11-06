@@ -21,19 +21,18 @@
 #pragma once
 
 #include <cxx/ast_fwd.h>
+#include <cxx/names_fwd.h>
 #include <cxx/types_fwd.h>
 
 #include <cstddef>
-#include <cstdint>
 #include <expected>
 #include <optional>
-#include <string_view>
-#include <vector>
 
 namespace cxx {
 
-struct VectorComponents {
-  std::vector<std::int64_t> lanes;
+struct VectorComponentSelection {
+  VectorComponentKind kind = VectorComponentKind::kNone;
+  std::size_t elementCount = 0;
   bool hasRepeatedLane = false;
 };
 
@@ -49,14 +48,25 @@ struct VectorComponentError {
 
 struct VectorComponentAccess {
   const VectorType* vectorType = nullptr;
-  VectorComponents components;
+  const Identifier* identifier = nullptr;
+  VectorComponentKind kind = VectorComponentKind::kNone;
+  std::size_t elementCount = 0;
 };
 
-[[nodiscard]] auto vectorComponents(const VectorType* type,
-                                    std::string_view name)
-    -> std::expected<VectorComponents, VectorComponentError>;
+// Validates one Clang extended-vector component name without allocating a lane
+// array. Successful classification is retained on the member expression.
+[[nodiscard]] auto classifyVectorComponent(const Identifier* identifier,
+                                           std::size_t sourceElementCount)
+    -> std::expected<VectorComponentSelection, VectorComponentError>;
 
+// Returns the retained component-selection fact for an analyzed expression.
 [[nodiscard]] auto vectorComponentAccess(MemberExpressionAST* ast)
     -> std::optional<VectorComponentAccess>;
+
+// Returns one lane from a previously validated component selection. Odd-width
+// high and odd selections include one padding lane equal to the source count.
+[[nodiscard]] auto vectorComponentIndex(const VectorComponentAccess& access,
+                                        std::size_t resultPosition)
+    -> std::size_t;
 
 }  // namespace cxx

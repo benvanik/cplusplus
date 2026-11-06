@@ -97,6 +97,17 @@ enum class ImplicitCastKind {
   kAddressSpaceConversion,
 };
 
+enum class VectorComponentKind {
+  kNone,
+  kXyzw,
+  kRgba,
+  kHexadecimal,
+  kLow,
+  kHigh,
+  kEven,
+  kOdd,
+};
+
 ${code.join("\n")}
 
 enum class ASTKind;

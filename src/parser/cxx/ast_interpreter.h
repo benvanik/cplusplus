@@ -697,9 +697,6 @@ class ASTInterpreter {
                                  const Type* objectType = nullptr)
       -> ConstValue*;
 
-  [[nodiscard]] auto componentLane(MemberExpressionAST* ast)
-      -> std::optional<std::size_t>;
-
   [[nodiscard]] auto componentVector(MemberExpressionAST* ast)
       -> std::shared_ptr<InitializerList>;
 

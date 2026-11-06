@@ -1355,6 +1355,8 @@ inline constexpr FieldDescriptor kSemanticFieldModelStorage[] = {
     {"::cxx::MemberExpressionAST", "unqualifiedId",
      FieldPersistence::kPersisted, ""},
     {"::cxx::MemberExpressionAST", "symbol", FieldPersistence::kPersisted, ""},
+    {"::cxx::MemberExpressionAST", "vectorComponentKind",
+     FieldPersistence::kPersisted, ""},
     {"::cxx::MemberExpressionAST", "accessOp", FieldPersistence::kPersisted,
      ""},
     {"::cxx::MemberExpressionAST", "isTemplateIntroduced",

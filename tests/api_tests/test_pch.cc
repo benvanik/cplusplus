@@ -166,6 +166,23 @@ class ConvertVectorVisitor final : public ASTVisitor {
   std::vector<BuiltinConvertVectorExpressionAST*> expressions;
 };
 
+class VectorComponentVisitor final : public ASTVisitor {
+ public:
+  void visit(MemberExpressionAST* ast) override {
+    if (ast->vectorComponentKind != VectorComponentKind::kNone)
+      kinds.push_back(ast->vectorComponentKind);
+    ASTVisitor::visit(ast);
+  }
+
+  std::vector<VectorComponentKind> kinds;
+};
+
+auto vectorComponentKinds(AST* ast) -> std::vector<VectorComponentKind> {
+  VectorComponentVisitor visitor;
+  visitor.accept(ast);
+  return visitor.kinds;
+}
+
 auto convertVectorExpressions(AST* ast)
     -> std::vector<BuiltinConvertVectorExpressionAST*> {
   ConvertVectorVisitor visitor;
@@ -608,6 +625,41 @@ constexpr Float4 converted = __builtin_convertvector(source, Float4);
   PrecompiledHeaderReader reader{&consumer, keys()};
   ASSERT_TRUE(reader(data)) << reader.error();
   expectConvertVectorExpression(consumer.ast());
+}
+
+TEST(PrecompiledHeader, RestoresVectorComponentClassifications) {
+  Prefix prefix{R"(
+using Int4 = int __attribute__((ext_vector_type(4)));
+void select(Int4& value) {
+  (void)value.xy;
+  (void)value.s31;
+  (void)value.hi;
+  (void)value.rgba;
+}
+)"};
+
+  const std::vector expected{
+      VectorComponentKind::kXyzw,
+      VectorComponentKind::kHexadecimal,
+      VectorComponentKind::kHigh,
+      VectorComponentKind::kRgba,
+  };
+  EXPECT_EQ(vectorComponentKinds(prefix.unit()->ast()), expected);
+  EXPECT_EQ(
+      vectorComponentKinds(prefix.unit()->ast()->clone(prefix.unit()->arena())),
+      expected);
+
+  const auto data = prefix.emit();
+  ASSERT_TRUE(prefix.errors().empty());
+  ASSERT_FALSE(data.empty());
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+  EXPECT_EQ(vectorComponentKinds(consumer.ast()), expected);
 }
 
 TEST(PrecompiledHeader, RestoresRecordLayoutAttributes) {

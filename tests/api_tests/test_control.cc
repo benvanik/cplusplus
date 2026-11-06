@@ -27,11 +27,14 @@
 #include <cxx/symbols.h>
 #include <cxx/translation_unit.h>
 #include <cxx/types.h>
+#include <cxx/vector_components.h>
 #include <gtest/gtest.h>
 
 #include <bit>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
+#include <string_view>
 
 using namespace cxx;
 
@@ -136,6 +139,80 @@ TEST(Control, get_identifier) {
 
   EXPECT_EQ(control.getIdentifier("foo"), id);
   EXPECT_NE(name_cast<Identifier>(id), nullptr);
+}
+
+TEST(VectorComponents, ClassifiesAndDecodesSelectors) {
+  struct Case {
+    std::string_view spelling;
+    std::size_t sourceElementCount;
+    VectorComponentKind kind;
+    bool hasRepeatedLane;
+    std::initializer_list<std::size_t> indices;
+  };
+
+  Control control;
+  for (const auto& test : {
+           Case{"wzyx", 4, VectorComponentKind::kXyzw, false, {3, 2, 1, 0}},
+           Case{"argb", 4, VectorComponentKind::kRgba, false, {3, 0, 1, 2}},
+           Case{"s0aF",
+                16,
+                VectorComponentKind::kHexadecimal,
+                false,
+                {0, 10, 15}},
+           Case{"S00", 4, VectorComponentKind::kHexadecimal, true, {0, 0}},
+           Case{"lo", 3, VectorComponentKind::kLow, false, {0, 1}},
+           Case{"hi", 3, VectorComponentKind::kHigh, false, {2, 3}},
+           Case{"even", 3, VectorComponentKind::kEven, false, {0, 2}},
+           Case{"odd", 3, VectorComponentKind::kOdd, false, {1, 3}},
+       }) {
+    const auto identifier = control.getIdentifier(test.spelling);
+    const auto selection =
+        classifyVectorComponent(identifier, test.sourceElementCount);
+    ASSERT_TRUE(selection);
+    EXPECT_EQ(selection->kind, test.kind);
+    EXPECT_EQ(selection->elementCount, test.indices.size());
+    EXPECT_EQ(selection->hasRepeatedLane, test.hasRepeatedLane);
+
+    const auto vectorType = control.getVectorType(
+        control.getIntType(), test.sourceElementCount, VectorKind::kExt);
+    const VectorComponentAccess access{vectorType, identifier, selection->kind,
+                                       selection->elementCount};
+    std::size_t position = 0;
+    for (const auto expected : test.indices)
+      EXPECT_EQ(vectorComponentIndex(access, position++), expected);
+  }
+}
+
+TEST(VectorComponents, SupportsWideHalvingSelectors) {
+  Control control;
+  const auto identifier = control.getIdentifier("odd");
+  const auto selection = classifyVectorComponent(identifier, 32);
+  ASSERT_TRUE(selection);
+  EXPECT_EQ(selection->elementCount, 16u);
+
+  const auto vectorType =
+      control.getVectorType(control.getIntType(), 32, VectorKind::kExt);
+  const VectorComponentAccess access{vectorType, identifier, selection->kind,
+                                     selection->elementCount};
+  EXPECT_EQ(vectorComponentIndex(access, 0), 1u);
+  EXPECT_EQ(vectorComponentIndex(access, 15), 31u);
+}
+
+TEST(VectorComponents, RejectsInvalidAndOutOfRangeSelectors) {
+  Control control;
+  for (const auto spelling : {"xg", "s", "A1"}) {
+    const auto selection =
+        classifyVectorComponent(control.getIdentifier(spelling), 4);
+    ASSERT_FALSE(selection);
+    EXPECT_EQ(selection.error().kind, VectorComponentErrorKind::kIllegalName);
+  }
+
+  for (const auto spelling : {"w", "s3"}) {
+    const auto selection =
+        classifyVectorComponent(control.getIdentifier(spelling), 3);
+    ASSERT_FALSE(selection);
+    EXPECT_EQ(selection.error().kind, VectorComponentErrorKind::kOutOfRange);
+  }
 }
 
 TEST(Control, get_operator_id) {

@@ -29,6 +29,7 @@
 #include <cxx/symbols.h>
 #include <cxx/type_traits.h>
 #include <cxx/types_fwd.h>
+#include <cxx/vector_components.h>
 
 #include <functional>
 #include <map>
@@ -337,7 +338,7 @@ class Codegen {
     ir::ValueRef index;
     bool isSigned = false;
   };
-  using VectorLanes = std::variant<DynamicLane, std::vector<std::int64_t>>;
+  using VectorLanes = std::variant<DynamicLane, VectorComponentAccess>;
   struct VectorElementAccess {
     ir::ValueRef vectorAddress;
     const Type* vectorType = nullptr;

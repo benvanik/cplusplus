@@ -21,112 +21,151 @@
 #include <cxx/ast.h>
 #include <cxx/names.h>
 #include <cxx/types.h>
+#include <cxx/util.h>
 #include <cxx/vector_components.h>
 
-#include <array>
-#include <cctype>
-#include <optional>
+#include <cstdint>
+#include <string_view>
 
 namespace cxx {
 
 namespace {
 
-constexpr std::string_view kPositions = "xyzw";
-constexpr std::string_view kColors = "rgba";
-constexpr std::string_view kHexDigits = "0123456789abcdef";
-
-struct HalvingSelection {
-  std::string_view name;
-  std::int64_t scale;
-  std::int64_t start;
-};
-
-[[nodiscard]] auto halvingSelection(std::string_view name, std::int64_t half)
-    -> std::optional<HalvingSelection> {
-  const std::array selections{
-      HalvingSelection{"lo", 1, 0},
-      HalvingSelection{"hi", 1, half},
-      HalvingSelection{"even", 2, 0},
-      HalvingSelection{"odd", 2, 1},
-  };
-  for (const auto& selection : selections)
-    if (selection.name == name) return selection;
-  return std::nullopt;
-}
-
-[[nodiscard]] auto alphabetOf(std::string_view& spelling) -> std::string_view {
-  if (spelling.size() > 1 && (spelling[0] == 's' || spelling[0] == 'S')) {
-    spelling.remove_prefix(1);
-    return kHexDigits;
+[[nodiscard]] auto pointComponentIndex(char component) -> int {
+  switch (component) {
+    case 'x':
+    case 'r':
+      return 0;
+    case 'y':
+    case 'g':
+      return 1;
+    case 'z':
+    case 'b':
+      return 2;
+    case 'w':
+    case 'a':
+      return 3;
+    default:
+      return -1;
   }
-  if (kPositions.contains(spelling[0])) return kPositions;
-  if (kColors.contains(spelling[0])) return kColors;
-  return kHexDigits;
 }
 
-[[nodiscard]] auto laneOf(std::string_view alphabet, char c)
-    -> std::optional<std::int64_t> {
-  if (alphabet == kHexDigits)
-    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  auto position = alphabet.find(c);
-  if (position == std::string_view::npos) return std::nullopt;
-  return static_cast<std::int64_t>(position);
+[[nodiscard]] auto hexadecimalComponentIndex(char component) -> int {
+  if (component >= '0' && component <= '9') return component - '0';
+  if (component >= 'A' && component <= 'F') return component - 'A' + 10;
+  if (component >= 'a' && component <= 'f') return component - 'a' + 10;
+  return -1;
+}
+
+[[nodiscard]] auto isRgbaComponent(char component) -> bool {
+  return component == 'r' || component == 'g' || component == 'b' ||
+         component == 'a';
 }
 
 }  // namespace
 
-auto vectorComponents(const VectorType* type, std::string_view name)
-    -> std::expected<VectorComponents, VectorComponentError> {
-  const auto elementCount = static_cast<std::int64_t>(type->elementCount());
-  const auto half = (elementCount + 1) / 2;
+auto classifyVectorComponent(const Identifier* identifier,
+                             std::size_t sourceElementCount)
+    -> std::expected<VectorComponentSelection, VectorComponentError> {
+  if (!identifier || identifier->name().empty())
+    return std::unexpected(VectorComponentError{});
 
-  VectorComponents components;
-  if (auto selection = halvingSelection(name, half)) {
-    for (std::int64_t index = 0; index < half; ++index)
-      components.lanes.push_back(selection->start + selection->scale * index);
-    return components;
+  VectorComponentSelection selection;
+  const std::string_view name = identifier->name();
+  if (name == "lo" || name == "hi" || name == "even" || name == "odd") {
+    selection.kind = name == "lo"     ? VectorComponentKind::kLow
+                     : name == "hi"   ? VectorComponentKind::kHigh
+                     : name == "even" ? VectorComponentKind::kEven
+                                      : VectorComponentKind::kOdd;
+    selection.elementCount = (sourceElementCount + 1) / 2;
+    return selection;
   }
 
-  auto spelling = name;
-  const auto alphabet = alphabetOf(spelling);
-  for (auto c : spelling) {
-    auto lane = laneOf(alphabet, c);
-    if (!lane)
-      return std::unexpected(
-          VectorComponentError{VectorComponentErrorKind::kIllegalName, c});
-    components.lanes.push_back(*lane);
-  }
+  std::string_view components = name;
+  const bool hasHexadecimalPrefix =
+      components.size() > 1 &&
+      (components.front() == 's' || components.front() == 'S');
+  if (hasHexadecimalPrefix) components.remove_prefix(1);
 
-  for (std::size_t index = 0; index < spelling.size(); ++index) {
-    if (components.lanes[index] >= elementCount)
+  const int firstPoint = pointComponentIndex(components.front());
+  const bool pointAccessor = !hasHexadecimalPrefix && firstPoint >= 0;
+  if (!pointAccessor && !hasHexadecimalPrefix)
+    return std::unexpected(VectorComponentError{
+        VectorComponentErrorKind::kIllegalName, components.front()});
+
+  const bool rgba = pointAccessor && isRgbaComponent(components.front());
+  selection.kind = pointAccessor ? (rgba ? VectorComponentKind::kRgba
+                                         : VectorComponentKind::kXyzw)
+                                 : VectorComponentKind::kHexadecimal;
+
+  std::uint16_t selectedLanes = 0;
+  for (char component : components) {
+    const int index = pointAccessor ? pointComponentIndex(component)
+                                    : hexadecimalComponentIndex(component);
+    if (index < 0 || (pointAccessor && isRgbaComponent(component) != rgba)) {
       return std::unexpected(VectorComponentError{
-          VectorComponentErrorKind::kOutOfRange, spelling[index]});
+          VectorComponentErrorKind::kIllegalName, component});
+    }
+    if (static_cast<std::size_t>(index) >= sourceElementCount) {
+      return std::unexpected(VectorComponentError{
+          VectorComponentErrorKind::kOutOfRange, component});
+    }
+    const std::uint16_t lane = std::uint16_t{1} << index;
+    selection.hasRepeatedLane |= (selectedLanes & lane) != 0;
+    selectedLanes |= lane;
   }
 
-  std::array<bool, 16> seen{};
-  for (auto lane : components.lanes) {
-    if (seen[lane]) components.hasRepeatedLane = true;
-    seen[lane] = true;
-  }
-
-  return components;
+  selection.elementCount = components.size();
+  return selection;
 }
 
 auto vectorComponentAccess(MemberExpressionAST* ast)
     -> std::optional<VectorComponentAccess> {
-  if (!ast || ast->symbol || !ast->baseExpression) return std::nullopt;
+  if (!ast || ast->vectorComponentKind == VectorComponentKind::kNone)
+    return std::nullopt;
+
   auto name = ast_cast<NameIdAST>(ast->unqualifiedId);
-  if (!name || !name->identifier) return std::nullopt;
+  if (!name || !name->identifier || !ast->baseExpression)
+    cxx_runtime_error("invalid retained vector component selection");
+
   auto objectType = ast->baseExpression->type;
   if (ast->accessOp == TokenKind::T_MINUS_GREATER) {
     auto pointer = unqualified_cast<PointerType>(objectType);
-    objectType = pointer ? pointer->elementType() : nullptr;
+    if (!pointer) cxx_runtime_error("invalid retained vector component base");
+    objectType = pointer->elementType();
   }
   auto vector = unqualified_cast<VectorType>(objectType);
-  if (!vector || vector->vectorKind() != VectorKind::kExt) return std::nullopt;
-  auto components = vectorComponents(vector, name->identifier->name());
-  if (!components) return std::nullopt;
-  return VectorComponentAccess{vector, std::move(*components)};
+  if (!vector || vector->vectorKind() != VectorKind::kExt)
+    cxx_runtime_error("invalid retained vector component type");
+
+  auto resultVector = unqualified_cast<VectorType>(ast->type);
+  const std::size_t elementCount =
+      resultVector ? resultVector->elementCount() : 1;
+  return VectorComponentAccess{vector, name->identifier,
+                               ast->vectorComponentKind, elementCount};
+}
+
+auto vectorComponentIndex(const VectorComponentAccess& access,
+                          std::size_t resultPosition) -> std::size_t {
+  const std::string_view name = access.identifier->name();
+  switch (access.kind) {
+    case VectorComponentKind::kXyzw:
+    case VectorComponentKind::kRgba:
+      return pointComponentIndex(name[resultPosition]);
+    case VectorComponentKind::kHexadecimal:
+      return hexadecimalComponentIndex(name[resultPosition + 1]);
+    case VectorComponentKind::kLow:
+      return resultPosition;
+    case VectorComponentKind::kHigh:
+      return (access.vectorType->elementCount() + 1) / 2 + resultPosition;
+    case VectorComponentKind::kEven:
+      return 2 * resultPosition;
+    case VectorComponentKind::kOdd:
+      return 2 * resultPosition + 1;
+    case VectorComponentKind::kNone:
+      cxx_runtime_error("invalid vector component kind");
+  }
+  cxx_runtime_error("invalid vector component kind");
 }
 
 }  // namespace cxx
