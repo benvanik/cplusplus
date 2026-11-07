@@ -321,14 +321,14 @@ class Parser final {
   [[nodiscard]] auto parse_pack_index_expression(ExpressionAST*& yyast,
                                                  const ExprContext& ctx)
       -> bool;
+  void check_pack_index(ExpressionAST* index);
   [[nodiscard]] auto parse_generic_selection_expression(ExpressionAST*& yyast,
                                                         const ExprContext& ctx)
       -> bool;
   void parse_generic_association(GenericAssociationAST*& yyast);
-  [[nodiscard]] auto parse_nested_expession(ExpressionAST*& yyast,
-                                            const ExprContext& ctx) -> bool;
-  [[nodiscard]] auto parse_fold_expression(ExpressionAST*& yyast,
-                                           const ExprContext& ctx) -> bool;
+  [[nodiscard]] auto parse_parenthesized_expression(ExpressionAST*& yyast,
+                                                    const ExprContext& ctx)
+      -> bool;
   [[nodiscard]] auto parse_left_fold_expression(ExpressionAST*& yyast,
                                                 const ExprContext& ctx) -> bool;
   [[nodiscard]] auto parse_fold_operator(SourceLocation& loc, TokenKind& op)
@@ -434,6 +434,8 @@ class Parser final {
   [[nodiscard]] auto parse_binary_expression(ExpressionAST*& yyast,
                                              const ExprContext& exprContext)
       -> bool;
+  void parse_rest_of_binary_expression(ExpressionAST*& yyast,
+                                       const ExprContext& exprContext);
   [[nodiscard]] auto parse_lookahead_binary_operator(
       SourceLocation& loc, TokenKind& tk, const ExprContext& exprContext)
       -> bool;
@@ -445,6 +447,8 @@ class Parser final {
       -> bool;
   [[nodiscard]] auto parse_conditional_expression(
       ExpressionAST*& yyast, const ExprContext& exprContext) -> bool;
+  void parse_rest_of_conditional_expression(ExpressionAST*& yyast,
+                                            const ExprContext& exprContext);
   [[nodiscard]] auto parse_yield_expression(ExpressionAST*& yyast,
                                             const ExprContext& ctx) -> bool;
   [[nodiscard]] auto parse_throw_expression(ExpressionAST*& yyast,
@@ -453,12 +457,14 @@ class Parser final {
                                    const ExprContext& exprContext);
   [[nodiscard]] auto parse_maybe_assignment_expression(
       ExpressionAST*& yyast, const ExprContext& exprContext) -> bool;
-  void check_pack_index(ExpressionAST* index);
+  void parse_rest_of_assignment_expression(ExpressionAST*& yyast,
+                                           const ExprContext& exprContext);
   [[nodiscard]] auto parse_assignment_operator(SourceLocation& loc,
                                                TokenKind& op) -> bool;
   void parse_expression(ExpressionAST*& yyast, const ExprContext& ctx);
   [[nodiscard]] auto parse_maybe_expression(ExpressionAST*& yyast,
                                             const ExprContext& ctx) -> bool;
+  void parse_rest_of_expression(ExpressionAST*& yyast, const ExprContext& ctx);
   [[nodiscard]] auto parse_constant_expression(ExpressionAST*& yyast,
                                                std::optional<ConstValue>& value)
       -> bool;
