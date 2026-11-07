@@ -24,8 +24,10 @@
 #include <cxx/token.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
+#include <format>
 #include <future>
 #include <latch>
 #include <ranges>
@@ -35,6 +37,16 @@
 #include <vector>
 
 using namespace cxx;
+
+namespace {
+[[nodiscard]] auto containsIdentifier(const std::vector<Token>& tokens,
+                                      std::string_view identifier) -> bool {
+  return std::ranges::any_of(tokens, [&](const Token& token) {
+    return token.kind() == TokenKind::T_IDENTIFIER &&
+           token.spell() == identifier;
+  });
+}
+}  // namespace
 
 TEST(Preprocessor, ConcurrentConstructionProducesValidCompilationTimes) {
   constexpr unsigned kPreprocessorCount = 8;
@@ -158,8 +170,7 @@ TEST(Preprocessor, IncludeDirectoriesRetainFilesystemRoots) {
   ASSERT_EQ(preprocessor.systemIncludePaths().size(), 1u);
   EXPECT_EQ(preprocessor.systemIncludePaths().front(), root.generic_string());
   ASSERT_EQ(preprocessor.systemFrameworkPaths().size(), 1u);
-  EXPECT_EQ(preprocessor.systemFrameworkPaths().front(),
-            root.generic_string());
+  EXPECT_EQ(preprocessor.systemFrameworkPaths().front(), root.generic_string());
   ASSERT_EQ(preprocessor.quoteIncludePaths().size(), 1u);
   EXPECT_EQ(preprocessor.quoteIncludePaths().front(), root.generic_string());
   ASSERT_EQ(preprocessor.userIncludePaths().size(), 1u);
@@ -283,4 +294,169 @@ TEST(Preprocessor, FrameworkIncludeCandidatesUseGenericPaths) {
   }
 
   preprocessor.endPreprocessing(tokens);
+}
+
+TEST(Preprocessor, UnmatchedConditionalDirectivesPreserveRootState) {
+  constexpr std::string_view directives[] = {
+      "#elif 1", "#elifdef NAME", "#elifndef NAME", "#else", "#endif",
+  };
+
+  for (auto directive : directives) {
+    Control control;
+    CapturingDiagnosticsClient diagnostics;
+    Preprocessor preprocessor{&control, &diagnostics};
+    std::vector<Token> tokens;
+    preprocessor.preprocess(std::format("{}\nint after;\n", directive),
+                            "main.cc", tokens);
+
+    ASSERT_EQ(diagnostics.diagnostics.size(), 1u) << directive;
+    EXPECT_EQ(diagnostics.diagnostics.front().message(),
+              std::format("unexpected '{}'",
+                          directive.substr(0, directive.find(' '))))
+        << directive;
+    EXPECT_TRUE(containsIdentifier(tokens, "after")) << directive;
+  }
+}
+
+TEST(Preprocessor, ConditionalDirectivesRejectBranchesAfterElse) {
+  constexpr std::string_view directives[] = {
+      "#elif 1",
+      "#elifdef NAME",
+      "#elifndef NAME",
+      "#else",
+  };
+
+  for (auto directive : directives) {
+    Control control;
+    CapturingDiagnosticsClient diagnostics;
+    Preprocessor preprocessor{&control, &diagnostics};
+    std::vector<Token> tokens;
+    preprocessor.preprocess(
+        std::format("#if 0\nint discarded;\n#else\nint selected;\n{}\n"
+                    "int continuation;\n#endif\nint after;\n",
+                    directive),
+        "main.cc", tokens);
+
+    const auto directiveName = directive.substr(0, directive.find(' '));
+    ASSERT_EQ(diagnostics.diagnostics.size(), 1u) << directive;
+    EXPECT_EQ(diagnostics.diagnostics.front().message(),
+              std::format("unexpected '{}' after '#else'", directiveName))
+        << directive;
+    for (auto identifier : {"selected", "continuation", "after"}) {
+      EXPECT_TRUE(containsIdentifier(tokens, identifier))
+          << directive << ": " << identifier;
+    }
+  }
+}
+
+TEST(Preprocessor, MacroArgumentDirectivesPreserveConditionalState) {
+  Control control;
+  CapturingDiagnosticsClient diagnostics;
+  Preprocessor preprocessor{&control, &diagnostics};
+  std::vector<Token> tokens;
+  preprocessor.preprocess(R"(
+#define SELECT(value) value
+int selected = SELECT(
+#endif
+7
+);
+int after;
+)",
+                          "main.cc", tokens);
+
+  ASSERT_EQ(diagnostics.diagnostics.size(), 1u);
+  EXPECT_EQ(diagnostics.diagnostics.front().message(), "unexpected '#endif'");
+  for (auto identifier : {"selected", "after"}) {
+    EXPECT_TRUE(containsIdentifier(tokens, identifier)) << identifier;
+  }
+}
+
+TEST(Preprocessor, MacroArgumentsRejectUnterminatedConditionalGroups) {
+  Control control;
+  CapturingDiagnosticsClient diagnostics;
+  Preprocessor preprocessor{&control, &diagnostics};
+  std::vector<Token> tokens;
+  preprocessor.preprocess(R"(
+#define SELECT(value) value
+int selected = SELECT(
+#if 1
+7
+);
+int after;
+)",
+                          "main.cc", tokens);
+
+  ASSERT_EQ(diagnostics.diagnostics.size(), 1u);
+  EXPECT_EQ(diagnostics.diagnostics.front().message(),
+            "unterminated conditional directive");
+  for (auto identifier : {"selected", "after"}) {
+    EXPECT_TRUE(containsIdentifier(tokens, identifier)) << identifier;
+  }
+}
+
+TEST(Preprocessor, UnterminatedConditionalDirectivesRestoreRootState) {
+  constexpr std::string_view directives[] = {
+      "#if 1",
+      "#ifdef NAME",
+      "#ifndef NAME",
+  };
+
+  for (auto directive : directives) {
+    Control control;
+    CapturingDiagnosticsClient diagnostics;
+    Preprocessor preprocessor{&control, &diagnostics};
+    std::vector<Token> tokens;
+    preprocessor.preprocess(std::format("{}\nint inside;\n", directive),
+                            "main.cc", tokens);
+
+    ASSERT_EQ(diagnostics.diagnostics.size(), 1u) << directive;
+    EXPECT_EQ(diagnostics.diagnostics.front().message(),
+              "unterminated conditional directive")
+        << directive;
+    EXPECT_EQ(diagnostics.diagnostics.front().token().fileId(),
+              preprocessor.mainSourceFileId())
+        << directive;
+    EXPECT_EQ(diagnostics.diagnostics.front().token().offset(), 1u)
+        << directive;
+    EXPECT_TRUE(preprocessor.canSnapshot()) << directive;
+  }
+}
+
+TEST(Preprocessor, IncludedFilesOwnTheirConditionalGroups) {
+  Control control;
+  CapturingDiagnosticsClient diagnostics;
+  Preprocessor preprocessor{&control, &diagnostics};
+  std::vector<Token> tokens;
+  constexpr std::string_view headerSource =
+      "#endif\nint from_header;\n#if 1\nint nested;\n";
+  preprocessor.beginPreprocessing(
+      "#if 1\n#include <header.h>\nint after;\n#endif\n", "main.cc", tokens);
+
+  while (true) {
+    auto state = preprocessor.continuePreprocessing(tokens);
+    if (std::holds_alternative<ProcessingComplete>(state)) break;
+    if (auto* include = std::get_if<PendingInclude>(&state)) {
+      include->resolveWith("header.h");
+      continue;
+    }
+    if (std::holds_alternative<CanContinuePreprocessing>(state)) continue;
+    auto* content = std::get_if<PendingFileContent>(&state);
+    ASSERT_NE(content, nullptr);
+    content->setContent(std::string(headerSource));
+  }
+  preprocessor.endPreprocessing(tokens);
+
+  ASSERT_EQ(diagnostics.diagnostics.size(), 2u);
+  EXPECT_EQ(diagnostics.diagnostics[0].message(), "unexpected '#endif'");
+  EXPECT_EQ(diagnostics.diagnostics[1].message(),
+            "unterminated conditional directive");
+  const auto headerFileId = diagnostics.diagnostics[0].token().fileId();
+  EXPECT_NE(headerFileId, preprocessor.mainSourceFileId());
+  EXPECT_EQ(diagnostics.diagnostics[0].token().offset(), 1u);
+  EXPECT_EQ(diagnostics.diagnostics[1].token().fileId(), headerFileId);
+  EXPECT_EQ(diagnostics.diagnostics[1].token().offset(),
+            headerSource.find("#if") + 1);
+  for (auto identifier : {"from_header", "nested", "after"}) {
+    EXPECT_TRUE(containsIdentifier(tokens, identifier)) << identifier;
+  }
 }

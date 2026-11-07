@@ -214,6 +214,8 @@ struct SourceFile {
   TokVector tokens;
   std::string headerGuardName;
   int headerProtectionLevel = 0;
+  // Conditional-stack depth inherited when this file is entered.
+  std::size_t conditionalDepth = 1;
   int id = 0;
   Token includedFrom;
   bool pragmaOnceProtected = false;
@@ -669,8 +671,17 @@ struct Preprocessor::Private {
   std::vector<std::unique_ptr<SourceFile>> sourceFiles_;
   fs::path currentPath_;
   mutable std::unordered_map<std::string, std::string> fileIdentities_;
-  std::vector<bool> evaluating_;
-  std::vector<bool> skipping_;
+  struct ConditionalState {
+    // Whether tokens in the current branch are discarded.
+    bool skipping = false;
+    // Whether a later branch in the group may still be selected.
+    bool evaluating = true;
+    // Whether the terminal else branch has already been seen.
+    bool hasElse = false;
+    // Opening directive token; its owning range outlives this state.
+    const Tok* openingToken = nullptr;
+  };
+  std::vector<ConditionalState> conditionalStates_{ConditionalState{}};
   std::string date_;
   std::string time_;
   std::function<void(const std::string&, int)> willIncludeHeader_;
@@ -838,25 +849,20 @@ struct Preprocessor::Private {
   }
 
   [[nodiscard]] auto state() const -> std::tuple<bool, bool> {
-    return std::tuple(skipping_.back(), evaluating_.back());
+    const auto& state = conditionalStates_.back();
+    return std::tuple(state.skipping, state.evaluating);
   }
 
-  void pushState(std::tuple<bool, bool> state) {
-    auto [skipping, evaluating] = state;
-    skipping_.push_back(skipping);
-    evaluating_.push_back(evaluating);
+  void pushState(ConditionalState state) {
+    conditionalStates_.push_back(state);
   }
 
-  void setState(std::tuple<bool, bool> state) {
-    auto [skipping, evaluating] = state;
-    skipping_.back() = skipping;
-    evaluating_.back() = evaluating;
+  void setState(ConditionalState state) {
+    state.openingToken = conditionalStates_.back().openingToken;
+    conditionalStates_.back() = state;
   }
 
-  void popState() {
-    skipping_.pop_back();
-    evaluating_.pop_back();
-  }
+  void popState() { conditionalStates_.pop_back(); }
 
   [[nodiscard]] auto findSourceFile(const std::string& fileName)
       -> SourceFile* {
@@ -967,8 +973,15 @@ struct Preprocessor::Private {
   [[nodiscard]] auto filterDirectivesInArgs(const Tok* lparen, const Tok* end)
       -> FilteredArgs;
 
-  void handleConditionalDirective(PreprocessorDirectiveKind kind, const Tok* ts,
+  [[nodiscard]] auto validateConditionalDirective(
+      PreprocessorDirectiveKind kind, std::string_view directive,
+      const Tok* token, std::size_t baseDepth) const -> bool;
+
+  void handleConditionalDirective(PreprocessorDirectiveKind kind,
+                                  const Tok* directiveToken, const Tok* ts,
                                   const Tok* lineEnd);
+
+  void diagnoseUnterminatedConditionals(std::size_t baseDepth);
 
   using TokRange = std::pair<const Tok*, const Tok*>;
 
@@ -1258,9 +1271,6 @@ struct Preprocessor::Private {
 };
 
 Preprocessor::Private::Private() {
-  skipping_.push_back(false);
-  evaluating_.push_back(true);
-
   date_ = "\"??? ?? ????\"";
   time_ = "\"??:??:??\"";
   const auto currentTime = std::time(nullptr);
@@ -1283,14 +1293,13 @@ void Preprocessor::Private::initialize() {
   adddBuiltinMacro(
       "__FILE__", [this](const MacroExpansionContext& context) -> TokVector {
         TokVector result;
-        auto tk = genTok(
-            TokenKind::T_STRING_LITERAL,
-            quoteStringLiteral(
-                preprocessor_
-                    ->presumedTokenStartPosition(
-                        tokenForDiagnostic(*context.tok))
-                    .fileName),
-            *context.tok);
+        auto tk =
+            genTok(TokenKind::T_STRING_LITERAL,
+                   quoteStringLiteral(preprocessor_
+                                          ->presumedTokenStartPosition(
+                                              tokenForDiagnostic(*context.tok))
+                                          .fileName),
+                   *context.tok);
         result.push_back(tk);
         return result;
       });
@@ -1529,6 +1538,7 @@ void Preprocessor::Private::enterIncludedFile(SourceFile* sourceFile,
   }
   sourceFile->includedFrom = location;
   sourceFile->isSystemHeader = isSystemHeader;
+  sourceFile->conditionalDepth = conditionalStates_.size();
 
   Cursor fileCursor;
   fileCursor.kind = Cursor::FileCursor;
@@ -2285,23 +2295,50 @@ auto Preprocessor::Private::hasDirectivesInArgRange(const Tok* lparen,
   return false;
 }
 
+auto Preprocessor::Private::validateConditionalDirective(
+    PreprocessorDirectiveKind kind, std::string_view directive,
+    const Tok* token, std::size_t baseDepth) const -> bool {
+  switch (kind) {
+    case PreprocessorDirectiveKind::T_ELIF:
+    case PreprocessorDirectiveKind::T_ELIFDEF:
+    case PreprocessorDirectiveKind::T_ELIFNDEF:
+    case PreprocessorDirectiveKind::T_ELSE:
+    case PreprocessorDirectiveKind::T_ENDIF:
+      break;
+    default:
+      return true;
+  }
+
+  if (conditionalStates_.size() <= baseDepth) {
+    error(token, std::format("unexpected '#{}'", directive));
+    return false;
+  }
+  if (kind != PreprocessorDirectiveKind::T_ENDIF &&
+      conditionalStates_.back().hasElse) {
+    error(token, std::format("unexpected '#{}' after '#else'", directive));
+    return false;
+  }
+  return true;
+}
+
 void Preprocessor::Private::handleConditionalDirective(
-    PreprocessorDirectiveKind kind, const Tok* ts, const Tok* lineEnd) {
+    PreprocessorDirectiveKind kind, const Tok* directiveToken, const Tok* ts,
+    const Tok* lineEnd) {
   const auto [skipping, evaluating] = state();
 
   switch (kind) {
     case PreprocessorDirectiveKind::T_IF: {
       if (skipping) {
-        pushState({true, false});
+        pushState({true, false, false, directiveToken});
       } else {
         auto expr = prepareConstantExpression(ts, lineEnd);
         const Tok* ep = expr.data();
         const Tok* ee = ep + expr.size();
         auto value = evaluateConstantExpression(ep, ee);
         if (value)
-          pushState({skipping, false});
+          pushState({skipping, false, false, directiveToken});
         else
-          pushState({true, !skipping});
+          pushState({true, !skipping, false, directiveToken});
       }
       break;
     }
@@ -2310,9 +2347,9 @@ void Preprocessor::Private::handleConditionalDirective(
       if (ts < lineEnd) {
         auto value = isDefined(*ts);
         if (value)
-          pushState({skipping, false});
+          pushState({skipping, false, false, directiveToken});
         else
-          pushState({true, !skipping});
+          pushState({true, !skipping, false, directiveToken});
       }
       break;
     }
@@ -2321,9 +2358,9 @@ void Preprocessor::Private::handleConditionalDirective(
       if (ts < lineEnd) {
         auto value = !isDefined(*ts);
         if (value)
-          pushState({skipping, false});
+          pushState({skipping, false, false, directiveToken});
         else
-          pushState({true, !skipping});
+          pushState({true, !skipping, false, directiveToken});
       }
       break;
     }
@@ -2371,7 +2408,7 @@ void Preprocessor::Private::handleConditionalDirective(
     }
 
     case PreprocessorDirectiveKind::T_ELSE: {
-      setState({!evaluating, false});
+      setState({!evaluating, false, true});
       break;
     }
 
@@ -2385,15 +2422,24 @@ void Preprocessor::Private::handleConditionalDirective(
   }
 }
 
+void Preprocessor::Private::diagnoseUnterminatedConditionals(
+    std::size_t baseDepth) {
+  while (conditionalStates_.size() > baseDepth) {
+    error(conditionalStates_.back().openingToken,
+          "unterminated conditional directive");
+    conditionalStates_.pop_back();
+  }
+}
+
 auto Preprocessor::Private::filterDirectivesInArgs(const Tok* lparen,
                                                    const Tok* end)
     -> FilteredArgs {
   FilteredArgs result;
   if (lparen >= end || lparen->isNot(TokenKind::T_LPAREN)) return result;
 
-  // Save and isolate the condition stack
-  auto savedSkipping = std::exchange(skipping_, {false});
-  auto savedEvaluating = std::exchange(evaluating_, {true});
+  // Save and isolate the condition stack.
+  auto savedConditionalStates =
+      std::exchange(conditionalStates_, std::vector{ConditionalState{}});
 
   result.tokens.push_back(*lparen);
   const Tok* pos = lparen + 1;
@@ -2419,13 +2465,15 @@ auto Preprocessor::Private::filterDirectivesInArgs(const Tok* lparen,
         continue;
       }
 
-      auto text = getText(*pos);
+      const auto directiveToken = pos;
+      auto text = getText(*directiveToken);
       auto kind =
           classifyDirective(text.data(), static_cast<int>(text.length()));
       ++pos;
 
       auto lineEnd = findLineEnd(pos);
-      handleConditionalDirective(kind, pos, lineEnd);
+      if (validateConditionalDirective(kind, text, directiveToken, 1))
+        handleConditionalDirective(kind, directiveToken, pos, lineEnd);
       pos = lineEnd;
       continue;
     }
@@ -2444,10 +2492,10 @@ auto Preprocessor::Private::filterDirectivesInArgs(const Tok* lparen,
   }
 
   if (!result.rest) result.rest = pos;
+  diagnoseUnterminatedConditionals(1);
 
-  // Restore the condition stack
-  skipping_ = std::move(savedSkipping);
-  evaluating_ = std::move(savedEvaluating);
+  // Restore the condition stack.
+  conditionalStates_ = std::move(savedConditionalStates);
 
   return result;
 }
@@ -2873,6 +2921,7 @@ auto Preprocessor::Private::expand(const EmitToken& emitToken)
 
 void Preprocessor::Private::releaseTokens(SourceFile* sourceFile) {
   if (!sourceFile) return;
+  diagnoseUnterminatedConditionals(sourceFile->conditionalDepth);
   TokVector().swap(sourceFile->tokens);
 }
 
@@ -2936,25 +2985,31 @@ auto Preprocessor::Private::parseDirective(SourceFile* source,
     case PreprocessorDirectiveKind::T_ELIFDEF:
     case PreprocessorDirectiveKind::T_ELIFNDEF:
     case PreprocessorDirectiveKind::T_ELSE: {
-      handleConditionalDirective(directiveKind, ts, directiveEnd);
+      if (!validateConditionalDirective(directiveKind, directiveText,
+                                        directiveLine + 1,
+                                        source->conditionalDepth))
+        break;
+      handleConditionalDirective(directiveKind, directiveLine + 1, ts,
+                                 directiveEnd);
       break;
     }
 
     case PreprocessorDirectiveKind::T_IF: {
       if (skipping) {
-        pushState(std::tuple(true, false));
+        pushState({true, false, false, directiveLine + 1});
       } else {
         auto expression = prepareConstantExpression(ts, directiveEnd);
 
         auto resume = [expression = std::move(expression), skipping,
+                       openingToken = directiveLine + 1,
                        this]() mutable -> std::optional<PreprocessingState> {
           const Tok* ep = expression.data();
           const Tok* ee = ep + expression.size();
           const auto value = evaluateConstantExpression(ep, ee);
           if (value)
-            pushState(std::tuple(skipping, false));
+            pushState({skipping, false, false, openingToken});
           else
-            pushState(std::tuple(true, !skipping));
+            pushState({true, !skipping, false, openingToken});
           return std::nullopt;
         };
 
@@ -2968,8 +3023,12 @@ auto Preprocessor::Private::parseDirective(SourceFile* source,
     }
 
     case PreprocessorDirectiveKind::T_ELIF: {
+      if (!validateConditionalDirective(directiveKind, directiveText,
+                                        directiveLine + 1,
+                                        source->conditionalDepth))
+        break;
       if (!evaluating) {
-        setState(std::tuple(true, false));
+        setState({true, false});
       } else {
         auto expression = prepareConstantExpression(ts, directiveEnd);
 
@@ -2979,9 +3038,9 @@ auto Preprocessor::Private::parseDirective(SourceFile* source,
           const Tok* ee = ep + expression.size();
           const auto value = evaluateConstantExpression(ep, ee);
           if (value)
-            setState(std::tuple(!evaluating, false));
+            setState({!evaluating, false});
           else
-            setState(std::tuple(true, evaluating));
+            setState({true, evaluating});
           return std::nullopt;
         };
 
@@ -2995,12 +3054,14 @@ auto Preprocessor::Private::parseDirective(SourceFile* source,
     }
 
     case PreprocessorDirectiveKind::T_ENDIF: {
-      handleConditionalDirective(directiveKind, ts, directiveEnd);
-      if (evaluating_.empty()) {
-        error(directiveLine + 1, "unexpected '#endif'");
-      }
+      if (!validateConditionalDirective(directiveKind, directiveText,
+                                        directiveLine + 1,
+                                        source->conditionalDepth))
+        break;
+      handleConditionalDirective(directiveKind, directiveLine + 1, ts,
+                                 directiveEnd);
       if (!source->headerGuardName.empty() &&
-          evaluating_.size() == source->headerProtectionLevel) {
+          conditionalStates_.size() == source->headerProtectionLevel) {
         bool hasTrailingTokens = false;
         for (auto p = ts; p < directiveEnd; ++p) {
           if (p->is(TokenKind::T_EOF_SYMBOL)) break;
@@ -4436,8 +4497,8 @@ auto Preprocessor::canSnapshot() const -> bool {
 
 auto Preprocessor::snapshotBlocker() const -> std::string_view {
   if (!d->cursors_.empty()) return "a file or macro expansion is still open";
-  if (d->evaluating_.size() != 1) return "a conditional group is still open";
-  if (d->skipping_.size() != 1) return "a skipped group is still open";
+  if (d->conditionalStates_.size() != 1)
+    return "a conditional group is still open";
   if (d->continuation_) return "a directive is waiting to be resumed";
   if (!d->taintedIdents_.empty()) return "a macro expansion is in progress";
   return {};
@@ -4817,7 +4878,7 @@ void PendingFileContent::setContent(std::optional<std::string> content) const {
   sourceFile->headerGuardName = d->checkHeaderProtection(sourceFile->tokens);
 
   if (!sourceFile->headerGuardName.empty()) {
-    sourceFile->headerProtectionLevel = int(d->evaluating_.size());
+    sourceFile->headerProtectionLevel = int(d->conditionalStates_.size());
     d->ifndefProtectedFiles_.insert_or_assign(sourceFile->identity,
                                               sourceFile->headerGuardName);
   }
