@@ -117,6 +117,23 @@ TEST(Lexer, LooksBehindOverMultiByteCodePoints) {
   EXPECT_EQ(lexer.LA(-6), 0u);
 }
 
+TEST(Lexer, ScansNonAsciiCodePointsWithoutLosingProgress) {
+  const std::string source = {'a', static_cast<char>(0xdf),
+                              static_cast<char>(0xab),
+                              static_cast<char>(0xc1), '9'};
+  const auto tokens = scan(source);
+
+  ASSERT_EQ(tokens.size(), 4u);
+  EXPECT_EQ(tokens[0].kind, TokenKind::T_IDENTIFIER);
+  EXPECT_EQ(tokens[0].text, "a");
+  EXPECT_EQ(tokens[1].kind, TokenKind::T_ERROR);
+  EXPECT_EQ(tokens[1].text, source.substr(1, 2));
+  EXPECT_EQ(tokens[2].kind, TokenKind::T_ERROR);
+  EXPECT_EQ(tokens[2].text, source.substr(3, 1));
+  EXPECT_EQ(tokens[3].kind, TokenKind::T_INTEGER_LITERAL);
+  EXPECT_EQ(tokens[3].text, "9");
+}
+
 TEST(Lexer, LookaheadSkipsLineSplices) {
   Lexer lexer{std::string_view{"a\\\nbc"}};
 
