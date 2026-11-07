@@ -1358,6 +1358,13 @@ void TypeChecker::Visitor::operator()(IdExpressionAST* ast) {
     }
   }
 
+  if (is_type(ast->symbol) || ast->symbol->isNamespaceName()) {
+    const auto name = to_string(get_name(control(), ast->unqualifiedId));
+    error(get_name_location(ast),
+          std::format("'{}' does not refer to a value", name));
+    return;
+  }
+
   if (symbol_cast<ConceptSymbol>(ast->symbol)) {
     ast->type = control()->getBoolType();
     ast->valueCategory = ValueCategory::kPrValue;
