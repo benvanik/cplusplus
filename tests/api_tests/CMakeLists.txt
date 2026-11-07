@@ -41,6 +41,7 @@ add_executable(test_api
     test_floating_point.cc
     test_if_constexpr.cc
     test_lexer.cc
+    test_nested_function_template_instantiation.cc
     test_object_representation.cc
     test_pch.cc
     test_preprocessor.cc

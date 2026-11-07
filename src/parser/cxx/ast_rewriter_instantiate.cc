@@ -166,10 +166,8 @@ void noteInstantiationRequestedHere(
   return isPlaceholderType(functionType->returnType());
 }
 
-[[nodiscard]] auto definitionNeededAtPointOfReference(TranslationUnit* unit,
-                                                      FunctionSymbol* function)
+[[nodiscard]] auto definitionNeededAtPointOfReference(FunctionSymbol* function)
     -> bool {
-  if (unit->isInstantiatingTemplate()) return true;
   if (function->isConstexpr()) return true;
   return hasPlaceholderReturnType(function);
 }
@@ -728,8 +726,7 @@ void ASTRewriter::instantiateSelectedSpecializationDefinition(
     instantiationLoc = spec->pendingInstantiationLoc;
   }
 
-  const auto declarationOnly =
-      !definitionNeededAtPointOfReference(unit, selected);
+  const auto declarationOnly = !definitionNeededAtPointOfReference(selected);
 
   auto instantiated = instantiate(
       unit, deducedArguments, primary, instantiationLoc,
