@@ -258,7 +258,10 @@ auto TypeDeducer::deduceClassTemplateArguments(S* var,
           initializationKind == InitializationKind::kCopyListInitialization,
       var->location());
 
-  if (!deduced) return nullptr;
+  if (!deduced) {
+    if (!isDependent(ctx.unit, initializer)) var->setType(nullptr);
+    return nullptr;
+  }
 
   var->setType(ctx.traits.add_cv(deduced, cv_qualifiers(var->type())));
   return deduced;
@@ -271,12 +274,16 @@ auto TypeDeducer::deduceAutoType(S* var) -> const Type* {
 
   if (!var->initializer()) {
     ctx.error(var->location(), "variable with 'auto' type must be initialized");
+    var->setType(nullptr);
     return nullptr;
   }
 
   auto replacement = ctx.checker.deduceDeclaredPlaceholderReplacement(
       declType, var->initializer(), var->location());
-  if (!replacement) return nullptr;
+  if (!replacement) {
+    var->setType(nullptr);
+    return nullptr;
+  }
   var->setType(ctx.traits.replace_placeholder_types(declType, replacement));
 
   if (auto classType =
@@ -438,6 +445,7 @@ void InitDeclaratorChecker::checkVariable(S* var, ExpressionAST*& initializer,
 
   typeDeducer.deduceArraySize(var);
   deducePlaceholderType(var, typeSpecifier, location);
+  if (!var->type()) return;
 
   if (var->isConstexpr()) var->setType(ctx.traits.add_const(var->type()));
 
@@ -808,9 +816,16 @@ auto TypeChecker::deducePlaceholderReplacement(const Type* declaredType,
   }
   if (type_cast<DecltypeAutoType>(declaredType))
     return unit_->typeTraits().decltype_of(initializer);
-  return deduceReplacementFromType(
+  auto replacement = deduceReplacementFromType(
       declaredType, initializer->type,
       bindsLvalueToForwardingPlaceholder(declaredType, initializer));
+  if (!replacement && initializer->type) {
+    error(initializer->firstSourceLocation(),
+          std::format("cannot deduce '{}' from an initializer of type '{}'",
+                      to_diag_string(declaredType),
+                      to_diag_string(initializer->type)));
+  }
+  return replacement;
 }
 
 auto TypeChecker::deduceAutoType(const Type* declaredType,
