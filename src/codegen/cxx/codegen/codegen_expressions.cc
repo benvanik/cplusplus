@@ -44,6 +44,7 @@
 #include <cxx/views/symbols.h>
 
 #include <format>
+#include <limits>
 
 namespace cxx {
 struct [[nodiscard]] Codegen::ExpressionVisitor {
@@ -275,10 +276,7 @@ struct [[nodiscard]] Codegen::ExpressionVisitor {
   auto emitVectorSplat(ImplicitCastExpressionAST* ast) -> ExpressionResult;
 
   auto emitVectorConversion(ImplicitCastExpressionAST* ast) -> ExpressionResult;
-  auto emitBaseToDerivedConversion(ImplicitCastExpressionAST* ast)
-      -> ExpressionResult;
-  auto emitDerivedToBaseConversion(ImplicitCastExpressionAST* ast)
-      -> ExpressionResult;
+  auto emitClassAdjustment(ImplicitCastExpressionAST* ast) -> ExpressionResult;
   auto emitUserDefinedConversion(ImplicitCastExpressionAST* ast)
       -> ExpressionResult;
 
@@ -3588,65 +3586,81 @@ auto Codegen::ExpressionVisitor::emitPointerConversion(
   return {op};
 }
 
-auto Codegen::ExpressionVisitor::emitDerivedToBaseConversion(
+auto Codegen::ExpressionVisitor::emitClassAdjustment(
     ImplicitCastExpressionAST* ast) -> ExpressionResult {
   auto loc = ast->firstSourceLocation();
-  auto expressionResult = gen.expression(ast->expression);
-  if (!expressionResult.value) return expressionResult;
+  auto operand = gen.expression(ast->expression);
+  if (!operand.value) return operand;
 
-  auto traits = gen.traits;
-  auto sourceClass = unqualified_cast<ClassType>(
-      traits.remove_pointer(traits.remove_reference(ast->expression->type)));
-  auto targetClass = unqualified_cast<ClassType>(
-      traits.remove_pointer(traits.remove_reference(ast->type)));
+  const bool pointer = gen.traits.is_pointer(ast->type);
+  auto resultType = pointer ? gen.convertType(ast->type)
+                            : gen.emitter_.rebindPointerType(
+                                  gen.emitter_.typeOf(operand.value),
+                                  gen.convertType(ast->type));
+  auto adjustedType = gen.emitter_.rebindPointerType(
+      gen.emitter_.typeOf(operand.value), gen.emitter_.elementType(resultType));
 
-  ir::ValueRef value = expressionResult.value;
-  if (sourceClass && targetClass &&
-      sourceClass->symbol() != targetClass->symbol()) {
-    if (traits.is_pointer(ast->type)) {
-      value = gen.emitNullPreservingClassAddress(
-          loc, value, sourceClass->symbol(), targetClass->symbol(),
-          Codegen::ClassPointerConversion::kDerivedToBase);
-    } else {
-      value = gen.emitBaseClassAddress(loc, value, sourceClass->symbol(),
-                                       targetClass->symbol());
+  const bool toDerived =
+      ast->castKind == ImplicitCastKind::kBaseToDerivedConversion;
+  bool hasVirtualBase = false;
+  std::intmax_t byteOffset = 0;
+  for (auto symbol : ListView(ast->subobjectPath)) {
+    auto base = symbol_cast<BaseClassSymbol>(symbol);
+    if (!base) cxx_runtime_error("invalid retained class conversion path");
+    if (base->isVirtual()) {
+      if (toDerived)
+        cxx_runtime_error("base-to-derived conversion through a virtual base");
+      hasVirtualBase = true;
+      continue;
     }
+    auto enclosing = base->enclosingClass();
+    auto baseClass = resolved_base_class(base);
+    auto layout =
+        enclosing ? enclosing->resolvedDefinition()->layout() : nullptr;
+    auto info =
+        layout && baseClass ? layout->getBaseInfo(baseClass) : std::nullopt;
+    if (!info ||
+        info->offset > static_cast<std::uintmax_t>(
+                           std::numeric_limits<std::intmax_t>::max()) ||
+        static_cast<std::intmax_t>(info->offset) >
+            std::numeric_limits<std::intmax_t>::max() - byteOffset)
+      cxx_runtime_error("invalid retained class conversion layout");
+    byteOffset += static_cast<std::intmax_t>(info->offset);
   }
+  if (toDerived) byteOffset = -byteOffset;
 
-  if (traits.is_pointer(ast->type)) {
-    auto resultType = gen.convertType(ast->type);
-    if (gen.emitter_.typeOf(value) != resultType) {
-      value = gen.emitter_.bitcast(loc, resultType, value);
-    }
-  }
+  auto adjust = [&] {
+    auto value =
+        hasVirtualBase
+            ? gen.applySubobjectPath(loc, operand.value, ast->subobjectPath)
+            : gen.displacedAddress(loc, adjustedType, operand.value,
+                                   byteOffset);
+    return gen.pointerCast(loc, resultType, value);
+  };
 
-  return {value};
-}
+  if (!pointer || (!hasVirtualBase && byteOffset == 0)) return {adjust()};
 
-auto Codegen::ExpressionVisitor::emitBaseToDerivedConversion(
-    ImplicitCastExpressionAST* ast) -> ExpressionResult {
-  auto loc = ast->firstSourceLocation();
-  auto expressionResult = gen.expression(ast->expression);
-  if (!expressionResult.value) return expressionResult;
+  auto wordType = gen.pointerSizedIntType();
+  auto address = gen.emitter_.pointerToInt(loc, wordType, operand.value);
+  auto isNull =
+      gen.emitter_.compareInt(loc, ir::IntPredicate::Equal, address,
+                              gen.emitter_.constantInt(loc, wordType, 0));
+  auto nullResult = gen.emitter_.nullPointer(loc, resultType);
+  if (!hasVirtualBase)
+    return {gen.emitter_.select(loc, isNull, nullResult, adjust())};
 
-  auto traits = gen.traits;
-  auto sourceClass = unqualified_cast<ClassType>(
-      traits.remove_pointer(traits.remove_reference(ast->expression->type)));
-  auto targetClass = unqualified_cast<ClassType>(
-      traits.remove_pointer(traits.remove_reference(ast->type)));
-
-  if (!sourceClass || !targetClass) return expressionResult;
-
-  if (traits.is_pointer(ast->type)) {
-    return {gen.emitNullPreservingClassAddress(
-        loc, expressionResult.value, sourceClass->symbol(),
-        targetClass->symbol(),
-        Codegen::ClassPointerConversion::kBaseToDerived)};
-  }
-
-  return {gen.emitDerivedClassAddress(loc, expressionResult.value,
-                                      sourceClass->symbol(),
-                                      targetClass->symbol())};
+  auto nullBlock = gen.newBlock();
+  auto objectBlock = gen.newBlock();
+  auto resultBlock = gen.newBlock();
+  auto result = gen.emitter_.addBlockParameter(resultBlock, resultType, loc);
+  gen.emitter_.condBranch(loc, isNull, nullBlock, objectBlock);
+  gen.emitter_.setInsertionBlock(nullBlock);
+  gen.emitter_.branch(loc, resultBlock, {&nullResult, 1});
+  gen.emitter_.setInsertionBlock(objectBlock);
+  auto adjusted = adjust();
+  gen.emitter_.branch(loc, resultBlock, {&adjusted, 1});
+  gen.emitter_.setInsertionBlock(resultBlock);
+  return {result};
 }
 
 auto Codegen::ExpressionVisitor::emitPointerToMemberConversion(
@@ -3821,10 +3835,8 @@ auto Codegen::ExpressionVisitor::operator()(ImplicitCastExpressionAST* ast)
       return emitPointerToMemberConversion(ast);
 
     case ImplicitCastKind::kDerivedToBaseConversion:
-      return emitDerivedToBaseConversion(ast);
-
     case ImplicitCastKind::kBaseToDerivedConversion:
-      return emitBaseToDerivedConversion(ast);
+      return emitClassAdjustment(ast);
 
     case ImplicitCastKind::kUserDefinedConversion:
       return emitUserDefinedConversion(ast);

@@ -20,6 +20,7 @@
 
 #include <cxx/access_control.h>
 #include <cxx/ast.h>
+#include <cxx/ast_attributes.h>
 #include <cxx/ast_interpreter.h>
 #include <cxx/ast_rewriter.h>
 #include <cxx/binder.h>
@@ -2861,6 +2862,18 @@ void StandardConversion::wrapWithImplicitCast(ImplicitCastKind castKind,
     } else if (auto rvalueRef = type_cast<RvalueReferenceType>(type)) {
       cast->type = rvalueRef->elementType();
       cast->valueCategory = conversionResultValueCategory(type);
+    }
+  }
+
+  if (isClassAdjustment(castKind)) {
+    auto derived = convertedClassSymbol(expr->type);
+    auto base = convertedClassSymbol(type);
+    if (castKind == ImplicitCastKind::kBaseToDerivedConversion)
+      std::swap(derived, base);
+    if (derived && base) {
+      auto path = derived->subobjectPath(base);
+      if (!path) cxx_runtime_error("missing class conversion subobject path");
+      cast->subobjectPath = makeSymbolPath(arena_, *path);
     }
   }
 

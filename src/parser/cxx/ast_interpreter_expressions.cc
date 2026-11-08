@@ -158,7 +158,8 @@ auto ASTInterpreter::sameObjectOperand(ExpressionAST* ast) -> ExpressionAST* {
   if (auto lowered = loweredSplice(ast); lowered != ast) return lowered;
   if (!is_glvalue(ast)) return nullptr;
   if (auto cast = ast_cast<ImplicitCastExpressionAST>(ast)) {
-    if (cast->castKind == ImplicitCastKind::kUserDefinedConversion)
+    if (cast->castKind == ImplicitCastKind::kUserDefinedConversion ||
+        convertsBetweenClasses(cast))
       return nullptr;
     return cast->expression;
   }
@@ -999,6 +1000,15 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
     if (auto initializer = ast_cast<DefaultInitializerExpressionAST>(ast)) {
       InitializerContextGuard guard{*this, initializer->context};
       return lvalue(initializer->expression);
+    }
+    if (auto cast = ast_cast<ImplicitCastExpressionAST>(ast);
+        cast && is_glvalue(cast) && convertsBetweenClasses(cast)) {
+      auto value = addressOfLvalue(cast);
+      auto address = value
+                         ? std::get_if<std::shared_ptr<ConstAddress>>(&*value)
+                         : nullptr;
+      return address && *address ? addressSlot(**address, 0, cast->type)
+                                 : nullptr;
     }
     if (auto operand = sameObjectOperand(ast)) {
       ast = operand;
@@ -2384,26 +2394,153 @@ auto ASTInterpreter::classConversionAddress(ImplicitCastExpressionAST* cast,
   auto address = std::get_if<std::shared_ptr<ConstAddress>>(&value);
   if (!address || !*address) return nullptr;
 
-  auto sourceType = traits.remove_cvref(cast->expression->type);
   auto targetType = traits.remove_cvref(cast->type);
-  if (traits.is_pointer(sourceType)) {
-    sourceType = traits.remove_cv(traits.remove_pointer(sourceType));
+  if (traits.is_pointer(targetType))
     targetType = traits.remove_cv(traits.remove_pointer(targetType));
+
+  auto source = typedAddress(**address);
+  if (source->isNull()) {
+    source->setElementType(targetType);
+    return source;
+  }
+  if (!validPosition(*source) || isOnePastEnd(*source)) return nullptr;
+
+  if (cast->castKind == ImplicitCastKind::kDerivedToBaseConversion) {
+    auto path = source->subobjectPath();
+    if (source->arrayType())
+      path.emplace_back(std::size_t(source->offset()));
+    auto symbol = source->symbol();
+    auto loaded = loadAddress(*source, 0);
+    auto object = loaded
+                      ? std::get_if<std::shared_ptr<ConstObject>>(&*loaded)
+                      : nullptr;
+    auto result =
+        applySubobjectPath({nullptr, std::move(source)}, cast->subobjectPath)
+            .address;
+    if (result && object && *object) {
+      result->setSubobjectPath(std::move(path));
+      result->setSymbol(symbol);
+    }
+    if (result) result->setElementType(targetType);
+    return result;
   }
 
-  const auto toBase =
-      cast->castKind == ImplicitCastKind::kDerivedToBaseConversion;
-  if (toBase) {
-    auto adjustment = baseConversionOffset(**address, targetType);
-    if (!adjustment) return nullptr;
-    return adjustedClassAddress(**address, targetType, *adjustment);
+  std::intmax_t adjustment = 0;
+  std::size_t retainedPathSize = 0;
+  for (auto symbol : ListView(cast->subobjectPath)) {
+    ++retainedPathSize;
+    auto base = symbol_cast<BaseClassSymbol>(symbol);
+    if (!base || base->isVirtual()) return nullptr;
+    auto enclosing = base->enclosingClass();
+    auto baseClass = resolved_base_class(base);
+    auto layout =
+        enclosing ? enclosing->resolvedDefinition()->layout() : nullptr;
+    auto info =
+        layout && baseClass ? layout->getBaseInfo(baseClass) : std::nullopt;
+    if (!info || !std::in_range<std::intmax_t>(info->offset)) return nullptr;
+    auto next = checkedAdd(ConstInt{adjustment},
+                           ConstInt{static_cast<std::intmax_t>(info->offset)});
+    if (!next) return nullptr;
+    adjustment = next->toIntMax();
   }
-  auto adjustment = classSubobjectOffset(targetType, sourceType);
-  if (!adjustment) return nullptr;
-  auto source = *address;
-  if (loadAddress(*source, 0)) source = completeClassAddress(*source);
+
+  auto classDisplacement =
+      checkedSub(ConstInt{source->classDisplacement()}, ConstInt{adjustment});
+  if (!classDisplacement) return nullptr;
+
+  auto path = source->subobjectPath();
+  const auto first = path.size() >= retainedPathSize
+                         ? path.size() - retainedPathSize
+                         : path.size();
+  auto hasRetainedSuffix = path.size() >= retainedPathSize;
+  std::size_t index = 0;
+  for (auto retained : ListView(cast->subobjectPath)) {
+    if (!hasRetainedSuffix) break;
+    auto symbol = std::get_if<Symbol*>(&path[first + index]);
+    hasRetainedSuffix = symbol && *symbol == retained;
+    ++index;
+  }
+
+  if (hasRetainedSuffix) {
+    path.resize(first);
+  } else {
+    auto loaded = loadAddress(*source, 0);
+    auto complete = loaded
+                        ? std::get_if<std::shared_ptr<ConstObject>>(&*loaded)
+                        : nullptr;
+    if (!complete || !*complete) return nullptr;
+
+    auto targetAddress = std::make_shared<ConstAddress>(*source);
+    targetAddress->setClassDisplacement(classDisplacement->toIntMax());
+    targetAddress->setElementType(targetType);
+    auto target = addressedClassSubobject(*complete, targetAddress).object;
+    auto selected = addressedClassSubobject(*complete, source).object;
+    if (!target || !selected) return nullptr;
+
+    auto projected = target;
+    for (auto symbol : ListView(cast->subobjectPath)) {
+      auto value = projected->subobject(symbol);
+      auto nested = value
+                        ? std::get_if<std::shared_ptr<ConstObject>>(value)
+                        : nullptr;
+      if (!nested || !*nested) return nullptr;
+      projected = *nested;
+    }
+    if (projected != selected) return nullptr;
+  }
+
+  source = subobjectAddress(*source, -adjustment);
   if (!source) return nullptr;
-  return adjustedClassAddress(*source, targetType, -*adjustment);
+  source->setClassDisplacement(classDisplacement->toIntMax());
+  source->setSubobjectPath(std::move(path));
+  source->setElementType(targetType);
+  source->setArrayType(nullptr);
+  source->setOffset(0);
+  source = restoreArrayElementPosition(std::move(source), targetType);
+  if (!source) return nullptr;
+
+  source->setSymbol(source->root());
+  for (const auto& subobject : source->subobjectPath())
+    if (auto symbol = std::get_if<Symbol*>(&subobject))
+      source->setSymbol(*symbol);
+  return source;
+}
+
+auto ASTInterpreter::restoreArrayElementPosition(
+    std::shared_ptr<ConstAddress> address, const Type* elementType)
+    -> std::shared_ptr<ConstAddress> {
+  if (!address || address->subobjectPath().empty()) return address;
+
+  auto path = address->subobjectPath();
+  auto index = std::get_if<std::size_t>(&path.back());
+  const Type* storageType = nullptr;
+  if (address->storage())
+    storageType = address->storage()->type();
+  else if (address->root())
+    storageType = address->root()->type();
+  else if (address->owner())
+    storageType = address->owner()->type();
+
+  for (std::size_t position = 0; storageType && position + 1 < path.size();
+       ++position) {
+    if (auto member = std::get_if<Symbol*>(&path[position])) {
+      storageType = traits.aggregate_element_type(*member);
+    } else if (auto array = unqualified_cast<BoundedArrayType>(storageType)) {
+      storageType = array->elementType();
+    } else {
+      return nullptr;
+    }
+  }
+
+  auto array = unqualified_cast<BoundedArrayType>(storageType);
+  if (!array || !index ||
+      !traits.is_similar(array->elementType(), elementType))
+    return address;
+  address->setArrayType(storageType);
+  address->setOffset(*index);
+  path.pop_back();
+  address->setSubobjectPath(std::move(path));
+  return address;
 }
 
 auto ASTInterpreter::callObjectAddress(
@@ -2473,29 +2610,7 @@ auto ASTInterpreter::adjustedClassAddress(const ConstAddress& address,
   if (!classOffset) return nullptr;
   result = subobjectAddress(*result, displacement);
   if (result) result->setClassDisplacement(classOffset->toIntMax());
-  if (!result || result->subobjectPath().empty()) return result;
-
-  auto storageType =
-      result->storage() ? result->storage()->type() : result->root()->type();
-  auto path = result->subobjectPath();
-  for (std::size_t index = 0; index + 1 < path.size(); ++index) {
-    if (auto member = std::get_if<Symbol*>(&path[index])) {
-      storageType = traits.aggregate_element_type(*member);
-      continue;
-    }
-    auto array = unqualified_cast<BoundedArrayType>(storageType);
-    if (!array) return nullptr;
-    storageType = array->elementType();
-  }
-  auto array = unqualified_cast<BoundedArrayType>(storageType);
-  auto index = std::get_if<std::size_t>(&path.back());
-  if (!array || !index || !traits.is_similar(array->elementType(), targetType))
-    return result;
-  result->setArrayType(storageType);
-  result->setOffset(*index);
-  path.pop_back();
-  result->setSubobjectPath(std::move(path));
-  return result;
+  return restoreArrayElementPosition(std::move(result), targetType);
 }
 
 namespace {
@@ -4523,6 +4638,18 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
     }
   }
 
+  if (interp.convertsBetweenClasses(ast) && is_glvalue(ast)) {
+    auto value = interp.addressOfLvalue(ast);
+    auto address = value
+                       ? std::get_if<std::shared_ptr<ConstAddress>>(&*value)
+                       : nullptr;
+    if (!address || !*address) return std::nullopt;
+    auto object = interp.pointeeObject(*value, interp.traits.remove_cvref(
+                                                  ast->type));
+    auto selected = interp.addressedClassSubobject(object, *address).object;
+    return selected ? ExpressionResult{std::move(selected)} : std::nullopt;
+  }
+
   auto value = interp.expression(
       ast->expression,
       is_prvalue(ast) && interp.traits.is_class_or_union(ast->type)
@@ -4532,8 +4659,14 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
 
   if (ast->castKind == ImplicitCastKind::kNonAtomicToAtomic) return value;
 
-  if (auto converted = interp.classConversionAddress(ast, *value))
-    return ConstValue{converted};
+  if (interp.convertsBetweenClasses(ast)) {
+    if (interp.traits.is_pointer(ast->type)) {
+      auto nonnull = interp.toBool(*value);
+      if (nonnull && !*nonnull) return value;
+    }
+    auto converted = interp.classConversionAddress(ast, *value);
+    return converted ? ExpressionResult{std::move(converted)} : std::nullopt;
+  }
 
   if (unqualified_cast<VectorType>(ast->type))
     return evaluateVectorCast(ast, *value);

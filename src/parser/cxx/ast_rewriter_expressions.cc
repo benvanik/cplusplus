@@ -75,6 +75,16 @@ struct ASTRewriter::ExpressionVisitor : VisitorBase {
     return rewrite.typeChecker();
   }
 
+  [[nodiscard]] auto remapSymbolPath(List<Symbol*>* path) -> List<Symbol*>* {
+    List<Symbol*>* result = nullptr;
+    auto tail = &result;
+    for (auto symbol : ListView(path)) {
+      *tail = make_list_node<Symbol>(arena(), rewrite.remapSymbol(symbol));
+      tail = &(*tail)->next;
+    }
+    return result;
+  }
+
   [[nodiscard]] auto operator()(CharLiteralExpressionAST* ast)
       -> ExpressionAST*;
 
@@ -663,10 +673,7 @@ auto ASTRewriter::ExpressionVisitor::operator()(IdExpressionAST* ast)
 
   if (auto value = rewrite.substitutedNonTypeValue(ast)) return value;
 
-  std::vector<Symbol*> subobjectPath;
-  for (auto symbol : ListView(ast->subobjectPath))
-    subobjectPath.push_back(rewrite.remapSymbol(symbol));
-  copy->subobjectPath = makeSymbolPath(arena(), subobjectPath);
+  copy->subobjectPath = remapSymbolPath(ast->subobjectPath);
 
   if (auto param = symbol_cast<NonTypeParameterSymbol>(ast->symbol);
       param && rewrite.templateArgumentFor(param)) {
@@ -1725,6 +1732,7 @@ auto ASTRewriter::ExpressionVisitor::operator()(ImplicitCastExpressionAST* ast)
   copy->castKind = ast->castKind;
   copy->conversionFunction = ast->conversionFunction;
   copy->isVirtualDispatch = ast->isVirtualDispatch;
+  copy->subobjectPath = remapSymbolPath(ast->subobjectPath);
 
   return copy;
 }

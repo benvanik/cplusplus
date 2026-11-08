@@ -5152,10 +5152,16 @@ void SemanticEncoder::writeAstImplicitCastExpressionAST(
   out.varU32(static_cast<std::uint32_t>(astRef(self->expression)));
   // ::cxx::ImplicitCastExpressionAST::castKind
   out.varU32(static_cast<std::uint32_t>(self->castKind));
-  // ::cxx::ImplicitCastExpressionAST::conversionFunction
-  out.varU32(static_cast<std::uint32_t>(symbolRef(self->conversionFunction)));
   // ::cxx::ImplicitCastExpressionAST::isVirtualDispatch
   out.boolean(self->isVirtualDispatch);
+  // ::cxx::ImplicitCastExpressionAST::conversionFunction
+  out.varU32(static_cast<std::uint32_t>(symbolRef(self->conversionFunction)));
+  // ::cxx::ImplicitCastExpressionAST::subobjectPath
+  out.varU32(static_cast<std::uint32_t>(
+      std::ranges::distance(cxx::ListView(self->subobjectPath))));
+  for (const auto& element1 : cxx::ListView(self->subobjectPath)) {
+    out.varU32(static_cast<std::uint32_t>(symbolRef(element1)));
+  }
 }
 
 void SemanticEncoder::writeAstConstExpressionAST(
@@ -14788,13 +14794,26 @@ void SemanticDecoder::readAstImplicitCastExpressionAST(
   ::cxx::ImplicitCastKind value2 =
       static_cast<::cxx::ImplicitCastKind>(readEnum(in, 26));
   self->castKind = std::move(value2);
-  // ::cxx::ImplicitCastExpressionAST::conversionFunction
-  cxx::FunctionSymbol* value3 =
-      symbol_cast<FunctionSymbol>(symbolAt(SymbolRef{in.varU32()}));
-  self->conversionFunction = std::move(value3);
   // ::cxx::ImplicitCastExpressionAST::isVirtualDispatch
-  bool value4 = in.boolean();
-  self->isVirtualDispatch = std::move(value4);
+  bool value3 = in.boolean();
+  self->isVirtualDispatch = std::move(value3);
+  // ::cxx::ImplicitCastExpressionAST::conversionFunction
+  cxx::FunctionSymbol* value4 =
+      symbol_cast<FunctionSymbol>(symbolAt(SymbolRef{in.varU32()}));
+  self->conversionFunction = std::move(value4);
+  // ::cxx::ImplicitCastExpressionAST::subobjectPath
+  cxx::List<cxx::Symbol*>* value5 = nullptr;
+  {
+    const auto count6 = in.varCount(1);
+    auto tail9 = &value5;
+    for (std::uint32_t i7 = 0; ok() && i7 < count6; ++i7) {
+      decltype(value5->value) element8 = symbolAt(SymbolRef{in.varU32()});
+      *tail9 = new (arena())
+          std::remove_pointer_t<decltype(value5)>(std::move(element8));
+      tail9 = &(*tail9)->next;
+    }
+  }
+  self->subobjectPath = std::move(value5);
 }
 
 void SemanticDecoder::readAstConstExpressionAST(

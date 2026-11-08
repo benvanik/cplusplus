@@ -989,7 +989,7 @@ const NewExpressionASTSlotBase = NoexceptExpressionASTSlotBase + 5;
 const DeleteExpressionASTSlotBase = NewExpressionASTSlotBase + 14;
 const CastExpressionASTSlotBase = DeleteExpressionASTSlotBase + 7;
 const ImplicitCastExpressionASTSlotBase = CastExpressionASTSlotBase + 4;
-const ConstExpressionASTSlotBase = ImplicitCastExpressionASTSlotBase + 4;
+const ConstExpressionASTSlotBase = ImplicitCastExpressionASTSlotBase + 5;
 const BinaryExpressionASTSlotBase = ConstExpressionASTSlotBase + 5;
 const ConditionalExpressionASTSlotBase = BinaryExpressionASTSlotBase + 6;
 const YieldExpressionASTSlotBase = ConditionalExpressionASTSlotBase + 5;
@@ -5965,15 +5965,22 @@ export class ImplicitCastExpressionAST extends ExpressionAST {
       cxx.readAST(this.handle, ImplicitCastExpressionASTSlotBase + 1)
     ]!;
   }
+  get isVirtualDispatch(): boolean {
+    return (
+      cxx.readAST(this.handle, ImplicitCastExpressionASTSlotBase + 2) !== 0
+    );
+  }
   get conversionFunction(): FunctionSymbol | undefined {
     return symbolOf(
-      cxx.readAST(this.handle, ImplicitCastExpressionASTSlotBase + 2),
+      cxx.readAST(this.handle, ImplicitCastExpressionASTSlotBase + 3),
       this.modelOwner,
     );
   }
-  get isVirtualDispatch(): boolean {
-    return (
-      cxx.readAST(this.handle, ImplicitCastExpressionASTSlotBase + 3) !== 0
+  get subobjectPath(): Iterable<Symbol | undefined> {
+    return listOf(
+      this.modelOwner,
+      cxx.readAST(this.handle, ImplicitCastExpressionASTSlotBase + 4),
+      (item: any) => symbolOf(item, this.modelOwner),
     );
   }
 }

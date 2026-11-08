@@ -160,7 +160,20 @@ class SubobjectPathVisitor final : public ASTVisitor {
     ASTVisitor::visit(ast);
   }
 
+  void visit(ImplicitCastExpressionAST* ast) override {
+    if (ast->subobjectPath) {
+      auto& paths = ast->castKind == ImplicitCastKind::kBaseToDerivedConversion
+                        ? inversePaths
+                        : castPaths;
+      paths.emplace_back(ListView(ast->subobjectPath).begin(),
+                         ListView(ast->subobjectPath).end());
+    }
+    ASTVisitor::visit(ast);
+  }
+
   std::vector<std::vector<Symbol*>> implicitPaths;
+  std::vector<std::vector<Symbol*>> castPaths;
+  std::vector<std::vector<Symbol*>> inversePaths;
 };
 
 [[nodiscard]] auto containsBasePath(
@@ -1133,6 +1146,13 @@ struct Right : Base {};
 struct Both : Left, Right {
   constexpr unsigned sum() const { return Left::value + Right::value; }
 };
+const Left& selectLeft(const Both& object) {
+  return static_cast<const Left&>(object);
+}
+struct Unique : Left {};
+const Unique& recover(const Base& base) {
+  return static_cast<const Unique&>(base);
+}
 struct Anonymous {
   struct {
     struct {
@@ -1169,6 +1189,8 @@ struct Anonymous {
   EXPECT_TRUE(containsBasePath(restored.implicitPaths, {left, base}));
   EXPECT_TRUE(containsBasePath(restored.implicitPaths, {right, base}));
   EXPECT_TRUE(containsAnonymousFieldPath(restored.implicitPaths));
+  EXPECT_TRUE(containsBasePath(restored.castPaths, {left}));
+  EXPECT_TRUE(containsBasePath(restored.inversePaths, {left, base}));
 
   auto cloned = consumer.ast()->clone(consumer.arena());
   SubobjectPathVisitor clonedPaths;
@@ -1176,6 +1198,8 @@ struct Anonymous {
   EXPECT_TRUE(containsBasePath(clonedPaths.implicitPaths, {left, base}));
   EXPECT_TRUE(containsBasePath(clonedPaths.implicitPaths, {right, base}));
   EXPECT_TRUE(containsAnonymousFieldPath(clonedPaths.implicitPaths));
+  EXPECT_TRUE(containsBasePath(clonedPaths.castPaths, {left}));
+  EXPECT_TRUE(containsBasePath(clonedPaths.inversePaths, {left, base}));
 }
 
 TEST(PrecompiledHeader, RestoresConstexprBranchSelections) {

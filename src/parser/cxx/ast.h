@@ -4780,8 +4780,9 @@ class ImplicitCastExpressionAST final : public ExpressionAST {
 
   ExpressionAST* expression = nullptr;
   ImplicitCastKind castKind = ImplicitCastKind::kIdentity;
-  FunctionSymbol* conversionFunction = nullptr;
   bool isVirtualDispatch = false;
+  FunctionSymbol* conversionFunction = nullptr;
+  List<Symbol*>* subobjectPath = nullptr;
 
   void accept(ASTVisitor* visitor) override { visitor->visit(this); }
 
@@ -4792,13 +4793,11 @@ class ImplicitCastExpressionAST final : public ExpressionAST {
 
   [[nodiscard]] static auto create(Arena* arena) -> ImplicitCastExpressionAST*;
 
-  [[nodiscard]] static auto create(Arena* arena, ExpressionAST* expression,
-                                   ImplicitCastKind castKind,
-                                   FunctionSymbol* conversionFunction,
-                                   bool isVirtualDispatch,
-                                   ValueCategory valueCategory,
-                                   const Type* type)
-      -> ImplicitCastExpressionAST*;
+  [[nodiscard]] static auto create(
+      Arena* arena, ExpressionAST* expression, ImplicitCastKind castKind,
+      bool isVirtualDispatch, FunctionSymbol* conversionFunction,
+      List<Symbol*>* subobjectPath, ValueCategory valueCategory,
+      const Type* type) -> ImplicitCastExpressionAST*;
 
  protected:
   ImplicitCastExpressionAST() : ExpressionAST(Kind) {}

@@ -98,6 +98,17 @@ void test_cast_to_void() {
   static_cast<void>(d);
 }
 
+struct ConstexprDowncastBase {};
+struct ConstexprDowncastDerived : ConstexprDowncastBase {};
+constexpr ConstexprDowncastBase standalone_base{};
+constexpr ConstexprDowncastBase base_array[2]{};
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(static_cast<const ConstexprDowncastDerived*>(&standalone_base) ==
+              nullptr);
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(static_cast<const ConstexprDowncastDerived*>(base_array + 2) ==
+              nullptr);
+
 void test_standard_conversions() {
   int i = static_cast<int>(3.14);
   (void)i;

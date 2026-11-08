@@ -679,23 +679,6 @@ class Codegen {
                                           ClassSymbol* targetClass)
       -> ir::ValueRef;
 
-  [[nodiscard]] auto emitDerivedClassAddress(SourceLocation loc,
-                                             ir::ValueRef objectPtr,
-                                             ClassSymbol* fromClass,
-                                             ClassSymbol* targetClass)
-      -> ir::ValueRef;
-
-  enum class ClassPointerConversion { kDerivedToBase, kBaseToDerived };
-
-  [[nodiscard]] auto baseClassPathChangesAddress(ClassSymbol* derivedClass,
-                                                 ClassSymbol* baseClass)
-      -> bool;
-
-  [[nodiscard]] auto emitNullPreservingClassAddress(
-      SourceLocation loc, ir::ValueRef pointer, ClassSymbol* fromClass,
-      ClassSymbol* targetClass, ClassPointerConversion conversion)
-      -> ir::ValueRef;
-
   [[nodiscard]] auto emitMemberFunctionPointerValue(
       SourceLocation loc, const MemberFunctionPointerType* pointerType,
       FunctionSymbol* function, std::int64_t adjustmentBytes) -> ir::ValueRef;

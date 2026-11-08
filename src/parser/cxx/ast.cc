@@ -10634,8 +10634,9 @@ auto ImplicitCastExpressionAST::clone(Arena* arena)
   if (expression) node->expression = expression->clone(arena);
 
   node->castKind = cloneAttribute(arena, castKind);
-  node->conversionFunction = cloneAttribute(arena, conversionFunction);
   node->isVirtualDispatch = cloneAttribute(arena, isVirtualDispatch);
+  node->conversionFunction = cloneAttribute(arena, conversionFunction);
+  node->subobjectPath = cloneAttribute(arena, subobjectPath);
   node->valueCategory = cloneAttribute(arena, valueCategory);
   node->type = cloneAttribute(arena, type);
 
@@ -10648,18 +10649,17 @@ auto ImplicitCastExpressionAST::create(Arena* arena)
   return node;
 }
 
-auto ImplicitCastExpressionAST::create(Arena* arena, ExpressionAST* expression,
-                                       ImplicitCastKind castKind,
-                                       FunctionSymbol* conversionFunction,
-                                       bool isVirtualDispatch,
-                                       ValueCategory valueCategory,
-                                       const Type* type)
+auto ImplicitCastExpressionAST::create(
+    Arena* arena, ExpressionAST* expression, ImplicitCastKind castKind,
+    bool isVirtualDispatch, FunctionSymbol* conversionFunction,
+    List<Symbol*>* subobjectPath, ValueCategory valueCategory, const Type* type)
     -> ImplicitCastExpressionAST* {
   auto node = new (arena) ImplicitCastExpressionAST();
   node->expression = expression;
   node->castKind = castKind;
-  node->conversionFunction = conversionFunction;
   node->isVirtualDispatch = isVirtualDispatch;
+  node->conversionFunction = conversionFunction;
+  node->subobjectPath = subobjectPath;
   node->valueCategory = valueCategory;
   node->type = type;
   return node;

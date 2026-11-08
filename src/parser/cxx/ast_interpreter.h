@@ -633,6 +633,9 @@ class ASTInterpreter {
                                           const Type* targetType,
                                           std::intmax_t displacement)
       -> std::shared_ptr<ConstAddress>;
+  [[nodiscard]] auto restoreArrayElementPosition(
+      std::shared_ptr<ConstAddress> address, const Type* elementType)
+      -> std::shared_ptr<ConstAddress>;
   [[nodiscard]] auto completeClassOf(const ConstAddress& address)
       -> ClassSymbol*;
   [[nodiscard]] auto baseConversionOffset(const ConstAddress& address,

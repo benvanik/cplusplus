@@ -71,6 +71,71 @@ extern VirtualParameters virtual_parameters;
 template <const unsigned& value>
 struct Ref {};
 
+struct AdjustmentBase {
+  unsigned value;
+};
+struct AdjustmentLeft : AdjustmentBase {};
+struct AdjustmentOther {
+  unsigned value;
+};
+struct Adjusted : AdjustmentOther, AdjustmentLeft {
+  unsigned tail;
+};
+
+constexpr Adjusted adjusted{{17}, {{19}}, 23};
+constexpr const AdjustmentBase* adjusted_base = &adjusted;
+static_assert(adjusted_base->value == 19);
+static_assert(static_cast<const Adjusted*>(adjusted_base) == &adjusted);
+static_assert(static_cast<const Adjusted&>(*adjusted_base).tail == 23);
+static_assert(static_cast<const Adjusted&&>(*adjusted_base).tail == 23);
+static_assert(static_cast<const AdjustmentBase&&>(adjusted).value == 19);
+
+template <typename T>
+constexpr const T* recover(const AdjustmentBase* value) {
+  return static_cast<const T*>(value);
+}
+static_assert(recover<Adjusted>(adjusted_base) == &adjusted);
+
+constexpr RepeatedParameters selected_parameters{{{3, 5}}, {{7, 11}}};
+constexpr const ParametersRight* selected_right = &selected_parameters;
+constexpr const Parameters* selected_leaf = selected_right;
+static_assert(static_cast<const ParametersRight*>(selected_leaf) ==
+              selected_right);
+static_assert(static_cast<const RepeatedParameters*>(selected_right) ==
+              &selected_parameters);
+
+extern Adjusted external_adjusted;
+static_assert(static_cast<Adjusted*>(
+                  static_cast<AdjustmentBase*>(&external_adjusted)) ==
+              &external_adjusted);
+using AdjustedMember =
+    Ref<static_cast<const Adjusted&>(*adjusted_base).tail>;
+using DirectAdjustedMember = Ref<adjusted.tail>;
+static_assert(__is_same(AdjustedMember, DirectAdjustedMember));
+
+constexpr Adjusted adjusted_array[] = {{{1}, {{2}}, 3}, {{4}, {{5}}, 6}};
+constexpr const AdjustmentBase* array_base = &adjusted_array[1];
+static_assert(static_cast<const Adjusted*>(array_base) == &adjusted_array[1]);
+static_assert(static_cast<const Adjusted&>(*array_base).tail == 6);
+
+constexpr Adjusted* null_adjusted = nullptr;
+constexpr AdjustmentBase* null_base = nullptr;
+static_assert(static_cast<AdjustmentBase*>(null_adjusted) == nullptr);
+static_assert(static_cast<Adjusted*>(null_base) == nullptr);
+static_assert(static_cast<const AdjustmentBase*>(null_adjusted) == nullptr);
+static_assert(static_cast<const Adjusted*>(null_base) == nullptr);
+
+constexpr bool update_adjusted() {
+  Adjusted value{{1}, {{2}}, 3};
+  AdjustmentBase& base = value;
+  static_cast<Adjusted&>(base).tail = 7;
+  Adjusted&& moved = static_cast<Adjusted&&>(base);
+  moved.tail += 2;
+  return value.AdjustmentOther::value == 1 && base.value == 2 &&
+         value.tail == 9;
+}
+static_assert(update_adjusted());
+
 static_assert(__is_same(Ref<first.get()>, Ref<first.scale>));
 static_assert(__is_same(Ref<first.getExplicit()>, Ref<first.scale>));
 static_assert(__is_same(Ref<static_cast<const unsigned&>(first)>,
