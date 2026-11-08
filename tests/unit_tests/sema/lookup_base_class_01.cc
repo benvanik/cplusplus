@@ -38,6 +38,7 @@ struct D : B, C {
 struct RepeatedMember {
   int value;
   int get() const { return value; }
+  static int get(int value) { return value; }
 };
 
 struct RepeatedLeft : RepeatedMember {};
@@ -46,6 +47,16 @@ struct RepeatedRight : RepeatedMember {};
 struct UsingDoesNotSelectStorage : RepeatedLeft, RepeatedRight {
   using RepeatedLeft::get;
   using RepeatedLeft::value;
+
+  int read() const {
+    return value; // expected-error {{member 'value' found in multiple base classes of 'UsingDoesNotSelectStorage'}}
+  }
+
+  int call() const {
+    return get(); // expected-error {{member 'get' found in multiple base classes of 'UsingDoesNotSelectStorage'}}
+  }
+
+  int call_static() const { return get(17); }
 };
 
 int ambiguous_value(UsingDoesNotSelectStorage& object) {
@@ -55,3 +66,7 @@ int ambiguous_value(UsingDoesNotSelectStorage& object) {
 int ambiguous_call(UsingDoesNotSelectStorage& object) {
   return object.get(); // expected-error {{member 'get' found in multiple base classes of 'UsingDoesNotSelectStorage'}}
 }
+
+int static_call(UsingDoesNotSelectStorage& object) { return object.get(19); }
+
+int RepeatedMember::* member_pointer = &UsingDoesNotSelectStorage::value;

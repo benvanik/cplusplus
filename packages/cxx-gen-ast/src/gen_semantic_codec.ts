@@ -67,6 +67,7 @@ function collectSharedKinds(wire: Wire, kinds: Set<string>): void {
     case "optional":
     case "vector":
     case "deque":
+    case "list":
       collectSharedKinds(wire.element, kinds);
       break;
     case "pair":

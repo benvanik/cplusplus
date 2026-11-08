@@ -21,8 +21,10 @@
 #pragma once
 
 #include <cxx/ast_fwd.h>
+#include <cxx/symbols_fwd.h>
 
 #include <optional>
+#include <span>
 
 namespace cxx {
 
@@ -62,6 +64,13 @@ struct StructuredBindingInfo {
 [[nodiscard]] auto cloneAttribute(Arena* arena,
                                   const SpliceExpressionInfo& info)
     -> SpliceExpressionInfo;
+
+[[nodiscard]] auto makeSymbolPath(Arena* arena,
+                                  std::span<Symbol* const> symbols)
+    -> List<Symbol*>*;
+
+[[nodiscard]] auto cloneAttribute(Arena* arena, List<Symbol*>* symbols)
+    -> List<Symbol*>*;
 
 template <typename Attribute>
 [[nodiscard]] auto cloneAttribute(Arena*, const Attribute& attribute)

@@ -43,6 +43,7 @@ export type Wire =
   | { k: "symbol"; cpp: string }
   | { k: "ast"; cpp: string }
   | { k: "ast-list"; element: string }
+  | { k: "list"; element: Wire }
   | { k: "identifier" }
   | { k: "literal"; cpp: string }
   | { k: "abi-tags" }
@@ -273,9 +274,12 @@ export class WireMapper {
       const [element] = typeArguments(target);
       if (!element) throw new Error(`${context}: List without an element type`);
       const elementName = className(unqualified(pointerElement(element)));
-      if (!elementName || !this.isAstClass(elementName))
-        throw new Error(`${context}: List of non-AST '${elementName}'`);
-      return { k: "ast-list", element: normalizeClassName(elementName) };
+      if (elementName && this.isAstClass(elementName))
+        return { k: "ast-list", element: normalizeClassName(elementName) };
+      return {
+        k: "list",
+        element: this.wireOf(element, `${context} element`),
+      };
     }
 
     if (name === "::std::vector") {

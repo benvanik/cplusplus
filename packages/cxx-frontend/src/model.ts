@@ -948,7 +948,7 @@ const DefaultInitializerExpressionASTSlotBase =
   NestedStatementExpressionASTSlotBase + 3;
 const NestedExpressionASTSlotBase = DefaultInitializerExpressionASTSlotBase + 2;
 const IdExpressionASTSlotBase = NestedExpressionASTSlotBase + 3;
-const LambdaExpressionASTSlotBase = IdExpressionASTSlotBase + 5;
+const LambdaExpressionASTSlotBase = IdExpressionASTSlotBase + 6;
 const FoldExpressionASTSlotBase = LambdaExpressionASTSlotBase + 22;
 const RightFoldExpressionASTSlotBase = FoldExpressionASTSlotBase + 9;
 const LeftFoldExpressionASTSlotBase = RightFoldExpressionASTSlotBase + 6;
@@ -4583,20 +4583,27 @@ export class IdExpressionAST extends ExpressionAST {
       this.modelOwner,
     );
   }
+  get isTemplateIntroduced(): boolean {
+    return cxx.readAST(this.handle, IdExpressionASTSlotBase + 2) !== 0;
+  }
   get unqualifiedId(): UnqualifiedIdAST | undefined {
     return astOf(
-      cxx.readAST(this.handle, IdExpressionASTSlotBase + 2),
+      cxx.readAST(this.handle, IdExpressionASTSlotBase + 3),
       this.modelOwner,
     );
   }
   get symbol(): Symbol | undefined {
     return symbolOf(
-      cxx.readAST(this.handle, IdExpressionASTSlotBase + 3),
+      cxx.readAST(this.handle, IdExpressionASTSlotBase + 4),
       this.modelOwner,
     );
   }
-  get isTemplateIntroduced(): boolean {
-    return cxx.readAST(this.handle, IdExpressionASTSlotBase + 4) !== 0;
+  get subobjectPath(): Iterable<Symbol | undefined> {
+    return listOf(
+      this.modelOwner,
+      cxx.readAST(this.handle, IdExpressionASTSlotBase + 5),
+      (item: any) => symbolOf(item, this.modelOwner),
+    );
   }
 }
 /** @category AST Nodes */
@@ -15234,7 +15241,7 @@ const childSlots: Partial<
   NestedExpression: [[NestedExpressionASTSlotBase + 1, false, "expression"]],
   IdExpression: [
     [IdExpressionASTSlotBase + 0, false, "nestedNameSpecifier"],
-    [IdExpressionASTSlotBase + 2, false, "unqualifiedId"],
+    [IdExpressionASTSlotBase + 3, false, "unqualifiedId"],
   ],
   LambdaExpression: [
     [LambdaExpressionASTSlotBase + 2, true, "captureList"],

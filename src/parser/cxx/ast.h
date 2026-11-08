@@ -3409,9 +3409,10 @@ class IdExpressionAST final : public ExpressionAST {
 
   NestedNameSpecifierAST* nestedNameSpecifier = nullptr;
   SourceLocation templateLoc;
+  bool isTemplateIntroduced = false;
   UnqualifiedIdAST* unqualifiedId = nullptr;
   Symbol* symbol = nullptr;
-  bool isTemplateIntroduced = false;
+  List<Symbol*>* subobjectPath = nullptr;
 
   void accept(ASTVisitor* visitor) override { visitor->visit(this); }
 
@@ -3425,15 +3426,17 @@ class IdExpressionAST final : public ExpressionAST {
   [[nodiscard]] static auto create(Arena* arena,
                                    NestedNameSpecifierAST* nestedNameSpecifier,
                                    SourceLocation templateLoc,
+                                   bool isTemplateIntroduced,
                                    UnqualifiedIdAST* unqualifiedId,
-                                   Symbol* symbol, bool isTemplateIntroduced,
+                                   Symbol* symbol, List<Symbol*>* subobjectPath,
                                    ValueCategory valueCategory,
                                    const Type* type) -> IdExpressionAST*;
 
   [[nodiscard]] static auto create(Arena* arena,
                                    NestedNameSpecifierAST* nestedNameSpecifier,
+                                   bool isTemplateIntroduced,
                                    UnqualifiedIdAST* unqualifiedId,
-                                   Symbol* symbol, bool isTemplateIntroduced,
+                                   Symbol* symbol, List<Symbol*>* subobjectPath,
                                    ValueCategory valueCategory,
                                    const Type* type) -> IdExpressionAST*;
 

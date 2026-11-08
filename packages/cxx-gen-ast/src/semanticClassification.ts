@@ -121,6 +121,13 @@ export const bindings: Record<string, ClassBindings> = {
     },
   },
 
+  "::cxx::IdExpressionAST": {
+    subobjectPath: {
+      cls: "P",
+      why: "implicit object lookup selected these exact base and anonymous subobjects",
+    },
+  },
+
   "::cxx::ScopeSymbol": {
     members_: {
       cls: "P",

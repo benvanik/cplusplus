@@ -8532,11 +8532,12 @@ auto IdExpressionAST::clone(Arena* arena) -> IdExpressionAST* {
     node->nestedNameSpecifier = nestedNameSpecifier->clone(arena);
 
   node->templateLoc = templateLoc;
+  node->isTemplateIntroduced = cloneAttribute(arena, isTemplateIntroduced);
 
   if (unqualifiedId) node->unqualifiedId = unqualifiedId->clone(arena);
 
   node->symbol = cloneAttribute(arena, symbol);
-  node->isTemplateIntroduced = cloneAttribute(arena, isTemplateIntroduced);
+  node->subobjectPath = cloneAttribute(arena, subobjectPath);
   node->valueCategory = cloneAttribute(arena, valueCategory);
   node->type = cloneAttribute(arena, type);
 
@@ -8551,16 +8552,18 @@ auto IdExpressionAST::create(Arena* arena) -> IdExpressionAST* {
 auto IdExpressionAST::create(Arena* arena,
                              NestedNameSpecifierAST* nestedNameSpecifier,
                              SourceLocation templateLoc,
-                             UnqualifiedIdAST* unqualifiedId, Symbol* symbol,
                              bool isTemplateIntroduced,
+                             UnqualifiedIdAST* unqualifiedId, Symbol* symbol,
+                             List<Symbol*>* subobjectPath,
                              ValueCategory valueCategory, const Type* type)
     -> IdExpressionAST* {
   auto node = new (arena) IdExpressionAST();
   node->nestedNameSpecifier = nestedNameSpecifier;
   node->templateLoc = templateLoc;
+  node->isTemplateIntroduced = isTemplateIntroduced;
   node->unqualifiedId = unqualifiedId;
   node->symbol = symbol;
-  node->isTemplateIntroduced = isTemplateIntroduced;
+  node->subobjectPath = subobjectPath;
   node->valueCategory = valueCategory;
   node->type = type;
   return node;
@@ -8568,15 +8571,17 @@ auto IdExpressionAST::create(Arena* arena,
 
 auto IdExpressionAST::create(Arena* arena,
                              NestedNameSpecifierAST* nestedNameSpecifier,
-                             UnqualifiedIdAST* unqualifiedId, Symbol* symbol,
                              bool isTemplateIntroduced,
+                             UnqualifiedIdAST* unqualifiedId, Symbol* symbol,
+                             List<Symbol*>* subobjectPath,
                              ValueCategory valueCategory, const Type* type)
     -> IdExpressionAST* {
   auto node = new (arena) IdExpressionAST();
   node->nestedNameSpecifier = nestedNameSpecifier;
+  node->isTemplateIntroduced = isTemplateIntroduced;
   node->unqualifiedId = unqualifiedId;
   node->symbol = symbol;
-  node->isTemplateIntroduced = isTemplateIntroduced;
+  node->subobjectPath = subobjectPath;
   node->valueCategory = valueCategory;
   node->type = type;
   return node;

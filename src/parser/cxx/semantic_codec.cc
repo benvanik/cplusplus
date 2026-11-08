@@ -4512,12 +4512,18 @@ void SemanticEncoder::writeAstIdExpressionAST(
   out.varU32(static_cast<std::uint32_t>(astRef(self->nestedNameSpecifier)));
   // ::cxx::IdExpressionAST::templateLoc
   out.varU32(static_cast<std::uint32_t>(locationRef(self->templateLoc)));
+  // ::cxx::IdExpressionAST::isTemplateIntroduced
+  out.boolean(self->isTemplateIntroduced);
   // ::cxx::IdExpressionAST::unqualifiedId
   out.varU32(static_cast<std::uint32_t>(astRef(self->unqualifiedId)));
   // ::cxx::IdExpressionAST::symbol
   out.varU32(static_cast<std::uint32_t>(symbolRef(self->symbol)));
-  // ::cxx::IdExpressionAST::isTemplateIntroduced
-  out.boolean(self->isTemplateIntroduced);
+  // ::cxx::IdExpressionAST::subobjectPath
+  out.varU32(static_cast<std::uint32_t>(
+      std::ranges::distance(cxx::ListView(self->subobjectPath))));
+  for (const auto& element1 : cxx::ListView(self->subobjectPath)) {
+    out.varU32(static_cast<std::uint32_t>(symbolRef(element1)));
+  }
 }
 
 void SemanticEncoder::writeAstLambdaExpressionAST(
@@ -13811,16 +13817,29 @@ void SemanticDecoder::readAstIdExpressionAST(
   // ::cxx::IdExpressionAST::templateLoc
   cxx::SourceLocation value2 = locationAt(LocationRef{in.varU32()});
   self->templateLoc = std::move(value2);
-  // ::cxx::IdExpressionAST::unqualifiedId
-  cxx::UnqualifiedIdAST* value3 =
-      ast_cast<UnqualifiedIdAST>(astAt(AstRef{in.varU32()}));
-  self->unqualifiedId = std::move(value3);
-  // ::cxx::IdExpressionAST::symbol
-  cxx::Symbol* value4 = symbolAt(SymbolRef{in.varU32()});
-  self->symbol = std::move(value4);
   // ::cxx::IdExpressionAST::isTemplateIntroduced
-  bool value5 = in.boolean();
-  self->isTemplateIntroduced = std::move(value5);
+  bool value3 = in.boolean();
+  self->isTemplateIntroduced = std::move(value3);
+  // ::cxx::IdExpressionAST::unqualifiedId
+  cxx::UnqualifiedIdAST* value4 =
+      ast_cast<UnqualifiedIdAST>(astAt(AstRef{in.varU32()}));
+  self->unqualifiedId = std::move(value4);
+  // ::cxx::IdExpressionAST::symbol
+  cxx::Symbol* value5 = symbolAt(SymbolRef{in.varU32()});
+  self->symbol = std::move(value5);
+  // ::cxx::IdExpressionAST::subobjectPath
+  cxx::List<cxx::Symbol*>* value6 = nullptr;
+  {
+    const auto count7 = in.varCount(1);
+    auto tail10 = &value6;
+    for (std::uint32_t i8 = 0; ok() && i8 < count7; ++i8) {
+      decltype(value6->value) element9 = symbolAt(SymbolRef{in.varU32()});
+      *tail10 = new (arena())
+          std::remove_pointer_t<decltype(value6)>(std::move(element9));
+      tail10 = &(*tail10)->next;
+    }
+  }
+  self->subobjectPath = std::move(value6);
 }
 
 void SemanticDecoder::readAstLambdaExpressionAST(

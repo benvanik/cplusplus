@@ -25,11 +25,37 @@ struct Pair {
 
 struct ParametersLeft : Parameters {};
 struct ParametersRight : Parameters {};
-struct RepeatedParameters : ParametersLeft, ParametersRight {};
+struct RepeatedParameters : ParametersLeft, ParametersRight {
+  constexpr const unsigned& leftScale() const {
+    return ParametersLeft::scale;
+  }
+  constexpr const unsigned& rightScale() const {
+    return ParametersRight::scale;
+  }
+  constexpr const unsigned& leftGet() const {
+    return ParametersLeft::get();
+  }
+  constexpr const unsigned& rightGet() const {
+    return ParametersRight::get();
+  }
+  constexpr const unsigned* rightAddress() const {
+    return &(ParametersRight::scale);
+  }
+  constexpr const unsigned& capturedRight() const {
+    return [this]() -> const unsigned& { return ParametersRight::scale; }();
+  }
+};
 
 struct VirtualParametersLeft : virtual Parameters {};
 struct VirtualParametersRight : virtual Parameters {};
-struct VirtualParameters : VirtualParametersLeft, VirtualParametersRight {};
+struct VirtualParameters : VirtualParametersLeft, VirtualParametersRight {
+  constexpr const unsigned& leftScale() const {
+    return VirtualParametersLeft::scale;
+  }
+  constexpr const unsigned& rightGet() const {
+    return VirtualParametersRight::get();
+  }
+};
 
 constexpr Parameters first{3, 5};
 constexpr Parameters second{7, 11};
@@ -69,6 +95,12 @@ using RepeatedRight = Ref<repeated.ParametersRight::scale>;
 static_assert(!__is_same(RepeatedLeft, RepeatedRight));
 static_assert(__is_same(Ref<repeated.ParametersLeft::get()>, RepeatedLeft));
 static_assert(__is_same(Ref<repeated.ParametersRight::get()>, RepeatedRight));
+static_assert(__is_same(Ref<repeated.leftScale()>, RepeatedLeft));
+static_assert(__is_same(Ref<repeated.rightScale()>, RepeatedRight));
+static_assert(__is_same(Ref<repeated.leftGet()>, RepeatedLeft));
+static_assert(__is_same(Ref<repeated.rightGet()>, RepeatedRight));
+static_assert(repeated.rightAddress() == &repeated.ParametersRight::scale);
+static_assert(__is_same(Ref<repeated.capturedRight()>, RepeatedRight));
 static_assert(__is_same(
     Ref<static_cast<const ParametersLeft&>(repeated).get()>, RepeatedLeft));
 static_assert(__is_same(Ref<repeated_pointer->ParametersRight::get()>,
@@ -90,6 +122,57 @@ static_assert(__is_same(
 static_assert(__is_same(
     Ref<virtual_parameters.VirtualParametersRight::get()>,
     VirtualParametersValue));
+static_assert(__is_same(Ref<virtual_parameters.leftScale()>,
+                        VirtualParametersValue));
+static_assert(__is_same(Ref<virtual_parameters.rightGet()>,
+                        VirtualParametersValue));
+
+struct AnonymousParameters {
+  struct {
+    struct {
+      unsigned value;
+    };
+  };
+  constexpr const unsigned& get() const { return value; }
+};
+extern AnonymousParameters anonymous_parameters;
+using AnonymousParametersValue = Ref<anonymous_parameters.value>;
+static_assert(__is_same(Ref<anonymous_parameters.get()>,
+                        AnonymousParametersValue));
+
+struct Bits {
+  unsigned value : 4;
+};
+struct BitsLeft : Bits {};
+struct BitsRight : Bits {};
+struct RepeatedBits : BitsLeft, BitsRight {
+  constexpr unsigned sum() const {
+    return BitsLeft::value + BitsRight::value;
+  }
+  constexpr void update(unsigned left, unsigned right) {
+    BitsLeft::value = left;
+    BitsRight::value = right;
+    ++BitsRight::value;
+  }
+};
+
+constexpr bool updatesRepeatedBits() {
+  RepeatedBits value{{{3}}, {{7}}};
+  value.update(11, 13);
+  return value.BitsLeft::value == 11 && value.BitsRight::value == 14 &&
+         value.sum() == 25;
+}
+static_assert(updatesRepeatedBits());
+
+template <typename T>
+struct InheritedParameters : T {
+  constexpr const unsigned& rightScale() const {
+    return T::ParametersRight::scale;
+  }
+};
+extern InheritedParameters<RepeatedParameters> inherited_parameters;
+static_assert(__is_same(Ref<inherited_parameters.rightScale()>,
+                        Ref<inherited_parameters.ParametersRight::scale>));
 
 Ref<first.get()> first_ref;
 Ref<pair.left.get()> pair_left_ref;
@@ -98,6 +181,7 @@ Ref<external.get()> external_ref;
 RepeatedLeft repeated_left_ref;
 RepeatedRight repeated_right_ref;
 VirtualParametersValue virtual_parameters_ref;
+AnonymousParametersValue anonymous_parameters_ref;
 
 // NAMES-DAG: class Ref<first.scale>
 // NAMES-DAG: class Ref<pair.left.scale>

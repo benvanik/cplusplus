@@ -81,6 +81,43 @@ test("semantic encoding preserves parameter reflections as a distinct variant", 
   );
 });
 
+test("semantic persistence composes arena lists with their element wire", () => {
+  assert.deepEqual(plan.diagnostics, []);
+  const expression = plan.nodes.find(
+    (entity) => entity.short === "IdExpressionAST",
+  );
+  const subobjectPath = expression.fields.find(
+    (field) => field.name === "subobjectPath",
+  );
+  assert.equal(subobjectPath.cppType, "cxx::List<cxx::Symbol*>*");
+  assert.equal(subobjectPath.wire.k, "list");
+  assert.equal(subobjectPath.wire.element.k, "symbol");
+
+  const output = fs.mkdtempSync(path.join(os.tmpdir(), "cxx-semantic-"));
+  try {
+    const sourceOutput = path.join(output, "semantic_codec.cc");
+    gen_semantic_codec({
+      plan,
+      headerOutput: path.join(output, "semantic_codec.h"),
+      sourceOutput,
+    });
+    const generated = fs.readFileSync(sourceOutput, "utf8");
+    const encoder = generated.match(
+      /void SemanticEncoder::writeAstIdExpressionAST\([^]*?\n\}/,
+    )[0];
+    assert.match(encoder, /cxx::ListView\(self->subobjectPath\)/);
+    assert.match(encoder, /symbolRef\(element\d+\)/);
+
+    const decoder = generated.match(
+      /void SemanticDecoder::readAstIdExpressionAST\([^]*?\n\}/,
+    )[0];
+    assert.match(decoder, /symbolAt\(SymbolRef\{in\.varU32\(\)\}\)/);
+    assert.match(decoder, /new \(arena\(\)\) std::remove_pointer_t/);
+  } finally {
+    fs.rmSync(output, { recursive: true, force: true });
+  }
+});
+
 test("persisted field plans retain their binding rationale", () => {
   const expected = [
     [
@@ -102,6 +139,11 @@ test("persisted field plans retain their binding rationale", () => {
       "::cxx::ClassSymbol",
       "minimumAlignmentShift_",
       "the accessor represents the encoded request as byte alignment",
+    ],
+    [
+      "::cxx::IdExpressionAST",
+      "subobjectPath",
+      "implicit object lookup selected these exact base and anonymous subobjects",
     ],
   ];
   for (const [owner, name, why] of expected) {

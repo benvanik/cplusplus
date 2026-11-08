@@ -150,6 +150,45 @@ class BranchSelectionVisitor final : public ASTVisitor {
   std::vector<std::optional<bool>> selections;
 };
 
+class SubobjectPathVisitor final : public ASTVisitor {
+ public:
+  void visit(IdExpressionAST* ast) override {
+    if (ast->subobjectPath) {
+      implicitPaths.emplace_back(ListView(ast->subobjectPath).begin(),
+                                 ListView(ast->subobjectPath).end());
+    }
+    ASTVisitor::visit(ast);
+  }
+
+  std::vector<std::vector<Symbol*>> implicitPaths;
+};
+
+[[nodiscard]] auto containsBasePath(
+    const std::vector<std::vector<Symbol*>>& paths,
+    std::initializer_list<ClassSymbol*> expected) -> bool {
+  for (const auto& path : paths) {
+    if (path.size() != expected.size()) continue;
+    auto expectedSymbol = expected.begin();
+    const bool matches = std::ranges::all_of(path, [&](Symbol* step) {
+      auto base = symbol_cast<BaseClassSymbol>(step);
+      return base && base->symbol() == *expectedSymbol++;
+    });
+    if (matches) return true;
+  }
+  return false;
+}
+
+[[nodiscard]] auto containsAnonymousFieldPath(
+    const std::vector<std::vector<Symbol*>>& paths) -> bool {
+  return std::ranges::any_of(paths, [](const auto& path) {
+    return path.size() == 2 &&
+           std::ranges::all_of(path, [](Symbol* step) {
+             auto field = symbol_cast<FieldSymbol>(step);
+             return field && !field->name();
+           });
+  });
+}
+
 auto branchSelections(AST* ast) -> std::vector<std::optional<bool>> {
   BranchSelectionVisitor visitor;
   visitor.accept(ast);
@@ -1084,6 +1123,59 @@ static_assert(saved_second == &values[1]);
   EXPECT_TRUE((*secondSelf)->sameObject(*savedSecond));
   EXPECT_TRUE(savedSecond->sameTarget(*valuesAddress));
   EXPECT_EQ(savedSecond->root(), valuesTemporary);
+}
+
+TEST(PrecompiledHeader, RestoresImplicitObjectSubobjectPaths) {
+  Prefix prefix{R"(
+struct Base { unsigned value; };
+struct Left : Base {};
+struct Right : Base {};
+struct Both : Left, Right {
+  constexpr unsigned sum() const { return Left::value + Right::value; }
+};
+struct Anonymous {
+  struct {
+    struct {
+      unsigned value;
+    };
+  };
+  constexpr unsigned get() const { return value; }
+};
+)"};
+
+  const auto data = prefix.emit();
+  ASSERT_TRUE(prefix.errors().empty());
+  ASSERT_FALSE(data.empty());
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  auto base =
+      symbol_cast<ClassSymbol>(findMember(consumer.globalScope(), "Base"));
+  auto left =
+      symbol_cast<ClassSymbol>(findMember(consumer.globalScope(), "Left"));
+  auto right =
+      symbol_cast<ClassSymbol>(findMember(consumer.globalScope(), "Right"));
+  ASSERT_TRUE(base);
+  ASSERT_TRUE(left);
+  ASSERT_TRUE(right);
+
+  SubobjectPathVisitor restored;
+  restored.accept(consumer.ast());
+  EXPECT_TRUE(containsBasePath(restored.implicitPaths, {left, base}));
+  EXPECT_TRUE(containsBasePath(restored.implicitPaths, {right, base}));
+  EXPECT_TRUE(containsAnonymousFieldPath(restored.implicitPaths));
+
+  auto cloned = consumer.ast()->clone(consumer.arena());
+  SubobjectPathVisitor clonedPaths;
+  clonedPaths.accept(cloned);
+  EXPECT_TRUE(containsBasePath(clonedPaths.implicitPaths, {left, base}));
+  EXPECT_TRUE(containsBasePath(clonedPaths.implicitPaths, {right, base}));
+  EXPECT_TRUE(containsAnonymousFieldPath(clonedPaths.implicitPaths));
 }
 
 TEST(PrecompiledHeader, RestoresConstexprBranchSelections) {

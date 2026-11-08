@@ -663,6 +663,11 @@ auto ASTRewriter::ExpressionVisitor::operator()(IdExpressionAST* ast)
 
   if (auto value = rewrite.substitutedNonTypeValue(ast)) return value;
 
+  std::vector<Symbol*> subobjectPath;
+  for (auto symbol : ListView(ast->subobjectPath))
+    subobjectPath.push_back(rewrite.remapSymbol(symbol));
+  copy->subobjectPath = makeSymbolPath(arena(), subobjectPath);
+
   if (auto param = symbol_cast<NonTypeParameterSymbol>(ast->symbol);
       param && rewrite.templateArgumentFor(param)) {
     copy->symbol = param;

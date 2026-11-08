@@ -695,6 +695,10 @@ struct TypeChecker::Visitor {
                                                 Symbol* member) -> bool;
   [[nodiscard]] auto checkMemberPointerAccessible(IdExpressionAST* ast) -> bool;
 
+  [[nodiscard]] auto checkMemberObjectUnambiguous(ClassSymbol* classSymbol,
+                                                  Symbol* member,
+                                                  SourceLocation loc) -> bool;
+
   [[nodiscard]] auto checkUnambiguousMemberLookup(ClassSymbol* classSymbol,
                                                   const Name* memberName,
                                                   Symbol* member,
@@ -9723,16 +9727,23 @@ auto TypeChecker::Visitor::objectClassOf(MemberExpressionAST* ast)
   return classType->symbol();
 }
 
+namespace {
+
+[[nodiscard]] auto classNamedByQualifier(Symbol* symbol) -> ClassSymbol* {
+  if (!symbol) return nullptr;
+  if (auto type = unqualified_cast<ClassType>(symbol->type()))
+    return type->definition();
+  if (auto enumeration = symbol_cast<EnumSymbol>(symbol))
+    return declaringClassOf(enumeration);
+  return nullptr;
+}
+
+}  // namespace
+
 auto TypeChecker::Visitor::designatingClassOf(MemberExpressionAST* ast)
     -> ClassSymbol* {
   if (auto qualifier = ast->nestedNameSpecifier) {
-    auto symbol = qualifier->symbol;
-    if (!symbol) return nullptr;
-    if (auto type = unqualified_cast<ClassType>(symbol->type()))
-      return type->symbol();
-    if (auto enumeration = symbol_cast<EnumSymbol>(symbol))
-      return declaringClassOf(enumeration);
-    return nullptr;
+    return classNamedByQualifier(qualifier->symbol);
   }
   return objectClassOf(ast);
 }
@@ -9816,19 +9827,84 @@ auto TypeChecker::Visitor::checkNamedMemberAccessible(IdExpressionAST* ast,
   auto designatingClass = objectClass;
   if (ast->nestedNameSpecifier) {
     designatingClass =
-        symbol_cast<ClassSymbol>(ast->nestedNameSpecifier->symbol);
+        classNamedByQualifier(ast->nestedNameSpecifier->symbol);
     if (!designatingClass && ast->nestedNameSpecifier->symbol) return true;
   }
 
-  return checkMemberAccessible(member, designatingClass, objectClass,
-                               get_name_location(ast));
+  if (!checkMemberAccessible(member, designatingClass, objectClass,
+                             get_name_location(ast)))
+    return false;
+
+  ast->subobjectPath = nullptr;
+  if (!objectClass || !designatingClass) return true;
+
+  objectClass = objectClass->resolvedDefinition();
+  designatingClass = designatingClass->resolvedDefinition();
+  auto selected = resolve_using_declaration(member);
+  auto field = symbol_cast<FieldSymbol>(selected);
+  auto function = symbol_cast<FunctionSymbol>(selected);
+  const bool usesImplicitObject =
+      (field && !field->isStatic()) ||
+      (function && function->isImplicitObjectMemberFunction());
+  if (!usesImplicitObject) return true;
+
+  if (!checkMemberObjectUnambiguous(designatingClass, selected,
+                                    get_name_location(ast)))
+    return false;
+
+  std::vector<Symbol*> path;
+  if (designatingClass != objectClass) {
+    if (!requireValidBaseConversion(objectClass, designatingClass,
+                                    BaseConversionKind::kDerivedToBase,
+                                    get_name_location(ast)))
+      return false;
+    auto prefix = objectClass->subobjectPath(designatingClass);
+    if (!prefix)
+      cxx_runtime_error("missing implicit-object qualifier subobject path");
+    path = std::move(*prefix);
+  }
+
+  auto declaringClass = symbol_cast<ClassSymbol>(selected->parent());
+  if (declaringClass)
+    declaringClass = declaringClass->resolvedDefinition();
+  if (declaringClass && declaringClass != designatingClass) {
+    auto suffix = designatingClass->subobjectPath(declaringClass);
+    if (!suffix)
+      cxx_runtime_error("missing implicit-object member subobject path");
+    path.insert(path.end(), suffix->begin(), suffix->end());
+  }
+  ast->subobjectPath = makeSymbolPath(arena(), path);
+  return true;
 }
 
 auto TypeChecker::Visitor::checkMemberPointerAccessible(IdExpressionAST* ast)
     -> bool {
-  auto qualifier = symbol_cast<ClassSymbol>(ast->nestedNameSpecifier->symbol);
+  auto qualifier =
+      classNamedByQualifier(ast->nestedNameSpecifier->symbol);
   return checkMemberAccessible(ast->symbol, qualifier, qualifier,
                                get_name_location(ast));
+}
+
+auto TypeChecker::Visitor::checkMemberObjectUnambiguous(
+    ClassSymbol* classSymbol, Symbol* member, SourceLocation loc) -> bool {
+  if (!classSymbol) return true;
+  member = resolve_using_declaration(member);
+  if (!member || member->parent() == classSymbol ||
+      !is_non_static_member(member))
+    return true;
+  if (symbol_cast<OverloadSetSymbol>(member)) return true;
+  if (auto function = symbol_cast<FunctionSymbol>(member);
+      function && !function->isImplicitObjectMemberFunction())
+    return true;
+  auto declaringClass = declaringClassOf(member);
+  if (!declaringClass || declaringClass == classSymbol) return true;
+  auto info = classSymbol->baseSubobjectInfo(declaringClass);
+  if (info.subobjectCount == 0 || info.isUniqueSubobject()) return true;
+  error(loc, std::format("member '{}' found in multiple base classes of '{}'",
+                         to_diag_string(member->name()),
+                         to_diag_string(classSymbol->type(), "",
+                                        check.diagnosticPrintOptions())));
+  return false;
 }
 
 auto TypeChecker::Visitor::checkUnambiguousMemberLookup(
@@ -9851,16 +9927,7 @@ auto TypeChecker::Visitor::checkUnambiguousMemberLookup(
   };
 
   if (lookup.ambiguous) return reportAmbiguous();
-  if (symbol_cast<OverloadSetSymbol>(member)) return true;
-  if (!is_non_static_member(member)) return true;
-  auto declaringClass = member->enclosingClass();
-  if (!declaringClass || declaringClass == classSymbol) return true;
-
-  auto info = classSymbol->baseSubobjectInfo(declaringClass);
-  if (info.subobjectCount == 0) return true;
-  if (info.isUniqueSubobject()) return true;
-
-  return reportAmbiguous();
+  return checkMemberObjectUnambiguous(classSymbol, member, loc);
 }
 
 auto TypeChecker::Visitor::checkMemberAccessible(Symbol* member,

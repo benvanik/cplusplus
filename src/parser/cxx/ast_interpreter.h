@@ -608,6 +608,13 @@ class ASTInterpreter {
 
   [[nodiscard]] auto implicitObjectFor(Symbol* member) -> DesignatedObject;
 
+  [[nodiscard]] auto applySubobjectPath(DesignatedObject object,
+                                        List<Symbol*>* path)
+      -> DesignatedObject;
+
+  [[nodiscard]] auto implicitObjectFor(IdExpressionAST* ast)
+      -> DesignatedObject;
+
   [[nodiscard]] auto locateSubobject(ConstValue& value,
                                      const ConstAddress& base,
                                      std::intmax_t displacement) -> bool;
@@ -741,9 +748,6 @@ class ASTInterpreter {
 
   [[nodiscard]] auto discardedValue(ExpressionAST* ast)
       -> std::optional<ConstValue>;
-
-  [[nodiscard]] auto fieldOwner(ExpressionAST* ast)
-      -> std::shared_ptr<ConstObject>;
 
   [[nodiscard]] auto typeInfoAddress(const Type* type)
       -> std::optional<ConstValue>;

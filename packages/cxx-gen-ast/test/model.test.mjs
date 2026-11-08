@@ -29,6 +29,13 @@ test("AST generation uses the snapshot and preserves declaration spellings", () 
     "node-list",
   );
   assert.equal(node.members.find((m) => m.name === "classLoc").kind, "token");
+  const idExpression = ast.nodes.find((n) => n.name === "IdExpressionAST");
+  const subobjectPath = idExpression.members.find(
+    (m) => m.name === "subobjectPath",
+  );
+  assert.equal(subobjectPath.kind, "attribute");
+  assert.equal(subobjectPath.type, "List<Symbol*>");
+  assert.equal(subobjectPath.ptrOps, "*");
 });
 
 test("model locations are repository relative and normalization preserves order", () => {

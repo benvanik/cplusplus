@@ -283,7 +283,7 @@ constexpr int NestedExpressionASTSlotBase =
 
 constexpr int IdExpressionASTSlotBase = NestedExpressionASTSlotBase + 3;
 
-constexpr int LambdaExpressionASTSlotBase = IdExpressionASTSlotBase + 5;
+constexpr int LambdaExpressionASTSlotBase = IdExpressionASTSlotBase + 6;
 
 constexpr int FoldExpressionASTSlotBase = LambdaExpressionASTSlotBase + 22;
 
@@ -3356,19 +3356,25 @@ auto readAST(std::intptr_t handle, int slot) -> double {
     case IdExpressionASTSlotBase + 2: {
       auto self = static_cast<const ::cxx::IdExpressionAST*>(
           reinterpret_cast<const ::cxx::AST*>(handle));
-      return static_cast<double>(reinterpret_cast<std::intptr_t>(
-          static_cast<const ::cxx::AST*>(self->unqualifiedId)));
+      return static_cast<double>(self->isTemplateIntroduced);
     }
     case IdExpressionASTSlotBase + 3: {
       auto self = static_cast<const ::cxx::IdExpressionAST*>(
           reinterpret_cast<const ::cxx::AST*>(handle));
       return static_cast<double>(reinterpret_cast<std::intptr_t>(
-          static_cast<const ::cxx::Symbol*>(self->symbol)));
+          static_cast<const ::cxx::AST*>(self->unqualifiedId)));
     }
     case IdExpressionASTSlotBase + 4: {
       auto self = static_cast<const ::cxx::IdExpressionAST*>(
           reinterpret_cast<const ::cxx::AST*>(handle));
-      return static_cast<double>(self->isTemplateIntroduced);
+      return static_cast<double>(reinterpret_cast<std::intptr_t>(
+          static_cast<const ::cxx::Symbol*>(self->symbol)));
+    }
+    case IdExpressionASTSlotBase + 5: {
+      auto self = static_cast<const ::cxx::IdExpressionAST*>(
+          reinterpret_cast<const ::cxx::AST*>(handle));
+      return static_cast<double>(
+          reinterpret_cast<std::intptr_t>(self->subobjectPath));
     }
     case LambdaExpressionASTSlotBase + 0: {
       auto self = static_cast<const ::cxx::LambdaExpressionAST*>(

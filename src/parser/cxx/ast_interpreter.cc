@@ -1631,7 +1631,7 @@ auto ASTInterpreter::executeFunction(
   auto savedFunction = std::exchange(currentFunction_, function);
   auto savedNominates = std::exchange(nominatesUnionMembers_, false);
   std::optional<ThisScope> thisScope;
-  if (object)
+  if (object || objectAddress)
     thisScope.emplace(*this, std::move(object), std::move(objectAddress));
   std::optional<ConstructionScope> construction;
   if (constructor) construction.emplace(*this, thisObject_, thisAddress_);

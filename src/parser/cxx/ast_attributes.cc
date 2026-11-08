@@ -23,6 +23,22 @@
 
 namespace cxx {
 
+namespace {
+
+template <typename Range>
+[[nodiscard]] auto makeSymbolPathImpl(Arena* arena, Range symbols)
+    -> List<Symbol*>* {
+  List<Symbol*>* result = nullptr;
+  auto tail = &result;
+  for (auto symbol : symbols) {
+    *tail = make_list_node<Symbol>(arena, symbol);
+    tail = &(*tail)->next;
+  }
+  return result;
+}
+
+}  // namespace
+
 auto cloneAttribute(Arena* arena, const InitializerInfo& info)
     -> InitializerInfo {
   if (!info.arguments) return info;
@@ -55,6 +71,15 @@ auto cloneAttribute(Arena* arena, const SpliceExpressionInfo& info)
     -> SpliceExpressionInfo {
   if (!info.expression) return info;
   return {.expression = info.expression->clone(arena)};
+}
+
+auto makeSymbolPath(Arena* arena, std::span<Symbol* const> symbols)
+    -> List<Symbol*>* {
+  return makeSymbolPathImpl(arena, symbols);
+}
+
+auto cloneAttribute(Arena* arena, List<Symbol*>* symbols) -> List<Symbol*>* {
+  return makeSymbolPathImpl(arena, ListView(symbols));
 }
 
 }  // namespace cxx

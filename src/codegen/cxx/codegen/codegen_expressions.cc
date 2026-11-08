@@ -64,7 +64,8 @@ struct [[nodiscard]] Codegen::ExpressionVisitor {
   [[nodiscard]] auto emitMemberAccess(MemberExpressionAST* ast)
       -> std::optional<std::pair<ir::ValueRef, ClassLayout::MemberInfo>>;
 
-  [[nodiscard]] auto emitFieldAddress(FieldSymbol* field, SourceLocation loc)
+  [[nodiscard]] auto emitFieldAddress(FieldSymbol* field, SourceLocation loc,
+                                      List<Symbol*>* path)
       -> std::optional<std::pair<ir::ValueRef, ClassLayout::MemberInfo>>;
 
   [[nodiscard]] auto emitBitFieldAccess(ExpressionAST* ast)
@@ -847,7 +848,8 @@ auto Codegen::ExpressionVisitor::operator()(IdExpressionAST* ast)
     }
 
     if (!field->isStatic()) {
-      auto access = emitFieldAddress(field, ast->firstSourceLocation());
+      auto access = emitFieldAddress(field, ast->firstSourceLocation(),
+                                     ast->subobjectPath);
       if (!access) {
         return {gen.emitTodoExpr(ast->firstSourceLocation(),
                                  "could not access member through 'this'")};
@@ -1224,8 +1226,8 @@ auto Codegen::ExpressionVisitor::operator()(CallExpressionAST* ast)
         auto loadedThis =
             gen.loadEnclosingObject(loc, classSymbol, currentClass);
 
-        auto adjustedThis = gen.emitBaseClassAddress(loc, loadedThis,
-                                                     currentClass, classSymbol);
+        auto adjustedThis =
+            gen.applySubobjectPath(loc, loadedThis, id->subobjectPath);
         thisValue = {adjustedThis};
       }
     }
@@ -1522,8 +1524,37 @@ auto Codegen::navigateToClass(SourceLocation loc, ir::ValueRef value,
   return value;
 }
 
+auto Codegen::applySubobjectPath(SourceLocation loc, ir::ValueRef value,
+                                 List<Symbol*>* path) -> ir::ValueRef {
+  for (auto symbol : ListView(path)) {
+    if (auto base = symbol_cast<BaseClassSymbol>(symbol)) {
+      auto record = base->enclosingClass();
+      auto baseClass = resolved_base_class(base);
+      if (!record || !baseClass)
+        cxx_runtime_error("invalid retained base subobject path");
+      record = record->resolvedDefinition();
+      if (base->isVirtual()) {
+        value = emitVirtualBaseAddress(loc, value, record, baseClass);
+      } else {
+        value = baseSubobjectAddress(loc, value, record, baseClass);
+      }
+      continue;
+    }
+    if (auto field = symbol_cast<FieldSymbol>(symbol)) {
+      auto record = symbol_cast<ClassSymbol>(field->parent());
+      if (!record)
+        cxx_runtime_error("invalid retained field subobject path");
+      value = subobjectAddress(loc, value, record->resolvedDefinition(), field);
+      continue;
+    }
+    cxx_runtime_error("invalid retained implicit-object subobject path");
+  }
+  return value;
+}
+
 auto Codegen::ExpressionVisitor::emitFieldAddress(FieldSymbol* field,
-                                                  SourceLocation srcLoc)
+                                                  SourceLocation srcLoc,
+                                                  List<Symbol*>* path)
     -> std::optional<std::pair<ir::ValueRef, ClassLayout::MemberInfo>> {
   if (!field || field->isStatic()) return std::nullopt;
 
@@ -1556,8 +1587,7 @@ auto Codegen::ExpressionVisitor::emitFieldAddress(FieldSymbol* field,
   ClassSymbol* currentClass = nullptr;
   auto thisPtr = gen.loadEnclosingObject(loc, classSymbol, currentClass);
 
-  auto adjustedThis =
-      gen.navigateToClass(loc, thisPtr, currentClass, classSymbol);
+  auto adjustedThis = gen.applySubobjectPath(loc, thisPtr, path);
 
   auto op =
       gen.memberAddress(loc, adjustedThis, field->type(), fieldInfo->index);
@@ -1643,8 +1673,10 @@ auto Codegen::ExpressionVisitor::emitBitFieldAccess(ExpressionAST* ast)
       symbol_cast<FieldSymbol>(idExpr ? idExpr->symbol : member->symbol);
   if (!field || field->isStatic() || !field->isBitField()) return std::nullopt;
 
-  auto access = idExpr ? emitFieldAddress(field, idExpr->firstSourceLocation())
-                       : emitMemberAccess(member);
+  auto access = idExpr
+                    ? emitFieldAddress(field, idExpr->firstSourceLocation(),
+                                       idExpr->subobjectPath)
+                    : emitMemberAccess(member);
   if (!access) return std::nullopt;
 
   return BitFieldAccess{access->first, access->second, field,

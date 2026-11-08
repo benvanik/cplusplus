@@ -1059,7 +1059,8 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
 
     if (auto field = symbol_cast<FieldSymbol>(sym)) {
       if (!field->isStatic()) {
-        if (auto object = fieldOwner(ast)) return memberSlot(object, field);
+        auto object = implicitObjectFor(id).object;
+        if (object) return memberSlot(object, field);
         return nullptr;
       }
       if (field->isStatic()) return staticFieldSlot(field);
@@ -1611,10 +1612,14 @@ auto ASTInterpreter::pointeeObject(ConstValue value, const Type* pointeeType)
 }
 
 auto ASTInterpreter::designatedThis() -> DesignatedObject {
-  if (!thisObject_) return {};
-  auto classType = unqualified_cast<ClassType>(thisObject_->type());
+  auto objectType = thisObject_ ? thisObject_->type()
+                                : thisAddress_ ? thisAddress_->elementType()
+                                               : nullptr;
+  if (!objectType) return {};
+  auto classType = unqualified_cast<ClassType>(objectType);
   auto closure = classType ? classType->definition() : nullptr;
   if (!closure || !closure->isClosureType()) return {thisObject_, thisAddress_};
+  if (!thisObject_) return {};
   auto capturedThis = closure->capturedThisField();
   if (!capturedThis) return {};
   auto value = thisObject_->subobject(capturedThis);
@@ -1624,26 +1629,102 @@ auto ASTInterpreter::designatedThis() -> DesignatedObject {
 }
 
 auto ASTInterpreter::implicitObjectFor(Symbol* member) -> DesignatedObject {
-  if (!thisObject_) return {};
-  if (traits.is_member_of_object_type(thisObject_->type(), member))
+  auto objectType = thisObject_ ? thisObject_->type()
+                                : thisAddress_ ? thisAddress_->elementType()
+                                               : nullptr;
+  if (!objectType) return {};
+  if (traits.is_member_of_object_type(objectType, member))
     return {thisObject_, thisAddress_};
   return designatedThis();
 }
 
-auto ASTInterpreter::fieldOwner(ExpressionAST* ast)
-    -> std::shared_ptr<ConstObject> {
-  if (auto id = ast_cast<IdExpressionAST>(ast)) {
-    auto field = symbol_cast<FieldSymbol>(id->symbol);
-    if (!field || field->isStatic()) return nullptr;
-    auto object = implicitObjectFor(field);
-    return addressedClassSubobject(object.object, object.address).object;
+auto ASTInterpreter::applySubobjectPath(DesignatedObject object,
+                                        List<Symbol*>* path)
+    -> DesignatedObject {
+  auto selected = addressedClassSubobject(object.object, object.address);
+  if (selected.object) object.object = std::move(selected.object);
+
+  for (auto subobject : ListView(path)) {
+    std::shared_ptr<ConstAddress> address;
+    if (object.address) {
+      auto current = typedAddress(*object.address);
+      auto addressPath = current->subobjectPath();
+      if (current->arrayType())
+        addressPath.emplace_back(std::size_t(current->offset()));
+
+      std::optional<std::intmax_t> displacement;
+      std::intmax_t classDisplacement = 0;
+      const Type* elementType = nullptr;
+      if (auto base = symbol_cast<BaseClassSymbol>(subobject)) {
+        auto baseClass = resolved_base_class(base);
+        auto owner = base->enclosingClass();
+        auto complete = completeClassOf(*current);
+        auto layout = base->isVirtual()
+                          ? complete ? complete->layout() : nullptr
+                          : owner ? owner->layout() : nullptr;
+        auto info = layout && baseClass
+                        ? layout->getBaseInfo(baseClass, base->isVirtual())
+                        : std::nullopt;
+        if (info && std::in_range<std::intmax_t>(info->offset)) {
+          const auto offset = static_cast<std::intmax_t>(info->offset);
+          if (base->isVirtual()) {
+            auto delta = checkedSub(ConstInt{offset},
+                                    ConstInt{current->classDisplacement()});
+            if (delta) {
+              displacement = delta->toIntMax();
+              classDisplacement = offset;
+            }
+          } else {
+            auto position = checkedAdd(
+                ConstInt{current->classDisplacement()}, ConstInt{offset});
+            if (position) {
+              displacement = offset;
+              classDisplacement = position->toIntMax();
+            }
+          }
+          elementType = baseClass->type();
+        }
+      } else if (auto field = symbol_cast<FieldSymbol>(subobject)) {
+        auto owner = symbol_cast<ClassSymbol>(field->parent());
+        auto layout = owner ? owner->resolvedDefinition()->layout() : nullptr;
+        auto info = layout ? layout->getFieldInfo(field) : std::nullopt;
+        if (info && std::in_range<std::intmax_t>(info->offset)) {
+          displacement = static_cast<std::intmax_t>(info->offset);
+          elementType = traits.remove_reference(field->type());
+        }
+      }
+
+      if (displacement && elementType) {
+        address = subobjectAddress(*current, *displacement);
+        if (address) {
+          addressPath.emplace_back(subobject);
+          address->setArrayType(nullptr);
+          address->setOffset(0);
+          address->setSubobjectPath(std::move(addressPath));
+          address->setClassDisplacement(classDisplacement);
+          address->setSymbol(subobject);
+          address->setElementType(elementType);
+        }
+      }
+    }
+    std::shared_ptr<ConstObject> nestedObject;
+    if (object.object) {
+      auto value = memberValue(object.object, subobject);
+      auto nested =
+          value ? std::get_if<std::shared_ptr<ConstObject>>(&*value) : nullptr;
+      if (nested) nestedObject = *nested;
+    }
+    object = {std::move(nestedObject), std::move(address)};
+    if (!object.object && !object.address) return {};
   }
-  if (auto member = ast_cast<MemberExpressionAST>(ast)) {
-    auto field = symbol_cast<FieldSymbol>(member->symbol);
-    if (!field || field->isStatic()) return nullptr;
-    return memberObject(member);
-  }
-  return nullptr;
+
+  return object;
+}
+
+auto ASTInterpreter::implicitObjectFor(IdExpressionAST* ast)
+    -> DesignatedObject {
+  return applySubobjectPath(implicitObjectFor(ast->symbol),
+                            ast->subobjectPath);
 }
 
 auto ASTInterpreter::initialValue(const Type* type, ExpressionAST* initializer,
@@ -2852,20 +2933,13 @@ auto ASTInterpreter::addressOfLvalue(ExpressionAST* ast)
     if (!idExpr->symbol) return std::nullopt;
     if (auto field = symbol_cast<FieldSymbol>(idExpr->symbol)) {
       if (field->isStatic()) return staticFieldAddress(field);
-      auto owner = fieldOwner(ast);
-      if (!owner) return std::nullopt;
-      auto result = memberAddress(owner, field);
-      auto thisAddress = implicitObjectFor(field).address;
-      if (thisAddress) thisAddress = typedAddress(*thisAddress);
-      auto objectType =
-          thisAddress ? thisAddress->elementType() : owner->type();
-      auto displacement = fieldDisplacement(objectType, field);
-      if (result && thisAddress && displacement &&
-          !traits.is_reference(field->type())) {
-        if (!locateSubobject(*result, *thisAddress, *displacement))
-          return std::nullopt;
-      }
-      return result;
+      auto object = implicitObjectFor(idExpr);
+      auto objectType = object.object
+                            ? object.object->type()
+                            : object.address ? object.address->elementType()
+                                             : nullptr;
+      if (!objectType) return std::nullopt;
+      return fieldAddress(object, objectType, field);
     }
     if (auto function = designatedFunction(idExpr->symbol))
       return std::make_shared<ConstAddress>(function);
@@ -3102,7 +3176,8 @@ auto ASTInterpreter::ExpressionVisitor::operator()(IdExpressionAST* ast)
   }
 
   if (auto field = symbol_cast<FieldSymbol>(ast->symbol)) {
-    if (auto object = interp.fieldOwner(ast)) {
+    auto object = interp.implicitObjectFor(ast).object;
+    if (object) {
       if (auto fieldVal = interp.memberValue(object, field)) return fieldVal;
     }
   }
@@ -3429,7 +3504,7 @@ auto ASTInterpreter::evaluateCallExpression(
     }
     function = designatedFunction(id->symbol);
     if (function && function->isImplicitObjectMemberFunction()) {
-      auto designated = implicitObjectFor(function);
+      auto designated = implicitObjectFor(id);
       object = std::move(designated.object);
       objectAddress = std::move(designated.address);
     }
