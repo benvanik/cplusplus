@@ -320,7 +320,8 @@ class Token;
   V(__BUILTIN_GE_SYNTHESIZES_FROM_SPACESHIP,                          \
     "__builtin_ge_synthesizes_from_spaceship")                        \
   V(__IS_POINTER_INTERCONVERTIBLE_BASE_OF,                            \
-    "__is_pointer_interconvertible_base_of")
+    "__is_pointer_interconvertible_base_of")                          \
+  V(__IS_NOTHROW_CONVERTIBLE, "__is_nothrow_convertible")
 
 #define FOR_EACH_UNARY_BUILTIN_TYPE_TRAIT(V)          \
   V(__ADD_LVALUE_REFERENCE, "__add_lvalue_reference") \

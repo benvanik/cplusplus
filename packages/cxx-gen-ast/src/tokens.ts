@@ -286,6 +286,7 @@ export const BUILTIN_TYPE_TRAITS: string[] = [
   "__builtin_gt_synthesizes_from_spaceship",
   "__builtin_ge_synthesizes_from_spaceship",
   "__is_pointer_interconvertible_base_of",
+  "__is_nothrow_convertible",
 ];
 
 export const UNARY_BUILTIN_TYPE_SPECIFIERS: string[] = [

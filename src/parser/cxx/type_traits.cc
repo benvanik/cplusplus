@@ -3654,11 +3654,12 @@ auto TypeTraits::is_convertible(const Type* from, const Type* to) const
   return can_initialize(to, from, false);
 }
 
-auto TypeTraits::is_nothrow_convertible(const Type* from, const Type* to) const
+auto TypeTraits::is_nothrow_convertible(const Type* from, const Type* to)
     -> bool {
   if (!is_convertible(from, to)) return false;
   if (is_void(to)) return true;
-  return is_nothrow_initialization(to, from, false);
+  if (!is_nothrow_initialization(to, from, false)) return false;
+  return is_nothrow_destructible(to);
 }
 
 auto TypeTraits::reference_binds_to_temporary(const Type* to, const Type* from,

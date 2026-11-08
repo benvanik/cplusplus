@@ -12697,7 +12697,8 @@ export type BuiltinTypeTraitKind =
   | "__builtin_le_synthesizes_from_spaceship"
   | "__builtin_gt_synthesizes_from_spaceship"
   | "__builtin_ge_synthesizes_from_spaceship"
-  | "__is_pointer_interconvertible_base_of";
+  | "__is_pointer_interconvertible_base_of"
+  | "__is_nothrow_convertible";
 const builtinTypeTraitKindNames: Record<number, BuiltinTypeTraitKind> = {
   0: "none",
   1: "__array_rank",
@@ -12770,6 +12771,7 @@ const builtinTypeTraitKindNames: Record<number, BuiltinTypeTraitKind> = {
   68: "__builtin_gt_synthesizes_from_spaceship",
   69: "__builtin_ge_synthesizes_from_spaceship",
   70: "__is_pointer_interconvertible_base_of",
+  71: "__is_nothrow_convertible",
 };
 /** @category Enumerations */
 export type UnaryBuiltinTypeKind =

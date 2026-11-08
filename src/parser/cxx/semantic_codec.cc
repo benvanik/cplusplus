@@ -15005,13 +15005,12 @@ void SemanticDecoder::readAstTypeTraitExpressionAST(
   cxx::SourceLocation value4 = locationAt(LocationRef{in.varU32()});
   self->rparenLoc = std::move(value4);
   // ::cxx::TypeTraitExpressionAST::typeTrait
-  static_assert(
-      static_cast<std::uint32_t>(::cxx::BuiltinTypeTraitKind::
-                                     T___IS_POINTER_INTERCONVERTIBLE_BASE_OF) +
-          1 ==
-      71);
+  static_assert(static_cast<std::uint32_t>(
+                    ::cxx::BuiltinTypeTraitKind::T___IS_NOTHROW_CONVERTIBLE) +
+                    1 ==
+                72);
   ::cxx::BuiltinTypeTraitKind value5 =
-      static_cast<::cxx::BuiltinTypeTraitKind>(readEnum(in, 71));
+      static_cast<::cxx::BuiltinTypeTraitKind>(readEnum(in, 72));
   self->typeTrait = std::move(value5);
   // ::cxx::TypeTraitExpressionAST::value
   std::optional<long long> value6;

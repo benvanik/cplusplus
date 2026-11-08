@@ -5206,6 +5206,12 @@ auto ASTInterpreter::ExpressionVisitor::operator()(TypeTraitExpressionAST* ast)
         return unit()->typeTraits().is_convertible(firstType, secondType);
       }
 
+      case BuiltinTypeTraitKind::T___IS_NOTHROW_CONVERTIBLE: {
+        if (!secondType) break;
+        return unit()->typeTraits().is_nothrow_convertible(firstType,
+                                                           secondType);
+      }
+
       case BuiltinTypeTraitKind::T___REFERENCE_CONSTRUCTS_FROM_TEMPORARY: {
         if (!secondType) break;
         return unit()->typeTraits().reference_constructs_from_temporary(
