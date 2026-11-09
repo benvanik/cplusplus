@@ -89,8 +89,9 @@ struct ASTRewriter::NestedNameSpecifierVisitor : VisitorBase {
 auto ASTRewriter::NestedNameSpecifierVisitor::lookupType(
     NestedNameSpecifierAST* prefix, const Identifier* id) const -> Symbol* {
   auto isType = [](Symbol* s) { return is_type(s); };
-  if (prefix && prefix->symbol) {
-    return qualifiedLookup(prefix->symbol, id, isType);
+  if (prefix) {
+    return prefix->symbol ? qualifiedLookup(prefix->symbol, id, isType)
+                          : nullptr;
   }
   for (auto scope = binder()->scope(); scope; scope = scope->parent()) {
     if (auto resolved = qualifiedLookup(scope, id, isType)) return resolved;
@@ -425,6 +426,16 @@ auto ASTRewriter::NestedNameSpecifierVisitor::operator()(
   copy->scopeLoc = ast->scopeLoc;
   copy->isTemplateIntroduced = ast->isTemplateIntroduced;
 
+  const bool dependentQualifier =
+      isDependent(rewrite.unit_, copy->nestedNameSpecifier);
+  if (!dependentQualifier && copy->templateId->identifier &&
+      (!copy->templateId->symbol ||
+       (copy->nestedNameSpecifier && copy->nestedNameSpecifier->symbol))) {
+    if (auto resolved =
+            lookupType(copy->nestedNameSpecifier, copy->templateId->identifier))
+      copy->templateId->symbol = resolved;
+  }
+
   if (symbol_cast<TypeAliasSymbol>(copy->templateId->symbol)) {
     auto instance =
         binder()->resolve(copy->nestedNameSpecifier, copy->templateId, true);
@@ -436,15 +447,7 @@ auto ASTRewriter::NestedNameSpecifierVisitor::operator()(
   if (hasDependentTemplateArguments(rewrite.unit_, copy->templateId))
     return copy;
 
-  if (isDependent(rewrite.unit_, copy->nestedNameSpecifier)) return copy;
-
-  if (copy->templateId->identifier &&
-      (!copy->templateId->symbol ||
-       (copy->nestedNameSpecifier && copy->nestedNameSpecifier->symbol))) {
-    if (auto resolved =
-            lookupType(copy->nestedNameSpecifier, copy->templateId->identifier))
-      copy->templateId->symbol = resolved;
-  }
+  if (dependentQualifier) return copy;
 
   if (!copy->templateId->symbol && copy->templateId->identifier &&
       !isDependentTypeParameterSymbol(copy->nestedNameSpecifier

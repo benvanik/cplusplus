@@ -1731,10 +1731,11 @@ auto Parser::parse_type_nested_name_specifier(NestedNameSpecifierAST*& yyast,
   auto identifier = unit_->identifier(identifierLoc);
   auto scopeLoc = consumeToken();
   Symbol* symbol = nullptr;
-  if (yyast && yyast->symbol)
-    symbol = qualifiedLookupType(yyast->symbol, identifier);
-  else
+  if (yyast) {
+    if (yyast->symbol) symbol = qualifiedLookupType(yyast->symbol, identifier);
+  } else {
     symbol = unqualifiedLookupType(lexicalScope(), identifier);
+  }
 
   auto ast = SimpleNestedNameSpecifierAST::create(pool_);
   ast->nestedNameSpecifier = yyast;
