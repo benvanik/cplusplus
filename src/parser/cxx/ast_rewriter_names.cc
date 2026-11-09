@@ -374,9 +374,7 @@ auto ASTRewriter::NestedNameSpecifierVisitor::operator()(
   if (needsSubstitution && copy->identifier) {
     if (isTypeParameter) {
       if (auto substituted = rewrite.substitutedSymbol(copy->symbol)) {
-        copy->symbol = binder()->resolveNestedNameSpecifier(substituted);
-        if (!copy->symbol)
-          (void)designatedScope(substituted, ast->identifierLoc);
+        copy->symbol = designatedScope(substituted, ast->identifierLoc);
       }
     } else if (!copy->symbol) {
       resolveDependentQualifier(copy);
@@ -385,10 +383,8 @@ auto ASTRewriter::NestedNameSpecifierVisitor::operator()(
              isDependent(rewrite.unit_, copy->symbol->type())) {
     auto remapped = rewrite.remapSymbol(copy->symbol);
     if (remapped != copy->symbol) {
-      if (auto scope = binder()->resolveNestedNameSpecifier(remapped)) {
-        copy->symbol = scope;
-        return copy;
-      }
+      copy->symbol = designatedScope(remapped, ast->identifierLoc);
+      return copy;
     }
     resolveDependentQualifier(copy);
   }
@@ -427,11 +423,6 @@ void ASTRewriter::NestedNameSpecifierVisitor::resolveDependentQualifier(
     return;
   }
   if (!resolved || resolved == copy->symbol) return;
-
-  if (resolved->type() && isDependent(rewrite.unit_, resolved->type())) {
-    copy->symbol = resolved;
-    return;
-  }
 
   if (!copy->nestedNameSpecifier && memberScope)
     (void)checkMemberAccess(translationUnit(), binder()->scope(), resolved,

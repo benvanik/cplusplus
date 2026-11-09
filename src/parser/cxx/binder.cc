@@ -30,6 +30,7 @@
 #include <cxx/decl_specs.h>
 #include <cxx/dependent_types.h>
 #include <cxx/device_profile_limits.h>
+#include <cxx/diagnostics_client.h>
 #include <cxx/external_name_encoder.h>
 #include <cxx/function_body_warnings.h>
 #include <cxx/lambda_captures.h>
@@ -4931,7 +4932,11 @@ void Binder::applySpecifiers(FieldSymbol* symbol, const DeclSpecs& specs) {
 
 auto Binder::reportUnresolvedNestedNameSpecifier(NestedNameSpecifierAST* ast)
     -> bool {
-  if (inTemplate() || isDependentTypeParameterSymbol(ast->symbol)) return false;
+  if (isDependent(unit_, ast)) return false;
+
+  // Substitution may already have diagnosed the concrete non-scope type.
+  if (unit_->diagnosticsClient()->hasErrorAt(ast->firstSourceLocation()))
+    return true;
 
   error(ast->firstSourceLocation(),
         "nested name specifier must be a class or namespace");
@@ -5360,7 +5365,12 @@ auto Binder::resolveMemberOfCurrentInstantiation(
 
 void Binder::bind(TypenameSpecifierAST* ast) {
   auto nestedNameSpecifier = ast->nestedNameSpecifier;
-  if (!nestedNameSpecifier || !nestedNameSpecifier->symbol) return;
+  if (!nestedNameSpecifier) return;
+
+  if (!nestedNameSpecifier->symbol) {
+    (void)reportUnresolvedNestedNameSpecifier(nestedNameSpecifier);
+    return;
+  }
 
   if (isDependent(unit_, nestedNameSpecifier)) {
     ast->symbol = resolveMemberOfCurrentInstantiation(
@@ -5385,13 +5395,14 @@ void Binder::bind(TypenameSpecifierAST* ast) {
                              [](Symbol* s) { return is_type(s); });
   } else if (auto templateId =
                  ast_cast<SimpleTemplateIdAST>(ast->unqualifiedId)) {
-    if (hasDependentTemplateArguments(unit_, templateId)) return;
     identifier = templateId->identifier;
-    templateId->symbol = qualifiedLookup(qualifier, identifier,
-                                         [](Symbol* s) { return is_type(s); });
-    if (templateId->symbol)
+    templateId->symbol = templated_symbol(qualifiedLookup(
+        qualifier, identifier, [](Symbol* s) { return is_type(s); }));
+    if (templateId->symbol) {
+      if (hasDependentTemplateArguments(unit_, templateId)) return;
       symbol =
           resolve(nestedNameSpecifier, templateId, /*checkTemplates=*/true);
+    }
   }
 
   if (!symbol) {

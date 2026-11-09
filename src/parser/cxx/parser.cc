@@ -1885,6 +1885,15 @@ auto Parser::parse_type_nested_name_specifier(NestedNameSpecifierAST*& yyast,
   ast->scopeLoc = scopeLoc;
   ast->symbol = binder_.resolveNestedNameSpecifier(symbol);
 
+  if (!ast->symbol) {
+    if (symbol_cast<TypeParameterSymbol>(symbol) ||
+        symbol_cast<ConstraintTypeParameterSymbol>(symbol) ||
+        symbol_cast<TemplateTypeParameterSymbol>(symbol) ||
+        (symbol && isDependent(unit_, symbol->type()))) {
+      ast->symbol = symbol;
+    }
+  }
+
   return true;
 }
 
@@ -6876,15 +6885,17 @@ auto Parser::parse_named_type_specifier(SpecifierAST*& yyast, DeclSpecs& specs,
     if (!symbol) symbol = resolvedType;
   }
 
-  const auto dependentTypeOnlyName =
-      !symbol && context == TypeNameContext::kTypeOnly &&
-      ((nestedNameSpecifier && isDependent(unit_, nestedNameSpecifier)) ||
-       (templateId && hasDependentTemplateArguments(unit_, templateId)));
+  const auto dependentTypeOnlyName = !symbol &&
+                                     context == TypeNameContext::kTypeOnly &&
+                                     isDependent(unit_, nestedNameSpecifier);
 
   const auto namesTypeTemplate = templateId && is_type(templateId->symbol);
 
   if (!is_type(symbol) && !namesTypeTemplate && !dependentTypeOnlyName &&
       config().checkTypes()) {
+    if (nestedNameSpecifier && !nestedNameSpecifier->symbol &&
+        binder_.reportUnresolvedNestedNameSpecifier(nestedNameSpecifier))
+      return false;
     auto name = to_diag_string(get_name(control_, unqualifiedId));
     if (findsDeclaration(nestedNameSpecifier, unqualifiedId))
       parse_error(unqualifiedId->firstSourceLocation(),

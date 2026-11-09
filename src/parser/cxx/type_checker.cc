@@ -8067,6 +8067,9 @@ auto TypeChecker::Visitor::contextual_conversion_to_bool(ExpressionAST*& expr)
 
 void TypeChecker::Visitor::report_unresolved_qualified_id(
     IdExpressionAST* ast) {
+  if (check.unit_->diagnosticsClient()->hasErrorAt(
+          ast->nestedNameSpecifier->firstSourceLocation()))
+    return;
   const auto name = to_diag_string(get_name(control(), ast->unqualifiedId));
 
   auto scope = ast->nestedNameSpecifier->symbol;
