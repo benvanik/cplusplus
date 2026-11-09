@@ -5239,6 +5239,8 @@ class BracedInitListAST final : public ExpressionAST {
   static constexpr ASTKind Kind = ASTKind::BracedInitList;
 
   SourceLocation lbraceLoc;
+  // A normalized aggregate plan retains parentheses' initialization semantics.
+  bool isParenthesized = false;
   List<ExpressionAST*>* expressionList = nullptr;
   SourceLocation commaLoc;
   SourceLocation rbraceLoc;
@@ -5253,15 +5255,13 @@ class BracedInitListAST final : public ExpressionAST {
 
   [[nodiscard]] static auto create(Arena* arena) -> BracedInitListAST*;
 
-  [[nodiscard]] static auto create(Arena* arena, SourceLocation lbraceLoc,
-                                   List<ExpressionAST*>* expressionList,
-                                   SourceLocation commaLoc,
-                                   SourceLocation rbraceLoc,
-                                   VariableSymbol* implicitElement,
-                                   ValueCategory valueCategory,
-                                   const Type* type) -> BracedInitListAST*;
+  [[nodiscard]] static auto create(
+      Arena* arena, SourceLocation lbraceLoc, bool isParenthesized,
+      List<ExpressionAST*>* expressionList, SourceLocation commaLoc,
+      SourceLocation rbraceLoc, VariableSymbol* implicitElement,
+      ValueCategory valueCategory, const Type* type) -> BracedInitListAST*;
 
-  [[nodiscard]] static auto create(Arena* arena,
+  [[nodiscard]] static auto create(Arena* arena, bool isParenthesized,
                                    List<ExpressionAST*>* expressionList,
                                    VariableSymbol* implicitElement,
                                    ValueCategory valueCategory,

@@ -1642,6 +1642,8 @@ inline constexpr FieldDescriptor kSemanticFieldModelStorage[] = {
     {"::cxx::EqualInitializerAST", "expression", FieldPersistence::kPersisted,
      ""},
     {"::cxx::BracedInitListAST", "lbraceLoc", FieldPersistence::kPersisted, ""},
+    {"::cxx::BracedInitListAST", "isParenthesized",
+     FieldPersistence::kPersisted, ""},
     {"::cxx::BracedInitListAST", "expressionList", FieldPersistence::kPersisted,
      ""},
     {"::cxx::BracedInitListAST", "commaLoc", FieldPersistence::kPersisted, ""},

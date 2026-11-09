@@ -11211,6 +11211,7 @@ auto BracedInitListAST::clone(Arena* arena) -> BracedInitListAST* {
   auto node = create(arena);
 
   node->lbraceLoc = lbraceLoc;
+  node->isParenthesized = isParenthesized;
 
   if (expressionList) {
     auto it = &node->expressionList;
@@ -11234,15 +11235,14 @@ auto BracedInitListAST::create(Arena* arena) -> BracedInitListAST* {
   return node;
 }
 
-auto BracedInitListAST::create(Arena* arena, SourceLocation lbraceLoc,
-                               List<ExpressionAST*>* expressionList,
-                               SourceLocation commaLoc,
-                               SourceLocation rbraceLoc,
-                               VariableSymbol* implicitElement,
-                               ValueCategory valueCategory, const Type* type)
-    -> BracedInitListAST* {
+auto BracedInitListAST::create(
+    Arena* arena, SourceLocation lbraceLoc, bool isParenthesized,
+    List<ExpressionAST*>* expressionList, SourceLocation commaLoc,
+    SourceLocation rbraceLoc, VariableSymbol* implicitElement,
+    ValueCategory valueCategory, const Type* type) -> BracedInitListAST* {
   auto node = new (arena) BracedInitListAST();
   node->lbraceLoc = lbraceLoc;
+  node->isParenthesized = isParenthesized;
   node->expressionList = expressionList;
   node->commaLoc = commaLoc;
   node->rbraceLoc = rbraceLoc;
@@ -11252,12 +11252,13 @@ auto BracedInitListAST::create(Arena* arena, SourceLocation lbraceLoc,
   return node;
 }
 
-auto BracedInitListAST::create(Arena* arena,
+auto BracedInitListAST::create(Arena* arena, bool isParenthesized,
                                List<ExpressionAST*>* expressionList,
                                VariableSymbol* implicitElement,
                                ValueCategory valueCategory, const Type* type)
     -> BracedInitListAST* {
   auto node = new (arena) BracedInitListAST();
+  node->isParenthesized = isParenthesized;
   node->expressionList = expressionList;
   node->implicitElement = implicitElement;
   node->valueCategory = valueCategory;

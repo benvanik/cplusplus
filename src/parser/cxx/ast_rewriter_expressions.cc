@@ -1828,6 +1828,7 @@ auto ASTRewriter::ExpressionVisitor::operator()(BracedInitListAST* ast)
   copy->valueCategory = ast->valueCategory;
   copy->type = ast->type;
   copy->lbraceLoc = ast->lbraceLoc;
+  copy->isParenthesized = ast->isParenthesized;
 
   copy->expressionList = rewrite.rewriteExpressionList(ast->expressionList);
 

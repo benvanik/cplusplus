@@ -5133,6 +5133,8 @@ void SemanticEncoder::writeAstBracedInitListAST(
   writeAstExpressionAST(out, self);
   // ::cxx::BracedInitListAST::lbraceLoc
   out.varU32(static_cast<std::uint32_t>(locationRef(self->lbraceLoc)));
+  // ::cxx::BracedInitListAST::isParenthesized
+  out.boolean(self->isParenthesized);
   // ::cxx::BracedInitListAST::expressionList
   writeAstList(out, self->expressionList);
   // ::cxx::BracedInitListAST::commaLoc
@@ -14385,19 +14387,22 @@ void SemanticDecoder::readAstBracedInitListAST(
   // ::cxx::BracedInitListAST::lbraceLoc
   cxx::SourceLocation value1 = locationAt(LocationRef{in.varU32()});
   self->lbraceLoc = std::move(value1);
+  // ::cxx::BracedInitListAST::isParenthesized
+  bool value2 = in.boolean();
+  self->isParenthesized = std::move(value2);
   // ::cxx::BracedInitListAST::expressionList
-  cxx::List<cxx::ExpressionAST*>* value2 = readAstList<cxx::ExpressionAST>(in);
-  self->expressionList = std::move(value2);
+  cxx::List<cxx::ExpressionAST*>* value3 = readAstList<cxx::ExpressionAST>(in);
+  self->expressionList = std::move(value3);
   // ::cxx::BracedInitListAST::commaLoc
-  cxx::SourceLocation value3 = locationAt(LocationRef{in.varU32()});
-  self->commaLoc = std::move(value3);
-  // ::cxx::BracedInitListAST::rbraceLoc
   cxx::SourceLocation value4 = locationAt(LocationRef{in.varU32()});
-  self->rbraceLoc = std::move(value4);
+  self->commaLoc = std::move(value4);
+  // ::cxx::BracedInitListAST::rbraceLoc
+  cxx::SourceLocation value5 = locationAt(LocationRef{in.varU32()});
+  self->rbraceLoc = std::move(value5);
   // ::cxx::BracedInitListAST::implicitElement
-  cxx::VariableSymbol* value5 =
+  cxx::VariableSymbol* value6 =
       symbol_cast<VariableSymbol>(symbolAt(SymbolRef{in.varU32()}));
-  self->implicitElement = std::move(value5);
+  self->implicitElement = std::move(value6);
 }
 
 void SemanticDecoder::readAstParenInitializerAST(

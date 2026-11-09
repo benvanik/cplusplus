@@ -53,6 +53,12 @@ export function gen_ast_h({ ast, output }: { ast: AST; output: string }) {
   }
 
   const enumName = (name: string) => name.slice(0, -3);
+  const attributeComments: Record<string, string> = {
+    vectorComponentKind:
+      "Canonical vector selector family established by semantic analysis.",
+    isParenthesized:
+      "A normalized aggregate plan retains parentheses' initialization semantics.",
+  };
 
   by_bases.forEach((nodes) => {
     nodes.forEach(({ name, base, members }) => {
@@ -84,11 +90,8 @@ export function gen_ast_h({ ast, output }: { ast: AST; output: string }) {
             emit(`  List<SourceLocation>* ${m.name} = nullptr;`);
             break;
           case "attribute": {
-            if (m.name === "vectorComponentKind") {
-              emit(
-                `  // Canonical vector selector family established by semantic analysis.`,
-              );
-            }
+            const comment = attributeComments[m.name];
+            if (comment) emit(`  // ${comment}`);
             let s = "  ";
             if (m.cv) s = `${s}${m.cv} `;
             s = `${s}${m.type}${m.ptrOps} ${m.name}`;

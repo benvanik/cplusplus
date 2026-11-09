@@ -2256,6 +2256,12 @@ void ASTPrinter::visit(BracedInitListAST* ast) {
                         to_string(ast->type));
   }
   out_ << "\n";
+  if (ast->isParenthesized) {
+    ++indent_;
+    out_ << std::format("{:{}}", "", indent_ * 2);
+    out_ << std::format("is-parenthesized: {}\n", ast->isParenthesized);
+    --indent_;
+  }
   if (ast->expressionList) {
     ++indent_;
     out_ << std::format("{:{}}", "", indent_ * 2);

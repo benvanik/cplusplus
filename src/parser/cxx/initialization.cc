@@ -1462,6 +1462,7 @@ auto AggregateInitChecker::checkParenthesizedAggregate(
 
   auto pool = ctx.unit->arena();
   auto normalized = makeInitializerList(pool, location, location, classType);
+  normalized->isParenthesized = true;
   ExpressionListBuilder list{pool, normalized->expressionList};
   std::size_t elementIndex = 0;
 
@@ -2664,6 +2665,7 @@ auto InitializationEngine::applyArrayFromExpressionList(
   auto normalized =
       makeInitializerList(pool, node->firstSourceLocation(),
                           node->lastSourceLocation(), entity.type());
+  normalized->isParenthesized = true;
   ExpressionListBuilder list{pool, normalized->expressionList};
 
   auto element =
@@ -2883,7 +2885,9 @@ auto Initializer::form() const -> InitializerForm {
   if (!node_) return InitializerForm::kNone;
   auto expr = stripInitializerWrappers(node_);
   if (ast_cast<ParenInitializerAST>(expr)) return InitializerForm::kParen;
-  if (ast_cast<BracedInitListAST>(expr)) return InitializerForm::kList;
+  if (auto list = ast_cast<BracedInitListAST>(expr))
+    return list->isParenthesized ? InitializerForm::kParen
+                                 : InitializerForm::kList;
   if (auto equal = ast_cast<EqualInitializerAST>(expr)) {
     if (ast_cast<BracedInitListAST>(stripImplicitCasts(equal->expression)))
       return InitializerForm::kList;

@@ -795,7 +795,7 @@ const TypeTraitExpressionASTSlotBase =
 const ConditionExpressionASTSlotBase = TypeTraitExpressionASTSlotBase + 6;
 const EqualInitializerASTSlotBase = ConditionExpressionASTSlotBase + 5;
 const BracedInitListASTSlotBase = EqualInitializerASTSlotBase + 2;
-const ParenInitializerASTSlotBase = BracedInitListASTSlotBase + 5;
+const ParenInitializerASTSlotBase = BracedInitListASTSlotBase + 6;
 const ThreeWayComparisonExpressionASTSlotBase = ParenInitializerASTSlotBase + 3;
 const DefaultGenericAssociationASTSlotBase =
   ThreeWayComparisonExpressionASTSlotBase + 5;
@@ -5994,28 +5994,31 @@ export class BracedInitListAST extends ExpressionAST {
       this.modelOwner,
     );
   }
+  get isParenthesized(): boolean {
+    return cxx.readAST(this.handle, BracedInitListASTSlotBase + 1) !== 0;
+  }
   get expressionList(): Iterable<ExpressionAST | undefined> {
     return listOf(
       this.modelOwner,
-      cxx.readAST(this.handle, BracedInitListASTSlotBase + 1),
+      cxx.readAST(this.handle, BracedInitListASTSlotBase + 2),
       (item: any) => astOf(item, this.modelOwner),
     );
   }
   get commaToken(): Token | undefined {
     return Token.from(
-      cxx.readAST(this.handle, BracedInitListASTSlotBase + 2),
+      cxx.readAST(this.handle, BracedInitListASTSlotBase + 3),
       this.modelOwner,
     );
   }
   get rbraceToken(): Token | undefined {
     return Token.from(
-      cxx.readAST(this.handle, BracedInitListASTSlotBase + 3),
+      cxx.readAST(this.handle, BracedInitListASTSlotBase + 4),
       this.modelOwner,
     );
   }
   get implicitElement(): VariableSymbol | undefined {
     return symbolOf(
-      cxx.readAST(this.handle, BracedInitListASTSlotBase + 4),
+      cxx.readAST(this.handle, BracedInitListASTSlotBase + 5),
       this.modelOwner,
     );
   }
@@ -13938,7 +13941,7 @@ const childSlots: Partial<
     [ConditionExpressionASTSlotBase + 3, false, "initializer"],
   ],
   EqualInitializer: [[EqualInitializerASTSlotBase + 1, false, "expression"]],
-  BracedInitList: [[BracedInitListASTSlotBase + 1, true, "expressionList"]],
+  BracedInitList: [[BracedInitListASTSlotBase + 2, true, "expressionList"]],
   ParenInitializer: [[ParenInitializerASTSlotBase + 1, true, "expressionList"]],
   ThreeWayComparisonExpression: [
     [ThreeWayComparisonExpressionASTSlotBase + 0, false, "comparison"],

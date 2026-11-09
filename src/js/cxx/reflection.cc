@@ -398,7 +398,7 @@ constexpr int EqualInitializerASTSlotBase = ConditionExpressionASTSlotBase + 5;
 
 constexpr int BracedInitListASTSlotBase = EqualInitializerASTSlotBase + 2;
 
-constexpr int ParenInitializerASTSlotBase = BracedInitListASTSlotBase + 5;
+constexpr int ParenInitializerASTSlotBase = BracedInitListASTSlotBase + 6;
 
 constexpr int ThreeWayComparisonExpressionASTSlotBase =
     ParenInitializerASTSlotBase + 3;
@@ -4802,20 +4802,25 @@ auto readAST(std::intptr_t handle, int slot) -> double {
     case BracedInitListASTSlotBase + 1: {
       auto self = static_cast<const ::cxx::BracedInitListAST*>(
           reinterpret_cast<const ::cxx::AST*>(handle));
-      return static_cast<double>(
-          reinterpret_cast<std::intptr_t>(self->expressionList));
+      return static_cast<double>(self->isParenthesized);
     }
     case BracedInitListASTSlotBase + 2: {
       auto self = static_cast<const ::cxx::BracedInitListAST*>(
           reinterpret_cast<const ::cxx::AST*>(handle));
-      return static_cast<double>(self->commaLoc.index());
+      return static_cast<double>(
+          reinterpret_cast<std::intptr_t>(self->expressionList));
     }
     case BracedInitListASTSlotBase + 3: {
       auto self = static_cast<const ::cxx::BracedInitListAST*>(
           reinterpret_cast<const ::cxx::AST*>(handle));
-      return static_cast<double>(self->rbraceLoc.index());
+      return static_cast<double>(self->commaLoc.index());
     }
     case BracedInitListASTSlotBase + 4: {
+      auto self = static_cast<const ::cxx::BracedInitListAST*>(
+          reinterpret_cast<const ::cxx::AST*>(handle));
+      return static_cast<double>(self->rbraceLoc.index());
+    }
+    case BracedInitListASTSlotBase + 5: {
       auto self = static_cast<const ::cxx::BracedInitListAST*>(
           reinterpret_cast<const ::cxx::AST*>(handle));
       return static_cast<double>(reinterpret_cast<std::intptr_t>(
