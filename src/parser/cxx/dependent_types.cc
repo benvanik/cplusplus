@@ -908,23 +908,23 @@ auto IsDependent::isDependent(NestedNameSpecifierAST* ast) -> bool {
 }
 
 auto IsDependent::operator()(GlobalNestedNameSpecifierAST* ast) -> bool {
-  return !ast->symbol;
+  return false;
 }
 
 auto IsDependent::operator()(SimpleNestedNameSpecifierAST* ast) -> bool {
-  if (isDependent(ast->nestedNameSpecifier)) return true;
-  return !ast->symbol && !ast->nestedNameSpecifier;
+  return isDependent(ast->nestedNameSpecifier);
 }
 
 auto IsDependent::operator()(DecltypeNestedNameSpecifierAST* ast) -> bool {
-  return !ast->symbol;
+  return isDependent(ast->decltypeSpecifier);
 }
 
 auto IsDependent::operator()(TemplateNestedNameSpecifierAST* ast) -> bool {
-  if (hasDependentTemplateArguments(ast->templateId)) return true;
   if (isDependent(ast->nestedNameSpecifier)) return true;
-
-  return !ast->symbol && !ast->nestedNameSpecifier;
+  const auto namesTemplate = ast->templateId->symbol ||
+                             ast->templateId->identifier->builtinTemplate() !=
+                                 BuiltinTemplateKind::T_NONE;
+  return namesTemplate && hasDependentTemplateArguments(ast->templateId);
 }
 
 auto IsDependent::operator()(CharLiteralExpressionAST* ast) -> bool {

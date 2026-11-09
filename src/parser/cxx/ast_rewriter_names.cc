@@ -341,9 +341,7 @@ auto ASTRewriter::NestedNameSpecifierVisitor::operator()(
   if (needsSubstitution && copy->identifier) {
     if (isTypeParameter) {
       if (auto substituted = rewrite.substitutedSymbol(copy->symbol)) {
-        copy->symbol = binder()->resolveNestedNameSpecifier(substituted);
-        if (!copy->symbol)
-          (void)designatedScope(substituted, ast->identifierLoc);
+        copy->symbol = designatedScope(substituted, ast->identifierLoc);
       }
     } else if (!copy->symbol) {
       resolveDependentQualifier(copy);
@@ -352,10 +350,8 @@ auto ASTRewriter::NestedNameSpecifierVisitor::operator()(
              isDependent(rewrite.unit_, copy->symbol->type())) {
     auto remapped = rewrite.remapSymbol(copy->symbol);
     if (remapped != copy->symbol) {
-      if (auto scope = binder()->resolveNestedNameSpecifier(remapped)) {
-        copy->symbol = scope;
-        return copy;
-      }
+      copy->symbol = designatedScope(remapped, ast->identifierLoc);
+      return copy;
     }
     resolveDependentQualifier(copy);
   }
@@ -386,11 +382,7 @@ void ASTRewriter::NestedNameSpecifierVisitor::resolveDependentQualifier(
   Symbol* resolved = lookupType(copy->nestedNameSpecifier, copy->identifier);
   if (!resolved || resolved == copy->symbol) return;
 
-  if (resolved->type() && isDependent(rewrite.unit_, resolved->type())) return;
-
-  if (auto scope = binder()->resolveNestedNameSpecifier(resolved)) {
-    copy->symbol = scope;
-  }
+  copy->symbol = designatedScope(resolved, copy->identifierLoc);
 }
 
 auto ASTRewriter::NestedNameSpecifierVisitor::operator()(
