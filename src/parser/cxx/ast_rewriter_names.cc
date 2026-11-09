@@ -101,7 +101,11 @@ auto ASTRewriter::NestedNameSpecifierVisitor::lookupType(
     Symbol* lexicalBinding, bool& ambiguous, NameUse use) const -> Symbol* {
   ambiguous = false;
   auto isType = [](Symbol* s) { return is_type(s); };
-  if (prefix) return qualifiedLookupType(prefix->symbol, id, &ambiguous, use);
+  if (prefix) {
+    return prefix->symbol
+               ? qualifiedLookupType(prefix->symbol, id, &ambiguous, use)
+               : nullptr;
+  }
   if (memberScope) {
     auto resolved = qualifiedLookupType(memberScope, id, &ambiguous, use);
     if (resolved || ambiguous) return resolved;
@@ -484,10 +488,12 @@ auto ASTRewriter::NestedNameSpecifierVisitor::operator()(
   copy->scopeLoc = ast->scopeLoc;
   copy->isTemplateIntroduced = ast->isTemplateIntroduced;
 
+  const bool dependentQualifier =
+      isDependent(rewrite.unit_, copy->nestedNameSpecifier);
   const bool memberQualifier = !copy->nestedNameSpecifier && memberScope;
   if (memberQualifier) copy->symbol = nullptr;
 
-  if (copy->templateId->identifier &&
+  if (!dependentQualifier && copy->templateId->identifier &&
       (memberQualifier || !copy->templateId->symbol ||
        (copy->nestedNameSpecifier && copy->nestedNameSpecifier->symbol))) {
     bool ambiguous = false;
@@ -522,7 +528,7 @@ auto ASTRewriter::NestedNameSpecifierVisitor::operator()(
   if (hasDependentTemplateArguments(rewrite.unit_, copy->templateId))
     return copy;
 
-  if (isDependent(rewrite.unit_, copy->nestedNameSpecifier)) return copy;
+  if (dependentQualifier) return copy;
 
   if (!copy->templateId->symbol && copy->templateId->identifier &&
       !isDependentTypeParameterSymbol(copy->nestedNameSpecifier
