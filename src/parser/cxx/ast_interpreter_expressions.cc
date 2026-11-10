@@ -1842,13 +1842,8 @@ auto ASTInterpreter::referenceBinding(ExpressionAST* initializer)
     return referenceBinding(defaultInitializer->expression);
   }
 
-  Initializer init{initializer};
-  auto arguments = init.arguments();
-  auto referent = init.bracedInitList() ? init.clause() : nullptr;
-  if (!referent) {
-    if (arguments.size() != 1) return std::nullopt;
-    referent = arguments.front();
-  }
+  auto referent = Initializer{initializer}.referenceExpression(traits);
+  if (!referent) return std::nullopt;
 
   EvaluationScope evaluationScope{*this};
   auto temporary = ::cxx::materializedTemporary(traits, referent);
@@ -2632,7 +2627,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
     BracedTypeConstructionAST* ast) -> ExpressionResult {
   (void)interp.specifier(ast->typeSpecifier);
 
-  auto classType = type_cast<ClassType>(ast->type);
+  auto classType = unqualified_cast<ClassType>(ast->type);
   auto classSymbol = classType ? classType->symbol() : nullptr;
 
   if (classSymbol && ast->constructorSymbol) {
@@ -4288,7 +4283,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(BracedInitListAST* ast)
     -> ExpressionResult {
   auto traits = unit()->typeTraits();
 
-  if (auto arrayType = type_cast<BoundedArrayType>(ast->type))
+  if (auto arrayType = unqualified_cast<BoundedArrayType>(ast->type))
     return arrayValue(ast, arrayType);
 
   if (auto vectorType = unqualified_cast<VectorType>(ast->type))
@@ -4297,7 +4292,7 @@ auto ASTInterpreter::ExpressionVisitor::operator()(BracedInitListAST* ast)
   if (auto complexType = unqualified_cast<ComplexType>(ast->type))
     return complexValue(ast, complexType);
 
-  if (auto classType = type_cast<ClassType>(ast->type)) {
+  if (auto classType = unqualified_cast<ClassType>(ast->type)) {
     if (traits.is_aggregate(ast->type))
       return aggregateObject(ast->type, ast->expressionList,
                              classType->symbol());

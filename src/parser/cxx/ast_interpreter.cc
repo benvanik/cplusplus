@@ -698,6 +698,7 @@ auto ASTInterpreter::lookupLocalSlot(const Symbol* sym) -> ConstValue* {
 
 auto ASTInterpreter::bindReferenceTo(Frame& frame, Symbol* reference,
                                      ExpressionAST* initializer) -> bool {
+  initializer = Initializer{initializer}.referenceExpression(traits);
   auto temporary = ::cxx::materializedTemporary(traits, initializer);
   auto temporaryType = temporary ? temporary.expression->type : nullptr;
 

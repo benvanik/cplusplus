@@ -157,6 +157,12 @@ class Initializer {
 
   [[nodiscard]] auto singleExpression() const -> ExpressionAST*;
 
+  // Returns the resolved expression that produces a reference's referent.
+  // Conversions, typed list construction, and lexical default-initializer
+  // contexts remain visible; single-expression source wrappers are removed.
+  [[nodiscard]] auto referenceExpression(const TypeTraits& traits) const
+      -> ExpressionAST*;
+
   [[nodiscard]] auto arguments() const -> std::vector<ExpressionAST*>;
 
  private:

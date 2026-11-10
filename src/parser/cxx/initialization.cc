@@ -1663,7 +1663,9 @@ struct ListInitChecker {
 
   void enumerationFromScalar(const Type* type, BracedInitListAST* ast);
 
-  void referenceFromPrvalue(const Type* type, BracedInitListAST* ast);
+  [[nodiscard]] auto referenceFromPrvalue(const Type* type,
+                                          BracedInitListAST* ast)
+      -> ExpressionAST*;
 
   void diagnoseIllFormed(const Type* type, BracedInitListAST* ast);
 
@@ -1861,8 +1863,9 @@ void ListInitChecker::enumerationFromScalar(const Type* type,
   expr = cast;
 }
 
-void ListInitChecker::referenceFromPrvalue(const Type* type,
-                                           BracedInitListAST* ast) {
+auto ListInitChecker::referenceFromPrvalue(const Type* type,
+                                           BracedInitListAST* ast)
+    -> ExpressionAST* {
   auto referencedType = ctx.traits.remove_reference(type);
 
   if (auto unbounded =
@@ -1884,14 +1887,16 @@ void ListInitChecker::referenceFromPrvalue(const Type* type,
               std::format("non-const lvalue reference of type '{}' cannot "
                           "bind to an initializer list temporary",
                           to_string(type)));
-    return;
+    return ast;
   }
 
-  ctx.checker.check_braced_init_list(
-      referencedType, ast, InitializationKind::kCopyListInitialization);
+  ExpressionAST* expression = ast;
+  ctx.checker.check_list_initialization(
+      referencedType, expression, InitializationKind::kCopyListInitialization);
 
   ast->type = referencedType;
   ast->valueCategory = ValueCategory::kPrValue;
+  return expression;
 }
 
 void ListInitChecker::diagnoseIllFormed(const Type* type,
@@ -2567,9 +2572,12 @@ void InitializationEngine::listInitialize(ClassInitChecker::Target& target,
       listChecker.singleElementInit(type, list, initializationKind);
       return;
 
-    case ListInitializationBullet::kReferenceToPrvalue:
-      listChecker.referenceFromPrvalue(type, list);
+    case ListInitializationBullet::kReferenceToPrvalue: {
+      InitializerOperand operand{target.initializer, list};
+      operand.operand() = listChecker.referenceFromPrvalue(type, list);
+      target.initializer = operand.result();
       return;
+    }
 
     case ListInitializationBullet::kEmptyListValueInitialization:
       return;
@@ -2947,6 +2955,29 @@ auto Initializer::arguments() const -> std::vector<ExpressionAST*> {
     return {expr};
   for (auto argument : ListView{list}) args.push_back(argument);
   return args;
+}
+
+auto Initializer::referenceExpression(const TypeTraits& traits) const
+    -> ExpressionAST* {
+  auto expression = node_;
+  for (;;) {
+    if (auto equal = ast_cast<EqualInitializerAST>(expression)) {
+      expression = equal->expression;
+      continue;
+    }
+    List<ExpressionAST*>* elements = nullptr;
+    if (auto paren = ast_cast<ParenInitializerAST>(expression)) {
+      elements = paren->expressionList;
+    } else if (auto braced = ast_cast<BracedInitListAST>(expression)) {
+      // A referent-typed list constructs an object; a reference-typed list
+      // wraps the single expression selecting its existing object.
+      if (braced->type && !traits.is_reference(braced->type)) return braced;
+      elements = braced->expressionList;
+    } else {
+      return expression;
+    }
+    return elements && !elements->next ? elements->value : nullptr;
+  }
 }
 
 auto makeDefaultInitializer(TranslationUnit* unit, ExpressionAST* expression,

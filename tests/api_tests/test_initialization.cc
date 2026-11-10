@@ -101,3 +101,38 @@ static_assert(evaluate(3) == 16);
   EXPECT_EQ(Initializer{collector.initializers.at("parenthesized")}.form(),
             InitializerForm::kParen);
 }
+
+TEST(Initialization, PreservesConstructorsForListInitializedReferences) {
+  auto source = R"(
+struct Scaled {
+  unsigned value;
+  Scaled(unsigned source = 7, unsigned scale = 2) : value(source * scale) {}
+};
+const Scaled& direct{3};
+const Scaled& copy = {4};
+Scaled&& moved{5};
+const Scaled& empty{};
+const Scaled& multiple{6, 3};
+)"_cxx;
+
+  ASSERT_EQ(source.diagnosticsClient.errorCount(), 0);
+  FunctionSymbol* selected = nullptr;
+  for (auto name : {"direct", "copy", "moved", "empty", "multiple"}) {
+    SCOPED_TRACE(name);
+    auto variable = source.getAs<VariableSymbol>(name);
+    ASSERT_NE(variable, nullptr);
+    auto initializer = Initializer{variable->initializer()}.clause();
+    ASSERT_NE(initializer, nullptr);
+    for (auto expression :
+         {initializer, initializer->clone(source.unit.arena())}) {
+      auto construction = ast_cast<BracedTypeConstructionAST>(expression);
+      ASSERT_NE(construction, nullptr);
+      ASSERT_NE(construction->constructorSymbol, nullptr);
+      if (!selected) selected = construction->constructorSymbol;
+      EXPECT_EQ(construction->constructorSymbol, selected);
+      EXPECT_EQ(construction->valueCategory, ValueCategory::kPrValue);
+      EXPECT_EQ(Initializer{construction->bracedInitList}.arguments().size(),
+                2u);
+    }
+  }
+}
