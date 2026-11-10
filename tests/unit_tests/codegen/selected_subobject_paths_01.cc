@@ -54,6 +54,23 @@ Adjusted&& derivedRvalue(Base& value) { return static_cast<Adjusted&&>(value); }
 struct Virtual : virtual Base {};
 Base* virtualBasePointer(Virtual* value) { return value; }
 
+struct TemplateOffset {
+  unsigned padding[3];
+};
+struct TemplateValue {
+  unsigned value;
+  unsigned get() const { return value; }
+};
+template <typename T>
+struct InstantiatedPaths : TemplateOffset, TemplateValue {
+  unsigned explicitCall() const { return this->get(); }
+  unsigned implicitCall() const { return get(); }
+  unsigned explicitValue() const { return this->value; }
+  unsigned implicitValue() const { return value; }
+  TemplateValue* basePointer() { return this; }
+  TemplateValue& baseReference() { return *this; }
+};
+
 int main() {
   Both object{{{3}}, {{7}}};
   if (object.sum() != 10 || object.callSum() != 10) return 1;
@@ -83,5 +100,10 @@ int main() {
   Virtual virtualObject;
   virtualObject.value = 31;
   if (virtualBasePointer(&virtualObject)->value != 31) return 16;
+  InstantiatedPaths<double> paths{{{1, 2, 3}}, {37}};
+  if (paths.explicitCall() != 37 || paths.implicitCall() != 37) return 17;
+  if (paths.explicitValue() != 37 || paths.implicitValue() != 37) return 18;
+  if (paths.basePointer() != static_cast<TemplateValue*>(&paths)) return 19;
+  if (&paths.baseReference() != static_cast<TemplateValue*>(&paths)) return 20;
   return 0;
 }

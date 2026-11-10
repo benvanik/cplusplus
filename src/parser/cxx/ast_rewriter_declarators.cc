@@ -268,7 +268,7 @@ void ASTRewriter::completePendingExceptionSpecification(
   }
 
   if (oldClass && newClass && oldClass != newClass)
-    rewriter.remapScopeMembers(oldClass, newClass);
+    rewriter.remapInstantiatedScope(oldClass, newClass);
 
   auto oldParameters = patternFunction->functionParameters();
   auto newParameters = function->functionParameters();

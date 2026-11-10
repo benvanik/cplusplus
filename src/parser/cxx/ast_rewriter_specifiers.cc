@@ -259,6 +259,11 @@ auto ASTRewriter::baseSpecifier(BaseSpecifierAST* ast) -> BaseSpecifierAST* {
   copy->isVariadic = ast->isVariadic;
   copy->accessSpecifier = ast->accessSpecifier;
 
+  auto setBaseSymbol = [&](BaseClassSymbol* baseClass) {
+    copy->symbol = baseClass;
+    addSymbolRemap(ast->symbol, baseClass);
+  };
+
   auto setResolvedBase = [&](Symbol* resolved) {
     if (auto typeAlias = symbol_cast<TypeAliasSymbol>(resolved)) {
       if (auto classType = unqualified_cast<ClassType>(typeAlias->type()))
@@ -276,7 +281,7 @@ auto ASTRewriter::baseSpecifier(BaseSpecifierAST* ast) -> BaseSpecifierAST* {
     baseClassSym->setVirtual(ast->isVirtual);
     baseClassSym->setAccessSpecifier(toAccessSpecifier(
         ast->accessSpecifier, binder_.defaultAccessSpecifier()));
-    copy->symbol = baseClassSym;
+    setBaseSymbol(baseClassSym);
     return true;
   };
 
@@ -324,7 +329,7 @@ auto ASTRewriter::baseSpecifier(BaseSpecifierAST* ast) -> BaseSpecifierAST* {
     baseClassSym->setVirtual(ast->isVirtual);
     baseClassSym->setAccessSpecifier(toAccessSpecifier(
         ast->accessSpecifier, binder_.defaultAccessSpecifier()));
-    copy->symbol = baseClassSym;
+    setBaseSymbol(baseClassSym);
   }
 
   return copy;

@@ -120,6 +120,32 @@ struct Derived : T {
 constexpr Derived<Both> instantiated{{{{3}}, {{7}}}};
 static_assert(instantiated.inherited() == 17);
 
+struct TemplateOffset {
+  unsigned padding[3];
+};
+struct TemplateValue {
+  unsigned value;
+  constexpr unsigned get() const { return value; }
+};
+template <typename T>
+struct InstantiatedPaths : TemplateOffset, TemplateValue {
+  constexpr unsigned explicitCall() const { return this->get(); }
+  constexpr unsigned implicitCall() const { return get(); }
+  constexpr unsigned explicitValue() const { return this->value; }
+  constexpr unsigned implicitValue() const { return value; }
+  constexpr const TemplateValue* basePointer() const { return this; }
+  constexpr const TemplateValue& baseReference() const { return *this; }
+};
+constexpr InstantiatedPaths<double> instantiatedPaths{{{1, 2, 3}}, {37}};
+static_assert(instantiatedPaths.explicitCall() == 37);
+static_assert(instantiatedPaths.implicitCall() == 37);
+static_assert(instantiatedPaths.explicitValue() == 37);
+static_assert(instantiatedPaths.implicitValue() == 37);
+static_assert(instantiatedPaths.basePointer() ==
+              static_cast<const TemplateValue*>(&instantiatedPaths));
+static_assert(&instantiatedPaths.baseReference() ==
+              static_cast<const TemplateValue*>(&instantiatedPaths));
+
 // Class adjustments preserve the complete object behind the selected base.
 struct Adjusted : Other, Left { unsigned tail; };
 constexpr Adjusted adjusted{{17}, {{19}}, 23};
