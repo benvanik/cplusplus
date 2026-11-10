@@ -1132,8 +1132,7 @@ auto ASTRewriter::TemplateParameterVisitor::operator()(
   copy->identifier = ast->identifier;
   copy->isPack = ast->isPack;
 
-  copy->idExpression =
-      ast_cast<IdExpressionAST>(rewrite.expression(ast->idExpression));
+  copy->idExpression = rewrite.templateNameExpression(ast->idExpression);
 
   binder()->bind(copy, copy->index, copy->depth);
   rewrite.addSymbolRemap(ast->symbol, copy->symbol);
