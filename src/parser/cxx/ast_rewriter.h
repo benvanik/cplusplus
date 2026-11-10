@@ -451,6 +451,7 @@ class [[nodiscard]] ASTRewriter {
 
   auto unit(UnitAST* ast) -> UnitAST*;
   auto expression(ExpressionAST* ast) -> ExpressionAST*;
+  auto templateNameExpression(IdExpressionAST* ast) -> IdExpressionAST*;
   auto contextuallyConvertedBool(ExpressionAST* ast) -> ExpressionAST*;
   auto contextuallyConvertedConstantBool(ExpressionAST* ast) -> ExpressionAST*;
   auto constantExpression(ExpressionAST* ast) -> ExpressionAST*;

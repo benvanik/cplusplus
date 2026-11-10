@@ -350,6 +350,12 @@ auto ASTRewriter::expression(ExpressionAST* ast) -> ExpressionAST* {
   return expr;
 }
 
+auto ASTRewriter::templateNameExpression(IdExpressionAST* ast)
+    -> IdExpressionAST* {
+  if (!ast) return nullptr;
+  return ast_cast<IdExpressionAST>(visit(ExpressionVisitor{*this}, ast));
+}
+
 auto ASTRewriter::contextuallyConvertedBool(ExpressionAST* ast)
     -> ExpressionAST* {
   auto copy = expression(ast);
