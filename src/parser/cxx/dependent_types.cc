@@ -944,7 +944,7 @@ auto IsDependent::operator()(TemplateNestedNameSpecifierAST* ast) -> bool {
   const auto namesTemplate = ast->templateId->symbol ||
                              ast->templateId->identifier->builtinTemplate() !=
                                  BuiltinTemplateKind::T_NONE;
-  return namesTemplate && hasDependentTemplateArguments(ast->templateId);
+  return namesTemplate && isDependent(ast->templateId);
 }
 
 auto IsDependent::operator()(CharLiteralExpressionAST* ast) -> bool {
