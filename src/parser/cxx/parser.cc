@@ -832,6 +832,7 @@ auto Parser::parse_literal(ExpressionAST*& yyast) -> bool {
           static_cast<const StringLiteral*>(unit_->literal(ast->literalLoc));
 
       switch (ast->literal->encoding()) {
+        case StringLiteralEncoding::kWide16:
         case StringLiteralEncoding::kWide:
           ast->encoding = TokenKind::T_WIDE_STRING_LITERAL;
           break;

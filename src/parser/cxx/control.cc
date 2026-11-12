@@ -208,7 +208,9 @@ struct Control::Private {
   LiteralSet<FloatLiteral> floatLiterals;
   LiteralSet<StringLiteral> stringLiterals;
   LiteralSet<CharLiteral> charLiterals;
-  LiteralSet<StringLiteral> wideStringLiterals;
+  // Separate UTF-16 and UTF-32 pools preserve existing literal identities if
+  // the source memory layout changes between translation units.
+  std::array<LiteralSet<StringLiteral>, 2> wideStringLiterals;
   LiteralSet<StringLiteral> utf8StringLiterals;
   LiteralSet<StringLiteral> utf16StringLiterals;
   LiteralSet<StringLiteral> utf32StringLiterals;
@@ -655,11 +657,12 @@ auto Control::charLiteral(std::string_view spelling) -> const CharLiteral* {
 
 auto Control::wideStringLiteral(std::string_view spelling)
     -> const StringLiteral* {
-  if (auto it = d->wideStringLiterals.find(spelling);
-      it != d->wideStringLiterals.end())
-    return &*it;
-  auto it = d->wideStringLiterals.emplace(std::string(spelling)).first;
-  it->initialize(StringLiteralEncoding::kWide);
+  const bool wide16 = d->memoryLayout && d->memoryLayout->sizeOfWideChar() == 2;
+  auto& literals = d->wideStringLiterals[wide16 ? 0 : 1];
+  if (auto it = literals.find(spelling); it != literals.end()) return &*it;
+  auto it = literals.emplace(std::string(spelling)).first;
+  it->initialize(wide16 ? StringLiteralEncoding::kWide16
+                        : StringLiteralEncoding::kWide);
   return &*it;
 }
 

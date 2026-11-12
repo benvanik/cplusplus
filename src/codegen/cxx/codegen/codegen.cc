@@ -2228,28 +2228,14 @@ auto Codegen::findOrCreateGlobal(Symbol* symbol)
         stringLiteral->initialize(stringLiteral->encoding());
         std::string str(stringLiteral->stringValue());
 
-        switch (stringLiteral->encoding()) {
-          case StringLiteralEncoding::kUtf16:
-            str.push_back('\0');
-            str.push_back('\0');
-            break;
-          case StringLiteralEncoding::kUtf32:
-          case StringLiteralEncoding::kWide:
-            str.push_back('\0');
-            str.push_back('\0');
-            str.push_back('\0');
-            str.push_back('\0');
-            break;
-          default:
-            str.push_back('\0');
-            break;
-        }
+        str.append(stringLiteral->codeUnitSize(), '\0');
 
         initializer = ir::Initializer::byteString(
             std::string_view(str.data(), str.size()));
 
         if (auto arr = type_cast<BoundedArrayType>(defVar->type())) {
-          auto destSize = static_cast<size_t>(arr->size());
+          auto destSize =
+              static_cast<size_t>(arr->size()) * stringLiteral->codeUnitSize();
           if (str.size() != destSize) {
             str.resize(destSize, '\0');
             initializer = ir::Initializer::byteString(

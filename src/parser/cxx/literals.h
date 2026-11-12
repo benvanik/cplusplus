@@ -131,6 +131,7 @@ enum class StringLiteralEncoding {
   kUtf8,
   kUtf16,
   kUtf32,
+  kWide16,
 };
 
 class StringLiteral final : public Literal {
