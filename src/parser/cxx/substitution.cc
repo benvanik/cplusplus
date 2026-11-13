@@ -1214,6 +1214,31 @@ auto Substitution::templateParameterType(const Type* declaredType) const
       TypeTraits::adjusted_parameter_type(unit_->control(), declaredType));
 }
 
+namespace {
+
+[[nodiscard]] auto initializeClassTemplateArgument(
+    TranslationUnit* unit, const Type* type, ExpressionAST* initializer,
+    SourceLocation location, ScopeSymbol* scope)
+    -> std::optional<ConstValue> {
+  VariableSymbol candidate{nullptr};
+  candidate.setType(type);
+  candidate.setStatic(true);
+  candidate.setConstexpr(true);
+
+  auto checker = TypeChecker{unit};
+  checker.setScope(scope ? scope : unit->globalScope());
+  InitContext context{checker};
+  auto entity = InitializedEntity::variable(type, &candidate, location);
+  auto sequence = initialize(
+      context, entity, InitializationKind::kCopyInitialization, initializer);
+  if (sequence.status != InitializationStatus::kComplete) return std::nullopt;
+
+  return ASTInterpreter{unit, scope}.initializationValue(
+      &candidate, sequence.constructor, initializer);
+}
+
+}  // namespace
+
 auto Substitution::normalizeNonTypeArgument(
     NonTypeTemplateParameterAST* parameter, const CollectedArgument& argument)
     -> Symbol* {
@@ -1292,10 +1317,21 @@ auto Substitution::normalizeNonTypeArgument(
                               ? normalized.initializer->firstSourceLocation()
                               : parameter->firstSourceLocation();
 
+  const auto classType = unqualified_cast<ClassType>(normalized.type);
+  auto valid = normalized.value &&
+               unit_->typeTraits().is_constant_template_argument(
+                   *normalized.value, normalized.type);
+  if (!valid && classType && normalized.initializer) {
+    normalized.value = initializeClassTemplateArgument(
+        unit_, normalized.type, normalized.initializer, argumentLocation,
+        substitutionScope(templateDecl_));
+    valid = normalized.value &&
+            unit_->typeTraits().is_constant_template_argument(
+                *normalized.value, normalized.type);
+  }
+
   if (normalized.value) {
-    auto valid = unit_->typeTraits().is_constant_template_argument(
-        *normalized.value, normalized.type);
-    if (valid && unqualified_cast<ClassType>(normalized.type)) {
+    if (valid && classType) {
       auto object = initializeTemplateParameterObject(
           unit_, normalized.type, *normalized.value, argumentLocation,
           substitutionScope(templateDecl_));
