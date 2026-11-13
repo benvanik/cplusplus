@@ -25,10 +25,15 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+interface AlternateAttributeSpelling {
+  syntax: string;
+  name: string;
+}
+
 interface AttributeDef {
   name: string;
   standardValue?: number;
-  spellings: string[];
+  spellings: (string | AlternateAttributeSpelling)[];
   arguments?: string[];
   optionalArguments?: boolean;
   availability?: "webassembly" | "device";
@@ -62,15 +67,22 @@ function kindOf(attribute: AttributeDef): string {
   );
 }
 
-function spellingOf(attribute: AttributeDef, spelling: string): Spelling {
+function spellingOf(
+  attribute: AttributeDef,
+  spellingDef: string | AlternateAttributeSpelling,
+): Spelling {
   const kind = kindOf(attribute);
+  const spelling =
+    typeof spellingDef === "string" ? spellingDef : spellingDef.syntax;
+  const name =
+    typeof spellingDef === "string" ? attribute.name : spellingDef.name;
   if (spelling === "GNU")
-    return { syntax: "kGnu", attributeNamespace: "", name: attribute.name, kind };
+    return { syntax: "kGnu", attributeNamespace: "", name, kind };
   if (spelling === "ASM")
     return {
       syntax: "kAsmLabel",
       attributeNamespace: "",
-      name: attribute.name,
+      name,
       kind,
     };
   const match = /^CXX(?::(\w+))?$/.exec(spelling);
@@ -79,7 +91,7 @@ function spellingOf(attribute: AttributeDef, spelling: string): Spelling {
   return {
     syntax: "kCxx",
     attributeNamespace: match[1] ?? "",
-    name: attribute.name,
+    name,
     kind,
   };
 }
