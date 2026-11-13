@@ -34,6 +34,12 @@ static_assert(read<table[1]>() == 5);
 static_assert(!__is_same(Pointer<&table[0]>, Pointer<&table[1]>));
 static_assert(__is_same(Pointer<&table[1]>, Pointer<&table[1]>));
 static_assert(address<table[0]>() != address<table[1]>());
+constexpr unsigned matrix[2][2] = {{3, 5}, {7, 11}};
+static_assert(read<matrix[1][0]>() == 7);
+static_assert(!__is_same(Ref<matrix[0][1]>, Ref<matrix[1][0]>));
+static_assert(!__is_same(Pointer<&matrix[0][1]>,
+                         Pointer<&matrix[1][0]>));
+Pointer<matrix[1] + 2> matrixRowEnd;
 Pointer<&left + 1> onePastObject;
 Pointer<table + 2> onePastArray;
 static_assert(!__is_same(Pointer<&left>, Pointer<&left + 1>));

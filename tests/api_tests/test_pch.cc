@@ -740,7 +740,8 @@ struct RepeatedAddress : AddressLeft, AddressRight {};
 constexpr Parameters first{3, 5};
 constexpr Parameters second{7, 11};
 constexpr Pair pair{{3, 5}, {7, 11}};
-constexpr Parameters table[2] = {{3, 5}, {7, 11}};
+constexpr Parameters table[2][2] = {{{3, 5}, {7, 11}},
+                                     {{13, 17}, {19, 23}}};
 extern Parameters external;
 extern RepeatedAddress repeated_address;
 template <const unsigned& value>
@@ -753,7 +754,7 @@ constexpr const unsigned* first_get_address = &first.get();
 constexpr const unsigned* first_scale_address = &first.scale;
 constexpr const unsigned* second_scale_address = &second.scale;
 constexpr const unsigned* pair_left_scale_address = &pair.left.scale;
-constexpr const unsigned* table_one_scale_address = &table[1].scale;
+constexpr const unsigned* table_one_scale_address = &table[1][0].scale;
 constexpr const unsigned* external_scale_address = &external.scale;
 constexpr const unsigned* repeated_left_get_address =
     &repeated_address.AddressLeft::get();
@@ -860,9 +861,10 @@ constexpr const unsigned* repeated_right_value_address =
   ASSERT_EQ(pairLeftScale->subobjectPath().size(), 2u);
   expectSubobject(*pairLeftScale, 0, left);
   expectSubobject(*pairLeftScale, 1, scale);
-  ASSERT_EQ(tableOneScale->subobjectPath().size(), 2u);
+  ASSERT_EQ(tableOneScale->subobjectPath().size(), 3u);
   expectSubobject(*tableOneScale, 0, std::size_t{1});
-  expectSubobject(*tableOneScale, 1, scale);
+  expectSubobject(*tableOneScale, 1, std::size_t{0});
+  expectSubobject(*tableOneScale, 2, scale);
   ASSERT_EQ(repeatedLeftValue->subobjectPath().size(), 3u);
   expectSubobject(*repeatedLeftValue, 0,
                   static_cast<Symbol*>(repeatedAddressType->baseClasses()[0]));

@@ -34,7 +34,8 @@ struct VirtualParameters : VirtualParametersLeft, VirtualParametersRight {};
 constexpr Parameters first{3, 5};
 constexpr Parameters second{7, 11};
 constexpr Pair pair{{3, 5}, {7, 11}};
-constexpr Parameters table[2] = {{3, 5}, {7, 11}};
+constexpr Parameters table[2][2] = {{{3, 5}, {7, 11}},
+                                     {{13, 17}, {19, 23}}};
 extern Parameters external;
 constexpr Parameters* external_pointer = &external;
 extern RepeatedParameters repeated;
@@ -54,8 +55,8 @@ static_assert(!__is_same(Ref<first.scale>, Ref<first.bias>));
 static_assert(__is_same(Ref<pair.left.get()>, Ref<pair.left.scale>));
 static_assert(!__is_same(Ref<pair.left.scale>, Ref<pair.right.scale>));
 
-static_assert(__is_same(Ref<table[1].get()>, Ref<table[1].scale>));
-static_assert(!__is_same(Ref<table[0].scale>, Ref<table[1].scale>));
+static_assert(__is_same(Ref<table[1][0].get()>, Ref<table[1][0].scale>));
+static_assert(!__is_same(Ref<table[0][1].scale>, Ref<table[1][0].scale>));
 
 static_assert(__is_same(Ref<external.get()>, Ref<external.scale>));
 static_assert(__is_same(Ref<external.getExplicit()>, Ref<external.scale>));
@@ -92,7 +93,7 @@ static_assert(__is_same(
 
 Ref<first.get()> first_ref;
 Ref<pair.left.get()> pair_left_ref;
-Ref<table[1].get()> table_one_ref;
+Ref<table[1][0].get()> table_one_ref;
 Ref<external.get()> external_ref;
 RepeatedLeft repeated_left_ref;
 RepeatedRight repeated_right_ref;
@@ -100,5 +101,5 @@ VirtualParametersValue virtual_parameters_ref;
 
 // NAMES-DAG: class Ref<first.scale>
 // NAMES-DAG: class Ref<pair.left.scale>
-// NAMES-DAG: class Ref<table[1].scale>
+// NAMES-DAG: class Ref<table[1][0].scale>
 // NAMES-DAG: class Ref<external.scale>

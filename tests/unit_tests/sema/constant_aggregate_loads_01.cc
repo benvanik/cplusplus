@@ -68,6 +68,45 @@ static constexpr unsigned update() {
   return local.rows[1][0] + local.cells[0].value;
 }
 static_assert(update() == 22);
+
+constexpr Cell matrix[2][2] = {{{3}, {5}}, {{7}, {11}}};
+static_assert(matrix[1][0].value == 7);
+static_assert(&matrix[0][1] != &matrix[1][0]);
+static_assert(&matrix[0][1].value != &matrix[1][0].value);
+
+constexpr const Cell& select(const Cell (&values)[2][2]) {
+  return values[1][0];
+}
+static_assert(&select(matrix) == &matrix[1][0]);
+
+static constexpr bool update_matrix() {
+  Cell values[2][2] = {{{13}, {17}}, {{19}, {23}}};
+  Cell* selected = &values[1][0];
+  selected->value = 29;
+  unsigned& member = values[0][1].value;
+  member = 31;
+  return values[1][0].value == 29 && values[0][1].value == 31 &&
+         selected != &values[0][1];
+}
+static_assert(update_matrix());
+
+struct Self {
+  unsigned value = 9;
+  const Self* self = this;
+};
+constexpr Self self_matrix[2][2] = {};
+static_assert(self_matrix[0][1].self == &self_matrix[0][1]);
+static_assert(self_matrix[1][0].self == &self_matrix[1][0]);
+static_assert(self_matrix[0][1].self != self_matrix[1][0].self);
+
+constexpr unsigned cube[2][2][2] = {{{2, 3}, {5, 7}},
+                                     {{11, 13}, {17, 19}}};
+static_assert(cube[1][0][1] == 13);
+static_assert(&cube[0][1][1] != &cube[1][0][0]);
+
+constexpr const Cell (&temporary_matrix)[2][2] = {};
+static_assert(temporary_matrix[1][0].value == 0);
+static_assert(&temporary_matrix[0][1] != &temporary_matrix[1][0]);
 }  // namespace nested_aggregates
 
 namespace vectors {
