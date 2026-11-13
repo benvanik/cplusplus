@@ -214,6 +214,24 @@ auto ConstFloat::formatFor(TypeKind kind) -> std::optional<Format> {
   }
 }
 
+auto ConstFloat::formatFor(const FloatingPointFormat& format)
+    -> std::optional<Format> {
+  constexpr Format candidates[] = {
+      Format::kFloat16,    Format::kBFloat16, Format::kFloat8E4M3FN,
+      Format::kFloat8E5M2, Format::kFloat,    Format::kDouble,
+  };
+  for (auto candidate : candidates) {
+    const auto description = floatingPointFormat(candidate);
+    if (description.exponentBits == format.exponentBits &&
+        description.significandDigits == format.significandDigits &&
+        description.explicitIntegerBit == format.explicitIntegerBit &&
+        description.specialValueEncoding == format.specialValueEncoding) {
+      return candidate;
+    }
+  }
+  return std::nullopt;
+}
+
 auto ConstFloat::fromValue(Format format, long double value) -> ConstFloat {
   const auto description = floatingPointFormat(format);
   return ConstFloat(

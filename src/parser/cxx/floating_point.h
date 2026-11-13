@@ -28,6 +28,8 @@
 
 namespace cxx {
 
+struct FloatingPointFormat;
+
 // A typed floating constant retaining its target object representation.
 // Numeric queries expose its arithmetic value while identity, copying, sign
 // changes, archives, and code generation use the stored representation bits.
@@ -45,6 +47,13 @@ class ConstFloat {
   ConstFloat() = default;
 
   [[nodiscard]] static auto formatFor(TypeKind kind) -> std::optional<Format>;
+
+  // Returns the compact stored format when a target representation is one of
+  // the formats supported by ConstFloat. This also admits source types whose
+  // spelling differs but whose target representation is identical, such as
+  // binary64 long double.
+  [[nodiscard]] static auto formatFor(const FloatingPointFormat& format)
+      -> std::optional<Format>;
 
   [[nodiscard]] static auto fromValue(Format format, long double value)
       -> ConstFloat;

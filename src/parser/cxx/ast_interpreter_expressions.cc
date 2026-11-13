@@ -329,7 +329,8 @@ struct ASTInterpreter::ExpressionVisitor {
                                            toFloat(*left), toFloat(*right)))},
                                        type);
       case TypeKind::kLongDouble:
-        return ConstValue{op(toLongDouble(*left), toLongDouble(*right))};
+        return interp.toArithmeticType(
+            ConstValue{op(toLongDouble(*left), toLongDouble(*right))}, type);
       case TypeKind::kDouble:
         return interp.toArithmeticType(ConstValue{static_cast<long double>(op(
                                            toDouble(*left), toDouble(*right)))},
@@ -3179,7 +3180,8 @@ auto ASTInterpreter::ExpressionVisitor::operator()(
     FloatLiteralExpressionAST* ast) -> ExpressionResult {
   if (ast->literalOperatorCall) return evaluate(ast->literalOperatorCall);
   if (ast->literal->components().isLongDouble)
-    return ast->literal->longDoubleValue();
+    return interp.toArithmeticType(ConstValue{ast->literal->longDoubleValue()},
+                                   ast->type);
   const auto suffix = ast->literal->components().suffix;
   if (suffix == FloatLiteral::Components::FloatingPointSuffix::kF16 ||
       suffix == FloatLiteral::Components::FloatingPointSuffix::kBF16)
@@ -3618,7 +3620,11 @@ auto ASTInterpreter::evaluateCallExpression(
           arguments.push_back(std::move(*value));
         }
       }
-      return {evaluateBuiltinCall(builtin, std::move(arguments), ast), nullptr};
+      auto result = evaluateBuiltinCall(builtin, std::move(arguments), ast);
+      if (result && traits.is_arithmetic(ast->type)) {
+        result = toArithmeticType(*result, ast->type);
+      }
+      return {std::move(result), nullptr};
     }
     function = designatedFunction(id->symbol);
     if (function && function->isImplicitObjectMemberFunction()) {
