@@ -174,18 +174,22 @@ TEST(DeclarationAnalysis, ResolvesTemplateIdsAcrossHeaders) {
 
     constexpr bool template_enabled() { return true; }
     template <typename T>
-      requires template_enabled()
+      requires (template_enabled())
     struct ConstrainedBox {};
     using ConstrainedIntBox = ConstrainedBox<int>;
   )";
 
   CapturingDiagnosticsClient diagnostics;
   TranslationUnit unit{&diagnostics};
+  MemoryLayout layout{32};
+  unit.control()->setMemoryLayout(&layout);
   setSourceWithSystemHeader(unit, std::string(source),
                             std::string(systemHeader));
   unit.parse({.analysisMode = ParserAnalysisMode::kDeclarations});
 
-  ASSERT_TRUE(diagnostics.diagnostics.empty());
+  ASSERT_TRUE(diagnostics.diagnostics.empty())
+      << diagnostics.diagnostics.front().message() << " at '"
+      << diagnostics.diagnostics.front().token().spell() << "'";
   auto userAlias = findTypeAlias(unit, "UserIntBox");
   auto systemAlias = findTypeAlias(unit, "SystemIntBox");
   auto constrainedAlias = findTypeAlias(unit, "ConstrainedIntBox");
