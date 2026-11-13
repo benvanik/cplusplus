@@ -18,6 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <cxx/attributes.h>
 #include <cxx/control.h>
 #include <cxx/diagnostics_client.h>
 #include <cxx/preprocessor.h>
@@ -124,8 +125,12 @@ TEST(SourceLocations, BuiltinMacroExpansionsRetainPhysicalSourceRanges) {
        "__has_extension",
        TokenKind::T_INTEGER_LITERAL,
        {}},
-      {"__has_attribute(used)", "__has_attribute",
+      {"__has_attribute(used)", "__has_attribute", TokenKind::T_INTEGER_LITERAL,
+       "1"},
+      {"__has_attribute(unused)", "__has_attribute",
        TokenKind::T_INTEGER_LITERAL, "1"},
+      {"__has_cpp_attribute(gnu::unused)", "__has_cpp_attribute",
+       TokenKind::T_INTEGER_LITERAL, "1L"},
   };
 
   for (const auto& test : cases) {
@@ -175,6 +180,16 @@ TEST(SourceLocations, BuiltinMacroExpansionsRetainPhysicalSourceRanges) {
     EXPECT_EQ(presumed.line, 700);
     EXPECT_EQ(presumed.column, start.column);
   }
+}
+
+TEST(Attributes, AlternateSpellingsShareTheSemanticAttribute) {
+  auto gnu = findAttributeSpelling(AttributeSyntax::kGnu, "", "unused");
+  ASSERT_NE(gnu, nullptr);
+  EXPECT_EQ(gnu->kind, AttributeKind::kMaybeUnused);
+
+  auto cxx = findAttributeSpelling(AttributeSyntax::kCxx, "gnu", "unused");
+  ASSERT_NE(cxx, nullptr);
+  EXPECT_EQ(cxx->kind, AttributeKind::kMaybeUnused);
 }
 
 TEST(SourceLocations, NestedBuiltinMacroExpansionRetainsInvocationRange) {

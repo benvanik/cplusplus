@@ -172,7 +172,11 @@
   {
     "name": "maybe_unused",
     "standardValue": 201603,
-    "spellings": ["CXX"],
+    "spellings": [
+      "CXX",
+      { "syntax": "GNU", "name": "unused" },
+      { "syntax": "CXX:gnu", "name": "unused" }
+    ],
     "subjects": "names and entities",
     "documentation": "Suppresses warnings about the entity being unused."
   },

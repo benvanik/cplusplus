@@ -169,6 +169,8 @@ inline constexpr AttributeSpelling kLocalIdSpellings[] = {
 
 inline constexpr AttributeSpelling kMaybeUnusedSpellings[] = {
     {AttributeSyntax::kCxx, "", "maybe_unused", AttributeKind::kMaybeUnused},
+    {AttributeSyntax::kGnu, "", "unused", AttributeKind::kMaybeUnused},
+    {AttributeSyntax::kCxx, "gnu", "unused", AttributeKind::kMaybeUnused},
 };
 
 inline constexpr AttributeSpelling kNoUniqueAddressSpellings[] = {
@@ -778,6 +780,7 @@ inline constexpr const AttributeSpelling* kSortedAttributeSpellings[] = {
     &kPackedSpellings[0],
     &kSectionSpellings[0],
     &kTrivialAbiSpellings[0],
+    &kMaybeUnusedSpellings[1],
     &kUsedSpellings[0],
     &kVectorSizeSpellings[0],
     &kWarnUnusedResultSpellings[0],
@@ -820,6 +823,7 @@ inline constexpr const AttributeSpelling* kSortedAttributeSpellings[] = {
     &kNothrowSpellings[1],
     &kPackedSpellings[1],
     &kSectionSpellings[1],
+    &kMaybeUnusedSpellings[2],
     &kUsedSpellings[1],
     &kVectorSizeSpellings[1],
     &kWarnUnusedResultSpellings[1],
