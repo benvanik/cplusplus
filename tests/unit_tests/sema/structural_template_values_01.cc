@@ -46,10 +46,18 @@ static_assert(!__is_same(Tag<Descriptor{{1}, {{2, 3}, {4, 5}}}>,
 namespace nested_records {
 struct Group { unsigned elements = 32; };
 struct Descriptor { Group groups[2]; };
+struct Wrapper { Group group; };
 template <Descriptor Spec>
 struct Tag {};
+template <Group Spec>
+struct GroupTag {};
 static_assert(__is_same(Tag<Descriptor{}>, Tag<Descriptor{{{32}, {32}}}>));
 static_assert(!__is_same(Tag<Descriptor{}>, Tag<Descriptor{{{32}, {64}}}>));
+static_assert(__is_same(GroupTag<Descriptor().groups[1]>,
+                        GroupTag<Group{32}>));
+static_assert(__is_same(GroupTag<Wrapper().group>, GroupTag<Group{32}>));
+constexpr Descriptor saved{};
+static_assert(__is_same(GroupTag<saved.groups[1]>, GroupTag<Group{32}>));
 }  // namespace nested_records
 
 namespace record_types {
