@@ -46,6 +46,7 @@ add_executable(test_api
     test_object_representation.cc
     test_pch.cc
     test_preprocessor.cc
+    test_range_for.cc
     test_runtime_errors.cc
     test_translation_unit.cc
     test_type_traits.cc

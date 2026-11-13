@@ -165,6 +165,7 @@ struct Binder::RangeForRewrite {
     auto size = IntLiteralExpressionAST::create(arena());
     size->literal =
         control()->integerLiteral(std::to_string(arrayType->size()));
+    size->literalLoc = implicitLoc;
     size->type = control()->getSizeType();
     size->valueCategory = ValueCategory::kPrValue;
     auto addition = BinaryExpressionAST::create(arena());
@@ -306,6 +307,19 @@ void Binder::finishForRangeDeclaration(ForRangeStatementAST* ast,
 
     entity->setType(control()->getDependentType());
     decomposeStructuredBinding(structuredBinding, entity);
+    return;
+  }
+
+  auto rangeType = traits.remove_cvref(rangeInitializer->type);
+  if (type_cast<UnboundedArrayType>(rangeType)) {
+    error(rangeInitializer->firstSourceLocation(),
+          "range-based for requires an array with a known bound");
+    return;
+  }
+  if (!type_cast<BoundedArrayType>(rangeType) &&
+      !type_cast<ClassType>(rangeType)) {
+    error(rangeInitializer->firstSourceLocation(),
+          "range-based for requires an array or class range");
     return;
   }
 
