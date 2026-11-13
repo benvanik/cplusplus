@@ -943,6 +943,8 @@ auto ASTRewriter::instantiate(
 
   auto bodyErrors = rewriter.takeBodyErrors();
 
+  (void)reportOutsideImmediateContext(unit, bodyErrors);
+
   auto instantiationErrors = capturing.takeDiagnostics();
   instantiationErrors.insert(instantiationErrors.end(),
                              std::make_move_iterator(bodyErrors.begin()),
