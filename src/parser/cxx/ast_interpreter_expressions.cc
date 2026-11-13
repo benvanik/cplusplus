@@ -1908,42 +1908,45 @@ auto ASTInterpreter::extendedReferenceBinding(const Type* referenceType,
         referenceType, defaultInitializer->expression, extendingVariable);
   }
 
-  auto temporaryInitializer =
-      materializedTemporaryInitializer(traits, initializer);
-  if (!temporaryInitializer) return referenceBinding(initializer);
-  auto temporary = *temporaryInitializer;
-
   EvaluationScope evaluationScope{*this, initializer};
-  auto referencedType = traits.remove_reference(referenceType);
-  auto temporaryType = traits.is_same(traits.remove_cv(referencedType),
-                                      traits.remove_cvref(temporary->type))
-                           ? referencedType
-                           : traits.remove_reference(temporary->type);
-  auto variable = control()->newVariableSymbol(
-      extendingVariable ? extendingVariable->parent() : nullptr,
-      temporary->firstSourceLocation());
-  variable->setName(control()->newAnonymousId("temporary"));
-  variable->setType(temporaryType);
-  variable->setLifetimeExtendingDeclaration(extendingVariable);
-  variable->setConstexpr(traits.is_const(temporaryType));
-  variable->setStatic(!extendingVariable ||
-                      has_static_storage_duration(extendingVariable));
-  if (has_thread_storage_duration(extendingVariable))
-    variable->setThreadLocalKind(ThreadLocalKind::Cxx);
-  const auto automatic =
-      !frames_.empty() && !variable->isStatic() && !variable->isThreadLocal();
-  if (automatic) setLocal(variable, IndeterminateValue{});
-  auto value = initializationValue(variable, nullptr, temporary);
-  if (!value) return std::nullopt;
-  auto address = std::make_shared<ConstAddress>(variable);
-  if (automatic) {
-    auto storage = lookupLocalStorage(variable);
-    storage->setValue(*value);
-    address->setStorage(std::move(storage));
-    registerAutomaticObject(variable);
-  }
-  variable->setConstValue(std::move(*value));
-  return address;
+  auto bound = referenceInitializer(initializer);
+  if (!bound) return std::nullopt;
+  ExpressionAST* direct = nullptr;
+  if (auto slot = materializedTemporaryInitializer(traits, initializer))
+    direct = *slot;
+  auto candidates = direct ? std::vector<ExpressionAST*>{}
+                           : materializedTemporaries(traits, bound);
+  auto expressions = direct ? std::span<ExpressionAST* const>{&direct, 1}
+                            : std::span<ExpressionAST* const>{candidates};
+  if (expressions.empty()) return referenceBinding(initializer);
+
+  MaterializationTarget target{expressions, referenceType, extendingVariable};
+  auto savedTarget = std::exchange(materializationTarget_, &target);
+  auto selected = is_prvalue(bound)
+                      ? std::optional<ConstValue>{materialize(bound)}
+                      : addressOfLvalue(bound);
+  materializationTarget_ = savedTarget;
+
+  auto address = selected
+                     ? std::get_if<std::shared_ptr<ConstAddress>>(&*selected)
+                     : nullptr;
+  if (!target.used || !address || !*address) return std::nullopt;
+
+  auto temporary = symbol_cast<VariableSymbol>((*address)->root());
+  if (!temporary) return std::nullopt;
+  auto reference = type_cast<LvalueReferenceType>(referenceType);
+  // A const lvalue reference makes the whole temporary, including a selected
+  // base, usable in later constant evaluations. Other bindings retain a valid
+  // address but can only read the storage during the creating evaluation.
+  const auto usable =
+      reference && traits.is_const(reference->elementType()) &&
+      !(*address)->arrayType() &&
+      std::ranges::all_of((*address)->subobjectPath(), [](const auto& step) {
+        auto symbol = std::get_if<Symbol*>(&step);
+        return symbol && symbol_cast<BaseClassSymbol>(*symbol);
+      });
+  temporary->setConstexpr(usable);
+  return selected;
 }
 
 auto ASTInterpreter::isPotentiallyUsableInConstantExpressions(

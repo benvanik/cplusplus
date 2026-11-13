@@ -893,6 +893,8 @@ struct Value {
 };
 constexpr const Value& reference = Value{};
 constexpr const Value* saved_self = reference.self;
+constexpr const unsigned& saved_number = Value{}.number;
+constexpr const unsigned* saved_number_address = &saved_number;
 constexpr const Value (&values)[2] = {};
 constexpr const Value* saved_second = values[1].self;
 static_assert(reference.self == &reference);
@@ -922,26 +924,46 @@ static_assert(saved_second == &values[1]);
       value ? symbol_cast<FieldSymbol>(findMember(value, "self")) : nullptr;
   auto reference =
       symbol_cast<VariableSymbol>(findMember(globalScope, "reference"));
+  auto savedNumber =
+      symbol_cast<VariableSymbol>(findMember(globalScope, "saved_number"));
   auto values = symbol_cast<VariableSymbol>(findMember(globalScope, "values"));
   ASSERT_TRUE(number);
   ASSERT_TRUE(self);
   ASSERT_TRUE(reference);
+  ASSERT_TRUE(savedNumber);
   ASSERT_TRUE(values);
 
   auto referenceAddress = constantAddress(globalScope, "reference");
   auto savedSelf = constantAddress(globalScope, "saved_self");
+  auto savedNumberAddress =
+      constantAddress(globalScope, "saved_number_address");
   auto valuesAddress = constantAddress(globalScope, "values");
   auto savedSecond = constantAddress(globalScope, "saved_second");
   ASSERT_TRUE(referenceAddress);
   ASSERT_TRUE(savedSelf);
+  ASSERT_TRUE(savedNumberAddress);
   ASSERT_TRUE(valuesAddress);
   ASSERT_TRUE(savedSecond);
 
   auto referenceTemporary = lifetime_extended_temporary(reference);
+  auto savedNumberTemporary = lifetime_extended_temporary(savedNumber);
   auto valuesTemporary = lifetime_extended_temporary(values);
   ASSERT_TRUE(referenceTemporary);
+  ASSERT_TRUE(savedNumberTemporary);
   ASSERT_TRUE(valuesTemporary);
   EXPECT_EQ(referenceAddress->root(), referenceTemporary);
+  EXPECT_TRUE(referenceTemporary->isConstexpr());
+  ASSERT_TRUE(savedNumber->constValue());
+  auto savedNumberBinding =
+      std::get_if<std::shared_ptr<ConstAddress>>(&*savedNumber->constValue());
+  ASSERT_TRUE(savedNumberBinding);
+  ASSERT_TRUE(*savedNumberBinding);
+  EXPECT_EQ((*savedNumberBinding)->root(), savedNumberTemporary);
+  EXPECT_FALSE(savedNumberTemporary->isConstexpr());
+  EXPECT_EQ(savedNumberTemporary->lifetimeExtendingDeclaration(), savedNumber);
+  ASSERT_EQ((*savedNumberBinding)->subobjectPath().size(), 1u);
+  expectSubobject(**savedNumberBinding, 0, static_cast<Symbol*>(number));
+  EXPECT_TRUE((*savedNumberBinding)->sameObject(*savedNumberAddress));
   EXPECT_EQ(valuesAddress->root(), valuesTemporary);
   EXPECT_EQ(referenceTemporary->lifetimeExtendingDeclaration(), reference);
   EXPECT_EQ(valuesTemporary->lifetimeExtendingDeclaration(), values);

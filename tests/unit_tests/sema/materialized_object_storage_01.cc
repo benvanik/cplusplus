@@ -94,6 +94,81 @@ static_assert(persistent_array_reference[0].self ==
 static_assert(persistent_array_reference[0].self + 1 ==
               &persistent_array_reference[1]);
 
+namespace persistent_temporary_reads {
+struct Base {
+  unsigned base = 3;
+};
+
+struct Element : Base {
+  unsigned value = 5;
+};
+
+struct Container {
+  Element inner;
+  unsigned values[2] = {7, 11};
+};
+
+struct AlternateContainer {
+  unsigned prefix = 13;
+  Element inner;
+};
+
+using Pair = unsigned[2];
+
+// A const lvalue reference makes the whole temporary, including a selected
+// base subobject, readable in later constant evaluations.
+constexpr const Element& whole = Element{};
+const Element& constant_initialized = Element{};
+constexpr const Base& base = Element{};
+constexpr const Pair& array = Pair{17, 19};
+static_assert(whole.value == 5);
+static_assert(constant_initialized.value == 5);
+static_assert(base.base == 3);
+static_assert(array[1] == 19);
+
+// Other persistent bindings retain their addresses, but not permission to
+// read the temporary in a later constant evaluation.
+constexpr Element&& rvalue = Element{};
+constexpr const Element& member = Container{}.inner;
+constexpr const unsigned& nested_member = Container{}.inner.value;
+constexpr const unsigned& array_element = Container{}.values[1];
+constexpr const unsigned& direct_array_element = Pair{23, 29}[1];
+constexpr const unsigned* escaped_pointer = &nested_member;
+constexpr bool choose_first = true;
+constexpr const Element& conditional_member =
+    choose_first ? Container{}.inner : AlternateContainer{}.inner;
+static_assert(escaped_pointer == &nested_member);
+
+struct Static {
+  inline static constexpr const unsigned& member = Container{}.inner.value;
+};
+
+constexpr unsigned automatic_conditional(bool first) {
+  const Element& selected =
+      first ? Container{}.inner : AlternateContainer{}.inner;
+  return selected.value;
+}
+static_assert(automatic_conditional(true) == 5);
+static_assert(automatic_conditional(false) == 5);
+
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(rvalue.value == 5);
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(member.value == 5);
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(nested_member == 5);
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(array_element == 11);
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(direct_array_element == 29);
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(*escaped_pointer == 5);
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(conditional_member.value == 5);
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(Static::member == 5);
+}  // namespace persistent_temporary_reads
+
 constexpr bool automatic_references() {
   const unsigned& scalar = 7u;
   const ThisPointer& object = ThisPointer{};

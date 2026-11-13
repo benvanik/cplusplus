@@ -725,6 +725,10 @@ auto ASTInterpreter::lookupLocalSlot(const Symbol* sym) -> ConstValue* {
 
 auto ASTInterpreter::materialize(ExpressionAST* ast)
     -> std::shared_ptr<ConstAddress> {
+  if (materializationTarget_ &&
+      std::ranges::contains(materializationTarget_->expressions, ast))
+    return materializeExtendedTemporary(ast);
+
   auto storage =
       std::make_shared<ConstStorage>(ast->type, IndeterminateValue{});
   auto address = std::make_shared<ConstAddress>();
@@ -738,6 +742,52 @@ auto ASTInterpreter::materialize(ExpressionAST* ast)
     return nullptr;
   }
   storage->setValue(std::move(*value));
+  return address;
+}
+
+auto ASTInterpreter::materializeExtendedTemporary(ExpressionAST* ast)
+    -> std::shared_ptr<ConstAddress> {
+  auto& target = *materializationTarget_;
+  if (target.used) return nullptr;
+  target.used = true;
+
+  auto referencedType = traits.remove_reference(target.referenceType);
+  auto temporaryType = traits.is_same(traits.remove_cv(referencedType),
+                                      traits.remove_cvref(ast->type))
+                           ? referencedType
+                           : traits.remove_reference(ast->type);
+  auto variable = control()->newVariableSymbol(
+      target.extendingDeclaration ? target.extendingDeclaration->parent()
+                                  : nullptr,
+      ast->firstSourceLocation());
+  variable->setName(control()->newAnonymousId("temporary"));
+  variable->setType(temporaryType);
+  variable->setLifetimeExtendingDeclaration(target.extendingDeclaration);
+  variable->setStatic(!target.extendingDeclaration ||
+                      has_static_storage_duration(target.extendingDeclaration));
+  if (has_thread_storage_duration(target.extendingDeclaration))
+    variable->setThreadLocalKind(ThreadLocalKind::Cxx);
+
+  const auto automatic =
+      !frames_.empty() && !variable->isStatic() && !variable->isThreadLocal();
+  if (automatic) setLocal(variable, IndeterminateValue{});
+  auto storage = automatic ? lookupLocalStorage(variable) : nullptr;
+  auto address = typedAddress(ConstAddress{variable});
+  address->setStorage(storage);
+
+  ConstValue staticValue = IndeterminateValue{};
+  if (!automatic)
+    initializations_.emplace_back(variable->canonical(), &staticValue);
+  auto value = expression(ast, address);
+  if (!automatic) initializations_.pop_back();
+  auto slot = automatic ? &storage->value() : &staticValue;
+  if (!value || !traits.is_constant_initialization(variable, *value)) {
+    if (automatic) frames_.back().locals.erase(variable);
+    return nullptr;
+  }
+  *slot = std::move(*value);
+  variable->setConstValue(*slot);
+  if (automatic) registerAutomaticObject(variable);
   return address;
 }
 

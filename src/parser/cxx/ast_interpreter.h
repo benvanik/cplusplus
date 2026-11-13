@@ -461,6 +461,8 @@ class ASTInterpreter {
                                      ExpressionAST* initializer) -> bool;
   [[nodiscard]] auto materialize(ExpressionAST* expression)
       -> std::shared_ptr<ConstAddress>;
+  [[nodiscard]] auto materializeExtendedTemporary(ExpressionAST* expression)
+      -> std::shared_ptr<ConstAddress>;
 
   auto initializeAutomaticVariable(Symbol* symbol, ExpressionAST* initializer)
       -> bool;
@@ -949,6 +951,19 @@ class ASTInterpreter {
   };
   std::vector<Temporary> temporaries_;
   void endTemporaries(std::size_t mark);
+
+  struct MaterializationTarget {
+    // The possible prvalues whose lifetime the reference extends.
+    std::span<ExpressionAST* const> expressions;
+    // The type of the reference receiving the selected temporary.
+    const Type* referenceType = nullptr;
+    // The declaration responsible for extending the selected lifetime.
+    Symbol* extendingDeclaration = nullptr;
+    // Whether evaluation reached this materialization.
+    bool used = false;
+  };
+  // The innermost reference binding currently redirecting materialization.
+  MaterializationTarget* materializationTarget_ = nullptr;
 
   class FullExpressionScope {
    public:
