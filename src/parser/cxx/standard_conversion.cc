@@ -1514,7 +1514,7 @@ void StandardConversion::addConstructorCandidate(
     ClassSymbol* classSymbol, ExpressionAST* expr, const Type* targetType) {
   if (isExcludedInheritedConstructor(traits, constructor, classSymbol, 1))
     return;
-  if (constructor->templateDeclaration() && !constructor->isSpecialization()) {
+  if (constructor->isTemplatePattern()) {
     auto args = make_list_node<ExpressionAST>(arena_, expr);
     TemplateArgumentDeduction deduction(unit_);
     auto deducedArgs = deduction.deduce(constructor, args, nullptr);
@@ -1563,7 +1563,7 @@ void StandardConversion::addConversionFunctionCandidate(
     InitializationKind initializationKind) {
   if (function->isExplicit() && !isDirectInitialization(initializationKind))
     return;
-  if (function->templateDeclaration() && !function->isSpecialization()) {
+  if (function->isTemplatePattern()) {
     function = instantiateConversionFunctionTemplate(
         function, traits.remove_cvref(targetType), expr);
     if (!function) return;

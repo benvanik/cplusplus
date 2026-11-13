@@ -377,6 +377,7 @@ void ASTRewriter::requireExplicitInstantiationMembers(TranslationUnit* unit,
   for (auto function : views::members(instance->resolvedDefinition()) |
                            views::member_functions) {
     if (function->isExcludedFromExplicitInstantiation()) continue;
+    if (isExplicitSpecializationHead(function->templateDeclaration())) continue;
     if (!isUserProvided(function)) continue;
     auto definition = function->resolvedDefinition();
     if (!definition->isDefined() && !definition->hasPendingBody()) continue;

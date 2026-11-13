@@ -501,8 +501,7 @@ void Binder::CompleteClass::addInheritedConstructors() {
   if (overloadSet->usingDeclarations().empty()) return;
 
   for (auto inherited : overloadSet->functions()) {
-    if (inherited->templateDeclaration() && !inherited->isSpecialization())
-      continue;
+    if (inherited->isTemplatePattern()) continue;
     (void)declareInheritedConstructor(inherited);
   }
 }

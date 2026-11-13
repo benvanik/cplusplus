@@ -1746,10 +1746,9 @@ auto TypeChecker::Visitor::CallCandidateSelection::buildCandidate(
     ++candidateArgCount;
   }
 
-  const bool templateCandidate = function->templateDeclaration() != nullptr &&
-                                 !function->isSpecialization();
+  const bool templateCandidate = function->isTemplatePattern();
 
-  if (explicitTemplateArguments && !function->templateDeclaration() &&
+  if (explicitTemplateArguments && !templateCandidate &&
       !function->isSpecialization()) {
     reject(function, "not a function template");
     return std::nullopt;
@@ -2127,8 +2126,7 @@ auto TypeChecker::Visitor::ResolveCallOperator::buildCandidate(
   auto function = pattern;
   List<TemplateArgumentAST*>* deducedArgsForCandidate = nullptr;
 
-  const bool fromTemplate =
-      pattern->templateDeclaration() && !pattern->isSpecialization();
+  const bool fromTemplate = pattern->isTemplatePattern();
 
   const bool takesImpliedObjectArgument = pattern->hasExplicitObjectParameter();
 
@@ -2202,8 +2200,7 @@ void TypeChecker::Visitor::ResolveCallOperator::buildViableCandidates() {
 void TypeChecker::Visitor::ResolveCallOperator::
     instantiateFailedTemplateCandidates() {
   for (auto function : allFunctions) {
-    if (!function->templateDeclaration() || function->isSpecialization())
-      continue;
+    if (!function->isTemplatePattern()) continue;
 
     auto arguments = ast->expressionList;
     if (function->hasExplicitObjectParameter())

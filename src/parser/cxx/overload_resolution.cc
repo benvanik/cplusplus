@@ -526,8 +526,7 @@ auto OverloadResolution::resolveConstructor(
       continue;
     }
 
-    const bool templateCandidate =
-        ctor->templateDeclaration() != nullptr && !ctor->isSpecialization();
+    const bool templateCandidate = ctor->isTemplatePattern();
     List<TemplateArgumentAST*>* deducedArgsForCandidate = nullptr;
 
     if (templateCandidate) {
@@ -945,7 +944,7 @@ auto OverloadResolution::resolveBinaryOperator(
     bool isMember = candidate->isImplicitObjectMemberFunction();
     List<TemplateArgumentAST*>* deducedArgsForCandidate = nullptr;
 
-    if (candidate->templateDeclaration() && !candidate->isSpecialization()) {
+    if (candidate->isTemplatePattern()) {
       int operandCount = rightExpr ? (isMember ? 1 : 2) : (isMember ? 0 : 1);
       if (templateCandidateArityRejects(candidate, operandCount)) continue;
 

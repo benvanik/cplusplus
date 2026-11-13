@@ -25,6 +25,7 @@
 #include <cxx/control.h>
 #include <cxx/decl.h>
 #include <cxx/dependent_types.h>
+#include <cxx/diagnostics_client.h>
 #include <cxx/literals.h>
 #include <cxx/names.h>
 #include <cxx/overload_resolution.h>
@@ -147,6 +148,7 @@ struct [[nodiscard]] Binder::DeclareFunction {
       std::vector<NamedTemplateSpecialization> matches) const
       -> std::optional<NamedTemplateSpecialization>;
   void instantiateExplicitly(const NamedTemplateSpecialization& specialization);
+  [[nodiscard]] auto instantiateMemberExplicitly() -> bool;
 
   [[nodiscard]] auto isExplicitSpecializationHead() const -> bool;
   [[nodiscard]] auto specializedPrimaryTemplates() const
@@ -197,6 +199,7 @@ struct [[nodiscard]] Binder::DeclareFunction {
   void checkExplicitObjectParameter();
   void checkDestructorParameters();
   [[nodiscard]] auto declaresClassMember() const -> bool;
+  void mergeExplicitMemberSpecialization(FunctionSymbol* canonical);
   void mergeRedeclaration();
 };
 
@@ -258,7 +261,10 @@ auto Binder::DeclareFunction::declare() -> FunctionSymbol* {
   checkExplicitObjectParameter();
   checkDestructorParameters();
 
-  if (functionSymbol->isConstructor()) {
+  if (binder.inExplicitInstantiation() && instantiateMemberExplicitly())
+    return functionSymbol;
+
+  if (functionSymbol->isConstructor() && !binder.inExplicitInstantiation()) {
     checkConstructor();
     return functionSymbol;
   }
@@ -267,8 +273,7 @@ auto Binder::DeclareFunction::declare() -> FunctionSymbol* {
 
   checkExplicitInstantiation(namedSpecialization);
 
-  const auto instantiatesExplicitly =
-      namedSpecialization && binder.inExplicitInstantiation();
+  const auto instantiatesExplicitly = binder.inExplicitInstantiation();
 
   if (decl.specs.templateHead &&
       is_templated_class(symbol_cast<ClassSymbol>(decl.getScope()))) {
@@ -284,7 +289,7 @@ auto Binder::DeclareFunction::declare() -> FunctionSymbol* {
     checkRedeclaration(namedSpecialization);
 
   if (instantiatesExplicitly) {
-    instantiateExplicitly(*namedSpecialization);
+    if (namedSpecialization) instantiateExplicitly(*namedSpecialization);
   } else if (namedSpecialization && !decl.specs.isFriend) {
     namedSpecialization->primary->addSpecialization(
         binder.unit_, namedSpecialization->arguments, functionSymbol);
@@ -346,15 +351,23 @@ auto Binder::DeclareFunction::deducedSpecializationOf(
       templateArgumentList);
   if (!deducedArgs.has_value()) return std::nullopt;
 
+  SilentDiagnosticsScope substitutionScope{binder.unit_};
   auto substitution = Substitution::make(
       binder.unit_, primary->templateDeclaration(), *deducedArgs);
-  if (!substitution) return std::nullopt;
+  if (!substitution || substitutionScope.hadError()) return std::nullopt;
   return NamedTemplateSpecialization{
       primary, std::move(*substitution).templateArguments(), *deducedArgs};
 }
 
 void Binder::DeclareFunction::instantiateExplicitly(
     const NamedTemplateSpecialization& specialization) {
+  auto previous =
+      symbol_cast<FunctionSymbol>(specialization.primary->findSpecialization(
+          binder.unit_, specialization.arguments));
+  if (previous && cxx::isExplicitSpecializationHead(
+                      previous->canonical()->templateDeclaration()))
+    return;
+
   if (!binder.inExplicitInstantiationDefinition()) {
     ASTRewriter::markExplicitInstantiationDeclared(
         binder.unit_, specialization.deducedArguments, specialization.primary);
@@ -368,6 +381,39 @@ void Binder::DeclareFunction::instantiateExplicitly(
   auto instanceFunction = symbol_cast<FunctionSymbol>(instance);
   ASTRewriter::requireFunctionDefinition(binder.unit_, instanceFunction);
   binder.unit_->addExplicitInstantiationDefinition(instanceFunction);
+}
+
+auto Binder::DeclareFunction::instantiateMemberExplicitly() -> bool {
+  auto classSymbol = symbol_cast<ClassSymbol>(decl.getScope());
+  if (!classSymbol || name_cast<TemplateId>(decl.getName())) return false;
+
+  auto member = binder.getFunction(classSymbol, decl.getName(),
+                                   functionSymbol->type(), nullptr);
+  if (!member) return false;
+
+  member = member->canonical();
+  if (!member->instantiationPattern()) {
+    binder.error(decl.location(),
+                 "explicit instantiation requires a member of a class "
+                 "template specialization");
+    return true;
+  }
+
+  binder.addRedeclaration(member, functionSymbol);
+  mergeRedeclaration();
+  if (cxx::isExplicitSpecializationHead(member->templateDeclaration()))
+    return true;
+
+  if (binder.inExplicitInstantiationDefinition()) {
+    ASTRewriter::requireFunctionDefinition(binder.unit_, member,
+                                           decl.location());
+    binder.unit_->addExplicitInstantiationDefinition(member);
+  } else {
+    // A non-template member has no function template arguments. Retain its
+    // declaration directly on the selected member, not on the enclosing class.
+    member->addExternInstantiationDeclaration({});
+  }
+  return true;
 }
 
 auto Binder::DeclareFunction::isExplicitSpecializationHead() const -> bool {
@@ -386,6 +432,12 @@ auto Binder::DeclareFunction::specializedPrimaryTemplates() const
       return;
     primaries.push_back(function);
   };
+
+  if (functionSymbol->isConstructor()) {
+    auto classSymbol = symbol_cast<ClassSymbol>(declaringScopeForFunction());
+    for (auto function : classSymbol->constructors()) consider(function);
+    return primaries;
+  }
 
   if (namesConversionFunction()) {
     auto classSymbol = symbol_cast<ClassSymbol>(declaringScopeForFunction());
@@ -855,7 +907,6 @@ void Binder::DeclareFunction::checkExplicitInstantiation(
     const std::optional<NamedTemplateSpecialization>& specialization) {
   if (specialization) return;
   if (!binder.inExplicitInstantiation()) return;
-  if (symbol_cast<ClassSymbol>(decl.getScope())) return;
 
   binder.error(decl.location(),
                std::format("explicit instantiation of '{}' does not refer to a "
@@ -1090,9 +1141,45 @@ void Binder::DeclareFunction::attachFunctionParameters() {
   functionSymbol->addSymbol(parameters);
 }
 
+void Binder::DeclareFunction::mergeExplicitMemberSpecialization(
+    FunctionSymbol* canonical) {
+  if (!isExplicitSpecializationHead() || !canonical->instantiationPattern())
+    return;
+  if (cxx::isExplicitSpecializationHead(canonical->templateDeclaration()))
+    return;
+
+  binder.setSpeculativeValue(canonical->templateDeclaration(),
+                             decl.specs.templateHead,
+                             [canonical](TemplateDeclarationAST* head) {
+                               canonical->setTemplateDeclaration(head);
+                             });
+  // The specialization owns its body and specifiers independently of the
+  // member instantiated from the class template.
+  binder.setSpeculativeValue(
+      canonical->isInline(), functionSymbol->isInline(),
+      [canonical](bool value) { canonical->setInline(value); });
+  binder.setSpeculativeValue(
+      canonical->isConstexpr(), functionSymbol->isConstexpr(),
+      [canonical](bool value) { canonical->setConstexpr(value); });
+  binder.setSpeculativeValue(
+      canonical->isConsteval(), functionSymbol->isConsteval(),
+      [canonical](bool value) { canonical->setConsteval(value); });
+  if (auto pending = canonical->pendingBody()) {
+    if (binder.speculationDepth_) {
+      binder.recordSpeculativeMutation([canonical, pending = *pending] {
+        canonical->setPendingBody(
+            std::make_unique<PendingInstantiation>(pending));
+      });
+    }
+    canonical->clearPendingBody();
+  }
+}
+
 void Binder::DeclareFunction::mergeRedeclaration() {
   auto canonical = functionSymbol->canonical();
   if (!canonical || canonical == functionSymbol) return;
+
+  mergeExplicitMemberSpecialization(canonical);
 
   {
     bool defaultArgument = functionSymbol->hasFriendDefaultArgument();

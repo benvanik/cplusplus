@@ -7152,6 +7152,8 @@ auto Parser::parse_init_declarator(InitDeclaratorAST*& yyast,
       auto typedefSymbol = binder_.declareTypedef(declarator, decl);
       symbol = typedefSymbol;
     } else if (declaresFunction) {
+      auto functionScopeGuard = CombinedScopeGuard{this};
+      if (auto memberScope = decl.getScope()) enterScopeChain(memberScope);
       auto functionSymbol = binder_.declareFunction(declarator, decl);
       associatePendingNoexceptSpecifier(declarator, functionSymbol);
       binder_.setTemplateHead(functionSymbol, templateHead);

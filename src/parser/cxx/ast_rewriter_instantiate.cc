@@ -1240,6 +1240,8 @@ void ASTRewriter::instantiateOutOfClassMemberDefinitions(
 auto ASTRewriter::pendingBodyFromPattern(FunctionSymbol* function)
     -> std::unique_ptr<PendingInstantiation> {
   if (function->isFriend()) return nullptr;
+  if (isExplicitSpecializationHead(function->templateDeclaration()))
+    return nullptr;
   if (auto primary = function->primaryTemplateSymbol())
     return pendingSpecializationBody(function, primary);
   return pendingMemberBody(function);

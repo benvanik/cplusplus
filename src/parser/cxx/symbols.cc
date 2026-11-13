@@ -20,6 +20,7 @@
 
 #include <cxx/ast.h>
 #include <cxx/attributes.h>
+#include <cxx/binder.h>
 #include <cxx/control.h>
 #include <cxx/memory_layout.h>
 #include <cxx/names.h>
@@ -1248,6 +1249,8 @@ auto is_inline_or_templated(FunctionSymbol* function) -> bool {
   if (!function) return false;
   if (!function->isSpecialization()) function = function->canonical();
   if (function->isInline()) return true;
+  if (isExplicitSpecializationHead(function->templateDeclaration()))
+    return false;
   if (function->templateDeclaration() || function->isSpecialization())
     return true;
   for (auto scope = function->parent(); scope; scope = scope->parent()) {
@@ -2287,7 +2290,7 @@ auto ClassSymbol::defaultConstructor() const -> FunctionSymbol* {
 namespace {
 
 [[nodiscard]] auto isTemplated(FunctionSymbol* function) -> bool {
-  return function->templateDeclaration() || function->isSpecialization();
+  return function->isTemplatePattern() || function->isSpecialization();
 }
 
 [[nodiscard]] auto namesClass(const Type* type, const ClassSymbol* classSymbol)

@@ -425,9 +425,7 @@ class MaybeTemplate {
     return primaryTemplateSymbol() != nullptr;
   }
 
-  [[nodiscard]] auto isTemplatePattern() const -> bool {
-    return templateParameters() != nullptr && !isSpecialization();
-  }
+  [[nodiscard]] auto isTemplatePattern() const -> bool;
 
   [[nodiscard]] auto templateArguments() const
       -> std::span<const TemplateArgument> {
@@ -542,7 +540,7 @@ class MaybeTemplate {
   [[nodiscard]] auto isExplicitInstantiationDeclared(
       TranslationUnit* unit) const -> bool {
     auto primary = primaryTemplateSymbol();
-    if (!primary) return false;
+    if (!primary) return isExternInstantiationDeclared(unit, {});
     return primary->isExternInstantiationDeclared(unit, templateArguments());
   }
 
@@ -2266,6 +2264,13 @@ inline auto symbol_cast(Symbol* symbol) -> ScopeSymbol* {
   if (!symbol->isNamespace()) return false;
   if (symbol->parent()) return false;
   return true;
+}
+
+template <typename S, typename D>
+auto MaybeTemplate<S, D>::isTemplatePattern() const -> bool {
+  auto parameters = templateParameters();
+  return parameters && !parameters->isExplicitTemplateSpecialization() &&
+         !isSpecialization();
 }
 
 [[nodiscard]] auto isDeclaredConstant(Symbol* symbol) -> bool;

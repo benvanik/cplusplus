@@ -598,8 +598,7 @@ auto designatedFunction(Symbol* symbol) -> FunctionSymbol* {
   if (functions.size() != 1) return nullptr;
 
   auto function = functions.front();
-  if (function->templateDeclaration() && !function->isSpecialization())
-    return nullptr;
+  if (function->isTemplatePattern()) return nullptr;
 
   return function;
 }
