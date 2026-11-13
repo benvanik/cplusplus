@@ -347,9 +347,12 @@ void Codegen::StatementVisitor::operator()(ForRangeStatementAST* ast) {
   if (ast->rangeVariable && ast->beginVariable && ast->endVariable &&
       ast->beginInitializer && ast->endInitializer && ast->condition &&
       ast->increment && ast->element) {
-    gen.emitLocalVariableInit(ast->rangeVariable, ast->rangeInitializer);
-    gen.emitLocalVariableInit(ast->beginVariable, ast->beginInitializer);
-    gen.emitLocalVariableInit(ast->endVariable, ast->endInitializer);
+    gen.emitLocalVariableInit(ast->rangeVariable,
+                              ast->rangeVariable->initializer());
+    gen.emitLocalVariableInit(ast->beginVariable,
+                              ast->beginVariable->initializer());
+    gen.emitLocalVariableInit(ast->endVariable,
+                              ast->endVariable->initializer());
 
     auto conditionBlock = gen.newBlock();
     auto bodyBlock = gen.newBlock();

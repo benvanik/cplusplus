@@ -810,7 +810,7 @@ class Binder {
   };
 
   struct EnumerationHeadOf;
-  struct ClassRangeRewrite;
+  struct RangeForRewrite;
   struct DecomposeStructuredBinding;
   struct ImplicitExceptionSpecification;
   struct NestedNameSpecifierScope;

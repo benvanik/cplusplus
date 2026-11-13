@@ -177,19 +177,21 @@ auto Binder::declareRangeStructuredBindingEntity(
   return symbol_cast<VariableSymbol>(entityDeclarator->symbol);
 }
 
-struct Binder::ClassRangeRewrite {
+struct Binder::RangeForRewrite {
   Binder& binder;
   ForRangeStatementAST* ast;
   TypeChecker& check;
   bool memberBeginEnd = false;
   SourceLocation implicitLoc;
 
-  ClassRangeRewrite(Binder& b, ForRangeStatementAST* a, TypeChecker& c,
-                    const ClassType* classType)
+  RangeForRewrite(Binder& b, ForRangeStatementAST* a, TypeChecker& c,
+                  const Type* rangeType)
       : binder(b), ast(a), check(c) {
-    if (auto classSymbol = classType->symbol()) {
-      memberBeginEnd =
-          usesMemberBeginEnd(b.control(), classSymbol->resolvedDefinition());
+    if (auto classType = type_cast<ClassType>(rangeType)) {
+      if (auto classSymbol = classType->symbol()) {
+        memberBeginEnd =
+            usesMemberBeginEnd(b.control(), classSymbol->resolvedDefinition());
+      }
     }
     implicitLoc = a->rangeInitializer->firstSourceLocation();
   }
@@ -197,11 +199,17 @@ struct Binder::ClassRangeRewrite {
   [[nodiscard]] auto arena() const -> Arena* { return binder.unit_->arena(); }
   [[nodiscard]] auto control() const -> Control* { return binder.control(); }
 
-  [[nodiscard]] auto declareVariable(const Type* type) const
+  [[nodiscard]] auto declareVariable(const Type* type,
+                                     ExpressionAST* initializer) const
       -> VariableSymbol* {
     auto symbol = control()->newVariableSymbol(ast->symbol, ast->colonLoc);
     symbol->setType(type);
     ast->symbol->addSymbol(symbol);
+    ExpressionAST* equal = EqualInitializerAST::create(
+        arena(), implicitLoc, initializer, initializer->valueCategory,
+        initializer->type);
+    check.checkPotentiallyInvokedDestructor(type, implicitLoc);
+    check.check_variable_initializer(symbol, equal, implicitLoc);
     return symbol;
   }
 
@@ -259,6 +267,24 @@ struct Binder::ClassRangeRewrite {
     return control()->getRvalueReferenceType(rangeInitializer->type);
   }
 
+  [[nodiscard]] auto arrayEnd(const BoundedArrayType* arrayType) const
+      -> ExpressionAST* {
+    auto size = IntLiteralExpressionAST::create(arena());
+    size->literal =
+        control()->integerLiteral(std::to_string(arrayType->size()));
+    size->literalLoc = implicitLoc;
+    size->type = control()->getSizeType();
+    size->valueCategory = ValueCategory::kPrValue;
+    auto addition = BinaryExpressionAST::create(arena());
+    addition->leftExpression = reference(ast->rangeVariable);
+    addition->rightExpression = size;
+    addition->op = TokenKind::T_PLUS;
+    addition->opLoc = implicitLoc;
+    ExpressionAST* result = addition;
+    check.check(&result);
+    return result;
+  }
+
   [[nodiscard]] auto iteratorOperation(TokenKind op) const
       -> UnaryExpressionAST* {
     auto operation = UnaryExpressionAST::create(arena());
@@ -269,18 +295,31 @@ struct Binder::ClassRangeRewrite {
   }
 
   [[nodiscard]] auto operator()() -> const Type* {
-    ast->rangeVariable = declareVariable(rangeReferenceType());
+    ast->rangeVariable =
+        declareVariable(rangeReferenceType(), ast->rangeInitializer);
 
-    ast->beginInitializer = beginEndCall(control()->getIdentifier("begin"));
-    ast->endInitializer = beginEndCall(control()->getIdentifier("end"));
+    auto rangeType =
+        binder.traits.remove_reference(ast->rangeInitializer->type);
+    if (auto arrayType = type_cast<BoundedArrayType>(rangeType)) {
+      ast->beginInitializer = reference(ast->rangeVariable);
+      if (!check.implicit_conversion(
+              ast->beginInitializer,
+              control()->getPointerType(arrayType->elementType())))
+        return nullptr;
+      ast->endInitializer = arrayEnd(arrayType);
+    } else {
+      ast->beginInitializer = beginEndCall(control()->getIdentifier("begin"));
+      ast->endInitializer = beginEndCall(control()->getIdentifier("end"));
+    }
     if (!ast->beginInitializer->type || !ast->endInitializer->type)
       return nullptr;
 
     auto& traits = binder.traits;
     ast->beginVariable =
-        declareVariable(traits.remove_cvref(ast->beginInitializer->type));
-    ast->endVariable =
-        declareVariable(traits.remove_cvref(ast->endInitializer->type));
+        declareVariable(traits.remove_cvref(ast->beginInitializer->type),
+                        ast->beginInitializer);
+    ast->endVariable = declareVariable(
+        traits.remove_cvref(ast->endInitializer->type), ast->endInitializer);
 
     auto notEqual = BinaryExpressionAST::create(arena());
     notEqual->leftExpression = reference(ast->beginVariable);
@@ -344,13 +383,22 @@ void Binder::finishForRangeDeclaration(ForRangeStatementAST* ast,
 
   auto rangeType = traits.remove_cvref(rangeInitializer->type);
 
+  if (type_cast<UnboundedArrayType>(rangeType)) {
+    error(rangeInitializer->firstSourceLocation(),
+          "range-based for requires an array with a known bound");
+    return;
+  }
+  if (!type_cast<BoundedArrayType>(rangeType) &&
+      !type_cast<ClassType>(rangeType)) {
+    error(rangeInitializer->firstSourceLocation(),
+          "range-based for requires an array or class range");
+    return;
+  }
+
   auto elementType = resolveRangeIteration(unit_, ast, rangeType);
 
-  if (auto classType = type_cast<ClassType>(rangeType)) {
-    ClassRangeRewrite rewrite{*this, ast, check, classType};
-    if (auto rewrittenElementType = rewrite())
-      elementType = rewrittenElementType;
-  }
+  RangeForRewrite rewrite{*this, ast, check, rangeType};
+  if (auto rewrittenElementType = rewrite()) elementType = rewrittenElementType;
 
   auto elementExpression = ast->element;
   if (!elementExpression && elementType) {
