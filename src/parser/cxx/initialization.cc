@@ -2938,6 +2938,7 @@ auto InitializationEngine::applyArrayFromExpressionList(
   auto normalized =
       makeInitializerList(pool, node->firstSourceLocation(),
                           node->lastSourceLocation(), entity.type());
+  normalized->initialization.isParenthesizedAggregate = true;
   ExpressionListBuilder list{pool, normalized->expressionList};
 
   auto element =
@@ -3203,7 +3204,10 @@ auto Initializer::form() const -> InitializerForm {
   if (!node_) return InitializerForm::kNone;
   auto expr = stripInitializerWrappers(node_);
   if (ast_cast<ParenInitializerAST>(expr)) return InitializerForm::kParen;
-  if (ast_cast<BracedInitListAST>(expr)) return InitializerForm::kList;
+  if (auto list = ast_cast<BracedInitListAST>(expr))
+    return list->initialization.isParenthesizedAggregate
+               ? InitializerForm::kParen
+               : InitializerForm::kList;
   if (auto equal = ast_cast<EqualInitializerAST>(expr)) {
     if (ast_cast<BracedInitListAST>(stripImplicitCasts(equal->expression)))
       return InitializerForm::kList;

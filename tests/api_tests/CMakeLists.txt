@@ -40,6 +40,7 @@ add_executable(test_api
     test_external_names.cc
     test_floating_point.cc
     test_if_constexpr.cc
+    test_initialization.cc
     test_lexer.cc
     test_nested_function_template_instantiation.cc
     test_object_representation.cc

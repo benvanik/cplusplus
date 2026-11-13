@@ -24,6 +24,7 @@
 #include <cxx/attributes.h>
 #include <cxx/control.h>
 #include <cxx/diagnostics_client.h>
+#include <cxx/initialization.h>
 #include <cxx/literals.h>
 #include <cxx/memory_layout.h>
 #include <cxx/names.h>
@@ -304,6 +305,47 @@ int origin;
   ASSERT_TRUE(type_cast<IntType>(x->type()));
 
   ASSERT_TRUE(symbol_cast<VariableSymbol>(findMember(globalScope, "origin")));
+}
+
+TEST(PrecompiledHeader, RestoresAggregateInitializationForms) {
+  Prefix prefix{R"(
+struct Pair { int first; int second = 5; };
+Pair braced{3};
+Pair parenthesized(3);
+int parenthesized_array[2](7);
+)"};
+
+  for (auto [name, expected] :
+       {std::pair{"braced", InitializerForm::kList},
+        std::pair{"parenthesized", InitializerForm::kParen},
+        std::pair{"parenthesized_array", InitializerForm::kParen}}) {
+    SCOPED_TRACE(name);
+    auto variable = symbol_cast<VariableSymbol>(
+        findMember(prefix.unit()->globalScope(), name));
+    ASSERT_NE(variable, nullptr);
+    EXPECT_EQ(Initializer{variable->initializer()}.form(), expected);
+  }
+
+  const auto data = prefix.emit();
+  ASSERT_TRUE(prefix.errors().empty());
+  ASSERT_FALSE(data.empty());
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+  PrecompiledHeaderReader reader{&consumer, keys()};
+  ASSERT_TRUE(reader(data)) << reader.error();
+
+  for (auto [name, expected] :
+       {std::pair{"braced", InitializerForm::kList},
+        std::pair{"parenthesized", InitializerForm::kParen},
+        std::pair{"parenthesized_array", InitializerForm::kParen}}) {
+    SCOPED_TRACE(name);
+    auto variable =
+        symbol_cast<VariableSymbol>(findMember(consumer.globalScope(), name));
+    ASSERT_NE(variable, nullptr);
+    EXPECT_EQ(Initializer{variable->initializer()}.form(), expected);
+  }
 }
 
 TEST(PrecompiledHeader, RestoresBFloat16Type) {
