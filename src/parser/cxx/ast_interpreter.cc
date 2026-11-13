@@ -793,6 +793,8 @@ auto ASTInterpreter::materializeExtendedTemporary(ExpressionAST* ast)
 
 auto ASTInterpreter::bindReferenceTo(Frame& frame, Symbol* reference,
                                      ExpressionAST* initializer) -> bool {
+  initializer = referenceInitializer(initializer);
+  if (!initializer) return false;
   auto temporaryMark = temporaries_.size();
   auto value = is_prvalue(initializer)
                    ? std::optional<ConstValue>{materialize(initializer)}

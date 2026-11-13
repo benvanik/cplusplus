@@ -2907,6 +2907,8 @@ auto ASTInterpreter::elementAddress(const ConstAddress& base,
   result->setOffset(offset->toIntMax());
   if (!validPosition(*result)) return nullptr;
 
+  if (index == 0) return result;
+
   auto size = control()->memoryLayout()->sizeOf(elementType);
   if (!size || !std::in_range<std::intmax_t>(*size)) return nullptr;
   auto delta =
