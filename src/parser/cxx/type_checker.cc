@@ -6902,6 +6902,39 @@ void TypeChecker::check(DeclarationAST* ast) {
   Visitor{*this}.check_static_assert(staticAssert);
 }
 
+void TypeChecker::check_function_definition(FunctionSymbol* function) {
+  if (!unit_->config().checkTypes() || function->isDeleted()) return;
+  auto functionType = type_cast<FunctionType>(function->type());
+  if (!functionType) return;
+
+  auto traits = TypeTraits{unit_};
+  auto checkObjectType = [&](const Type* type, SourceLocation location,
+                             std::string_view subject) {
+    auto classType = type_cast<ClassType>(traits.remove_cv(type));
+    if (!classType || isDependent(unit_, type)) return;
+    traits.requireCompleteClass(classType->symbol());
+    auto record = classType->definition();
+    if (!record->isComplete()) {
+      error(location, std::format("{} incomplete class type '{}'", subject,
+                                  to_string(type)));
+    } else if (record->isAbstract()) {
+      error(location, std::format("{} abstract class type '{}'", subject,
+                                  to_string(type)));
+    }
+  };
+
+  checkObjectType(functionType->returnType(), function->location(),
+                  "return type is an");
+  if (auto parameters = function->functionParameters()) {
+    for (auto member : parameters->members()) {
+      if (auto parameter = symbol_cast<ParameterSymbol>(member)) {
+        checkObjectType(parameter->type(), parameter->location(),
+                        "parameter has");
+      }
+    }
+  }
+}
+
 namespace {
 [[nodiscard]] auto lookupBaseClassType(ClassSymbol* classSymbol,
                                        const Identifier* name,

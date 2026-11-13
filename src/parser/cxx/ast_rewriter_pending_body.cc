@@ -823,8 +823,6 @@ auto ASTRewriter::completePendingBody(FunctionSymbol* func,
 
   newAst->functionBody = rewriter.functionBody(originalDef->functionBody);
 
-  auto bodyErrors = rewriter.takeBodyErrors();
-
   rewriter.binder_.synthesizeCompleteObjectCtor(func);
 
   if (ast_cast<DefaultFunctionBodyAST>(newAst->functionBody)) {
@@ -833,6 +831,12 @@ auto ASTRewriter::completePendingBody(FunctionSymbol* func,
     rewriter.checkMemInitializers(func, newAst->functionBody);
     rewriter.binder_.finishAutoReturnType(func);
   }
+
+  {
+    BodyErrorScope bodyErrors{rewriter};
+    rewriter.typeChecker().check_function_definition(func);
+  }
+  auto bodyErrors = rewriter.takeBodyErrors();
 
   if (bodyErrors.empty() && !deferDiagnostics) {
     if (!rewriter.binder_.inTemplate())

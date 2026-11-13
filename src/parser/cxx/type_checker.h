@@ -72,6 +72,10 @@ class TypeChecker {
 
   void check(DeclarationAST* ast);
 
+  // Checks object types after the function body and return type are complete.
+  // Dependent types are checked when their definition is instantiated.
+  void check_function_definition(FunctionSymbol* function);
+
   void check_return_statement(ReturnStatementAST* ast,
                               bool isDiscarded = false);
 

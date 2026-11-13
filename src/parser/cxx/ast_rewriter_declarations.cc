@@ -801,6 +801,10 @@ auto ASTRewriter::DeclarationVisitor::operator()(FunctionDefinitionAST* ast)
     }
 
     binder()->synthesizeDefaultedMemberBody(functionSymbol);
+    {
+      BodyErrorScope bodyErrors{rewrite};
+      rewrite.typeChecker().check_function_definition(functionSymbol);
+    }
     validateCompletedInstantiation(rewrite.unit_, functionSymbol, copy);
   }
 

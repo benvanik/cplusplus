@@ -2822,6 +2822,10 @@ void Binder::completeLambdaBody(LambdaExpressionAST* ast) {
   if (!ast->trailingReturnType && !ast->symbol->isTemplate())
     finishAutoReturnType(operatorFunc);
 
+  auto typeChecker = TypeChecker{unit_};
+  typeChecker.setReportErrors(reportErrors());
+  typeChecker.check_function_definition(operatorFunc);
+
   if (!inTemplate() && !ast->symbol->isTemplate())
     checkLambdaBodyWarnings(unit_, ast);
 
