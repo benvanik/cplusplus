@@ -822,7 +822,7 @@ auto ASTRewriter::DeclarationVisitor::operator()(FunctionDefinitionAST* ast)
       auto oldClass = symbol_cast<ClassSymbol>(oldFunc->parent());
       auto newClass = symbol_cast<ClassSymbol>(functionSymbol->parent());
       if (oldClass && newClass && oldClass != newClass) {
-        rewrite.remapScopeMembers(oldClass, newClass);
+        rewrite.remapInstantiatedScope(oldClass, newClass);
       }
 
       if (auto oldParams = oldFunc->functionParameters()) {

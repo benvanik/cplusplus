@@ -1037,7 +1037,7 @@ auto ASTRewriter::ensureCompleteClass(TranslationUnit* unit,
     for (auto oldScope = pattern->parent(), newScope = classSymbol->parent();
          oldScope && newScope && oldScope->isClass() && newScope->isClass();
          oldScope = oldScope->parent(), newScope = newScope->parent()) {
-      rewriter.remapScopeMembers(oldScope, newScope);
+      rewriter.remapInstantiatedScope(oldScope, newScope);
     }
     rewriter.addSymbolRemap(pattern, classSymbol);
     if (classSymbol->isTemplatePattern())
@@ -1152,7 +1152,7 @@ struct ASTRewriter::OutOfClassMemberDefinitions {
     rewriter.depth_ = depth;
     rewriter.inheritEnclosingTemplateArguments(instanceClass);
     rewriter.binder_.setInstantiatingSymbol(instantiating);
-    rewriter.remapScopeMembers(pattern, instanceClass);
+    rewriter.remapInstantiatedScope(pattern, instanceClass);
     (void)rewriter.declaration(declaration);
   }
 
@@ -1330,7 +1330,7 @@ void ASTRewriter::instantiateOutOfClassMemberDefinitions(
   if (!instanceClass) return;
 
   unit_->addPendingMemberInstantiation(instanceClass);
-  remapScopeMembers(pattern, instanceClass);
+  remapInstantiatedScope(pattern, instanceClass);
 
   OutOfClassMemberDefinitions{*this, pattern, instanceClass,
                               pattern->templateDeclaration()}

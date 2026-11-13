@@ -55,6 +55,33 @@ struct VirtualLeft : virtual Base {};
 struct Virtual : Other, VirtualLeft {};
 Base* virtualBasePointer(Virtual* value) { return value; }
 
+struct TemplateOffset {
+  unsigned padding[3];
+};
+struct TemplateValue {
+  unsigned value;
+  constexpr unsigned get() const { return value; }
+};
+template <typename T>
+struct InstantiatedPaths : TemplateOffset, TemplateValue {
+  constexpr unsigned explicitCall() const { return this->get(); }
+  constexpr unsigned implicitCall() const { return get(); }
+  constexpr unsigned explicitValue() const { return this->value; }
+  constexpr unsigned implicitValue() const { return value; }
+  constexpr const TemplateValue* basePointer() const { return this; }
+  constexpr const TemplateValue& baseReference() const { return *this; }
+};
+
+constexpr InstantiatedPaths<double> instantiatedPaths{{{1, 2, 3}}, {37}};
+static_assert(instantiatedPaths.explicitCall() == 37);
+static_assert(instantiatedPaths.implicitCall() == 37);
+static_assert(instantiatedPaths.explicitValue() == 37);
+static_assert(instantiatedPaths.implicitValue() == 37);
+static_assert(instantiatedPaths.basePointer() ==
+              static_cast<const TemplateValue*>(&instantiatedPaths));
+static_assert(&instantiatedPaths.baseReference() ==
+              static_cast<const TemplateValue*>(&instantiatedPaths));
+
 int main() {
   Both object{{{3}}, {{7}}};
   if (object.sum() != 10 || object.callSum() != 10) return 1;
@@ -84,5 +111,10 @@ int main() {
   Virtual virtualObject;
   virtualObject.Base::value = 31;
   if (virtualBasePointer(&virtualObject)->value != 31) return 16;
+  InstantiatedPaths<double> paths{{{1, 2, 3}}, {37}};
+  if (paths.explicitCall() != 37 || paths.implicitCall() != 37) return 17;
+  if (paths.explicitValue() != 37 || paths.implicitValue() != 37) return 18;
+  if (paths.basePointer() != static_cast<TemplateValue*>(&paths)) return 19;
+  if (&paths.baseReference() != static_cast<TemplateValue*>(&paths)) return 20;
   return 0;
 }

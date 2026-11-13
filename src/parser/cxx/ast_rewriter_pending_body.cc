@@ -56,8 +56,8 @@ namespace {
 
 }  // namespace
 
-void ASTRewriter::remapScopeMembers(ScopeSymbol* oldScope,
-                                    ScopeSymbol* newScope) {
+void ASTRewriter::remapInstantiatedScope(ScopeSymbol* oldScope,
+                                         ScopeSymbol* newScope) {
   if (!oldScope || !newScope || oldScope == newScope) return;
 
   if (auto oldClass = symbol_cast<ClassSymbol>(oldScope)) {
@@ -69,6 +69,12 @@ void ASTRewriter::remapScopeMembers(ScopeSymbol* oldScope,
   if (oldScope == newScope) return;
 
   addSymbolRemap(oldScope, newScope);
+
+  if (auto instanceClass = symbol_cast<ClassSymbol>(newScope)) {
+    for (auto base : instanceClass->baseClasses()) {
+      remapInstantiationPatterns(base);
+    }
+  }
 
   for (auto member : newScope->members()) remapInstantiatedMember(member);
 }
@@ -110,7 +116,7 @@ void ASTRewriter::remapInstantiatedMember(Symbol* member) {
 
   if (!member->isClass() && !member->isEnumOrScopedEnum()) return;
 
-  remapScopeMembers(pattern->asScopeSymbol(), member->asScopeSymbol());
+  remapInstantiatedScope(pattern->asScopeSymbol(), member->asScopeSymbol());
 }
 
 void ASTRewriter::remapInitCaptures(LambdaSymbol* pattern,
@@ -130,7 +136,7 @@ void ASTRewriter::remapEnclosingClassPatterns(ScopeSymbol* scope) {
     if (!instanceClass) continue;
     auto patternClass = instanceClass->instantiationTemplate();
     if (!patternClass) continue;
-    remapScopeMembers(patternClass, instanceClass);
+    remapInstantiatedScope(patternClass, instanceClass);
   }
 }
 
@@ -650,7 +656,7 @@ void ASTRewriter::requireFieldInitializer(TranslationUnit* unit,
     auto patternClass = symbol_cast<ClassSymbol>(pattern->symbol->parent());
     auto instanceClass = symbol_cast<ClassSymbol>(field->parent());
     if (patternClass && instanceClass) {
-      rewriter.remapScopeMembers(patternClass, instanceClass);
+      rewriter.remapInstantiatedScope(patternClass, instanceClass);
     }
     rewriter.addSymbolRemap(pattern->symbol, field);
   }
@@ -764,8 +770,8 @@ auto ASTRewriter::requireDefaultArgument(TranslationUnit* unit,
   rewriter.inheritEnclosingTemplateArguments(parameter->parent());
 
   if (pattern->symbol) {
-    rewriter.remapScopeMembers(pattern->symbol->enclosingClass(),
-                               parameter->enclosingClass());
+    rewriter.remapInstantiatedScope(pattern->symbol->enclosingClass(),
+                                    parameter->enclosingClass());
   }
 
   TranslationUnit::DeferredInitializerScope deferredInitializer{unit,
@@ -928,7 +934,7 @@ auto ASTRewriter::completePendingBody(FunctionSymbol* func,
     auto patternClass = symbol_cast<ClassSymbol>(originalDef->symbol->parent());
     auto instanceClass = symbol_cast<ClassSymbol>(func->parent());
     if (patternClass && instanceClass) {
-      rewriter.remapScopeMembers(patternClass, instanceClass);
+      rewriter.remapInstantiatedScope(patternClass, instanceClass);
     }
 
     auto patternTemplateDecl = originalDef->symbol->templateDeclaration();
@@ -984,7 +990,7 @@ auto ASTRewriter::completePendingBody(FunctionSymbol* func,
     }
     std::ranges::reverse(enclosingClasses);
     for (auto [patternClass, instanceClass] : enclosingClasses)
-      rewriter.remapScopeMembers(patternClass, instanceClass);
+      rewriter.remapInstantiatedScope(patternClass, instanceClass);
 
     if (auto oldParams = oldFunc->functionParameters()) {
       if (auto newParams = func->functionParameters()) {

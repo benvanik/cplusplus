@@ -719,7 +719,7 @@ class [[nodiscard]] ASTRewriter {
   void remapStructuredBindingSymbols(StructuredBindingDeclarationAST* from,
                                      StructuredBindingDeclarationAST* to);
 
-  void remapScopeMembers(ScopeSymbol* oldScope, ScopeSymbol* newScope);
+  void remapInstantiatedScope(ScopeSymbol* oldScope, ScopeSymbol* newScope);
 
   void remapInstantiatedMember(Symbol* member);
   void remapInstantiationPatterns(Symbol* instance);
