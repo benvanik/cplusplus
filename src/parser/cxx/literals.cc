@@ -194,6 +194,7 @@ struct StringLiteralParser {
       case StringLiteralEncoding::kUtf8:
         value += static_cast<char>(x);
         break;
+      case StringLiteralEncoding::kWide16:
       case StringLiteralEncoding::kUtf16: {
         auto v = static_cast<std::uint16_t>(x);
         value += static_cast<char>(v & 0xFF);
@@ -218,6 +219,7 @@ struct StringLiteralParser {
       case StringLiteralEncoding::kUtf8:
         encodeUtf8(cp, value);
         break;
+      case StringLiteralEncoding::kWide16:
       case StringLiteralEncoding::kUtf16:
         encodeUtf16LE(cp, value);
         break;
@@ -234,6 +236,7 @@ struct StringLiteralParser {
       case StringLiteralEncoding::kUtf8:
         value += ch;
         break;
+      case StringLiteralEncoding::kWide16:
       case StringLiteralEncoding::kUtf16: {
         auto v = static_cast<std::uint16_t>(static_cast<unsigned char>(ch));
         value += static_cast<char>(v & 0xFF);
@@ -331,6 +334,19 @@ struct StringLiteralParser {
            parseSimpleEscapeSequence() || parseConditionalEscapeSequence();
   };
 
+  void parseStringCharacter() {
+    if (static_cast<unsigned char>(LA()) < 0x80 ||
+        encoding == StringLiteralEncoding::kNone ||
+        encoding == StringLiteralEncoding::kUtf8) {
+      emitChar(LA());
+      consume();
+      return;
+    }
+    auto cursor = text.begin() + pos;
+    emitCodePoint(utf8::next(cursor, text.end()));
+    pos = static_cast<int>(cursor - text.begin());
+  }
+
   void parseStringLiteral() {
     while (LA()) parseStringLiteralSegment();
   }
@@ -376,8 +392,7 @@ struct StringLiteralParser {
             break;
           }
         }
-        emitChar(LA());
-        consume();
+        parseStringCharacter();
       }
     } else {
       while (const auto ch = LA()) {
@@ -385,8 +400,7 @@ struct StringLiteralParser {
 
         if (parseEscapeSequence()) continue;
 
-        emitChar(ch);
-        consume();
+        parseStringCharacter();
       }
       if (LA() == '"') consume();
     }
@@ -1032,6 +1046,7 @@ auto StringLiteral::codeUnitSize() const -> std::size_t {
     case StringLiteralEncoding::kNone:
     case StringLiteralEncoding::kUtf8:
       return 1;
+    case StringLiteralEncoding::kWide16:
     case StringLiteralEncoding::kUtf16:
       return 2;
     case StringLiteralEncoding::kUtf32:

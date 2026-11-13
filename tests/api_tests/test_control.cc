@@ -23,6 +23,7 @@
 #include <cxx/dependent_types.h>
 #include <cxx/diagnostics_client.h>
 #include <cxx/literals.h>
+#include <cxx/memory_layout.h>
 #include <cxx/names.h>
 #include <cxx/symbols.h>
 #include <cxx/translation_unit.h>
@@ -631,4 +632,37 @@ TEST(Control, restored_specialization_indexed_after_fixup) {
   std::vector<TemplateArgument> arguments{
       control->getPackArgumentSymbol(elements)};
   EXPECT_EQ(restored.find(&unit, arguments), specialization);
+}
+
+TEST(Control, wide_string_code_units_follow_memory_layout) {
+  Control control;
+  MemoryLayout layout{64};
+  control.setMemoryLayout(&layout);
+  constexpr auto spelling = R"(L"\u03bb\U0001f642\0!")";
+
+  auto wide32 = control.wideStringLiteral(spelling);
+  EXPECT_EQ(wide32->encoding(), StringLiteralEncoding::kWide);
+  EXPECT_EQ(wide32->codeUnitSize(), 4u);
+  ASSERT_EQ(wide32->charCount(), 4u);
+  EXPECT_EQ(wide32->charAt(0), 0x03bbu);
+  EXPECT_EQ(wide32->charAt(1), 0x1f642u);
+  EXPECT_EQ(wide32->charAt(2), 0u);
+  EXPECT_EQ(wide32->charAt(3), '!');
+
+  layout.setWideCharUnderlyingType(2, false);
+  auto wide16 = control.wideStringLiteral(spelling);
+  EXPECT_NE(wide16, wide32);
+  EXPECT_EQ(wide16->encoding(), StringLiteralEncoding::kWide16);
+  EXPECT_EQ(wide16->codeUnitSize(), 2u);
+  ASSERT_EQ(wide16->charCount(), 5u);
+  EXPECT_EQ(wide16->charAt(0), 0x03bbu);
+  EXPECT_EQ(wide16->charAt(1), 0xd83du);
+  EXPECT_EQ(wide16->charAt(2), 0xde42u);
+  EXPECT_EQ(wide16->charAt(3), 0u);
+  EXPECT_EQ(wide16->charAt(4), '!');
+  EXPECT_EQ(control.wideStringLiteral(spelling), wide16);
+
+  layout.setWideCharUnderlyingType(4, true);
+  EXPECT_EQ(control.wideStringLiteral(spelling), wide32);
+  EXPECT_EQ(wide16->charAt(1), 0xd83du);
 }

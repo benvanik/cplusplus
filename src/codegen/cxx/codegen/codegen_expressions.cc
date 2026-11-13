@@ -622,22 +622,7 @@ auto Codegen::ExpressionVisitor::operator()(StringLiteralExpressionAST* ast)
   if (it == gen.stringLiterals_.end()) {
     std::string str(ast->literal->stringValue());
 
-    switch (ast->literal->encoding()) {
-      case StringLiteralEncoding::kUtf16:
-        str.push_back('\0');
-        str.push_back('\0');
-        break;
-      case StringLiteralEncoding::kUtf32:
-      case StringLiteralEncoding::kWide:
-        str.push_back('\0');
-        str.push_back('\0');
-        str.push_back('\0');
-        str.push_back('\0');
-        break;
-      default:
-        str.push_back('\0');
-        break;
-    }
+    str.append(ast->literal->codeUnitSize(), '\0');
 
     auto initializer =
         ir::Initializer::byteString(std::string_view(str.data(), str.size()));

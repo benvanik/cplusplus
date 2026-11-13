@@ -2764,6 +2764,7 @@ auto ASTInterpreter::typedAddress(const ConstAddress& address)
     switch (literal->encoding()) {
       case StringLiteralEncoding::kNone:
         break;
+      case StringLiteralEncoding::kWide16:
       case StringLiteralEncoding::kWide:
         type = control()->getWideCharType();
         break;
