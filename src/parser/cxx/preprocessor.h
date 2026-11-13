@@ -26,6 +26,7 @@
 #include <cxx/triple.h>
 
 #include <array>
+#include <cstdlib>
 #include <format>
 #include <functional>
 #include <memory>
@@ -95,7 +96,7 @@ class PredefinedMacros {
     for (const auto& definition : definitions) {
       const auto name = definition.identifier();
       if (name.empty() || (!previous.empty() && previous >= name)) {
-        throw "predefined macros must be sorted by unique identifiers";
+        std::abort();
       }
       previous = name;
       lengths_ |= std::uint64_t{1} << (name.size() & 63);
