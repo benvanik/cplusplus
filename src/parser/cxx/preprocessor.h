@@ -25,6 +25,7 @@
 #include <cxx/source_resolver.h>
 #include <cxx/triple.h>
 
+#include <array>
 #include <functional>
 #include <iosfwd>
 #include <memory>
@@ -49,6 +50,77 @@ class CommentHandler {
 
   virtual void handleComment(Preprocessor* preprocessor,
                              const Token& token) = 0;
+};
+
+// An immutable toolchain definition. Tables are sorted by identifier, with one
+// definition per identifier, and outlive every preprocessor that borrows them.
+struct PredefinedMacro {
+  constexpr PredefinedMacro(std::string_view name, std::string_view body)
+      : name(name),
+        body(body),
+        identifierLength_(name.substr(0, name.find('(')).size()) {}
+
+  // Macro spelling, including the parameter list for a function-like macro.
+  std::string_view name;
+  // Replacement text, tokenized only when the definition is needed.
+  std::string_view body;
+
+  [[nodiscard]] constexpr auto identifier() const -> std::string_view {
+    return {name.data(), identifierLength_};
+  }
+
+ private:
+  // Retained identifier extent avoids rescanning declarations during lookup.
+  std::size_t identifierLength_;
+};
+
+// Compile-time index of a borrowed, sorted definition table. Negative lookup
+// filters depend on spelling families, not the number of definitions in them.
+class PredefinedMacros {
+ public:
+  consteval explicit PredefinedMacros(
+      std::span<const PredefinedMacro> definitions)
+      : definitions_(definitions) {
+    if (definitions.empty()) return;
+    const auto first = definitions.front().identifier();
+    const auto last = definitions.back().identifier();
+    std::size_t common = 0;
+    while (common < first.size() && common < last.size() &&
+           first[common] == last[common]) {
+      ++common;
+    }
+    prefix_ = first.substr(0, common);
+    std::string_view previous;
+    for (const auto& definition : definitions) {
+      const auto name = definition.identifier();
+      if (name.empty() || (!previous.empty() && previous >= name)) {
+        throw "predefined macros must be sorted by unique identifiers";
+      }
+      previous = name;
+      lengths_ |= std::uint64_t{1} << (name.size() & 63);
+      if (name.size() > common) {
+        const auto ch = static_cast<unsigned char>(name[common]);
+        nextCharacters_[ch / 64] |= std::uint64_t{1} << (ch & 63);
+      }
+    }
+  }
+
+  [[nodiscard]] auto definitions() const -> std::span<const PredefinedMacro> {
+    return definitions_;
+  }
+
+  [[nodiscard]] auto find(std::string_view name) const
+      -> const PredefinedMacro*;
+
+ private:
+  // Borrowed definitions, sorted by identifier, with unique names.
+  std::span<const PredefinedMacro> definitions_;
+  // Shared identifier prefix, borrowing spelling bytes from the first row.
+  std::string_view prefix_;
+  // Possible identifier lengths modulo 64; false positives use exact lookup.
+  std::uint64_t lengths_ = 0;
+  // Possible first bytes after the common prefix.
+  std::array<std::uint64_t, 4> nextCharacters_ = {};
 };
 
 class Preprocessor final : public SourceResolver {
@@ -135,6 +207,13 @@ class Preprocessor final : public SourceResolver {
   [[nodiscard]] auto isSystemHeader(std::uint32_t sourceFileId) const -> bool;
 
   void setDisableCurrentDirSearch(bool disable);
+
+  // Installs the immutable base environment before the first undefinition or
+  // preprocessing operation. Explicit definitions override this environment.
+  // Registration borrows the table without inspecting its rows; restore
+  // replaces it with the complete environment in the snapshot.
+  void setPredefinedMacros(const PredefinedMacros& macros);
+  void setPredefinedMacros(PredefinedMacros&&) = delete;
 
   void defineMacro(const std::string& name, const std::string& body);
 
