@@ -261,8 +261,7 @@ auto ObjectRepresentation::valueBits(const Type* type, const ConstValue& value)
     -> std::optional<ConstInt::UWide> {
   if (auto format = memoryLayout()->floatingPointFormat(type)) {
     if (auto stored = std::get_if<ConstFloat>(&value)) {
-      auto expected = ConstFloat::formatFor(
-          unaligned_type(traits_.remove_cv(type))->kind());
+      auto expected = ConstFloat::formatFor(*format);
       if (expected && stored->format() == *expected) return stored->bits();
     }
     if (auto real = std::get_if<long double>(&value))
@@ -284,17 +283,21 @@ auto ObjectRepresentation::valueBits(const Type* type, const ConstValue& value)
 
 auto ObjectRepresentation::scalarValue(const Type* type, ConstInt::UWide bits)
     -> std::optional<ConstValue> {
-  if (auto format = ConstFloat::formatFor(
-          unaligned_type(traits_.remove_cv(type))->kind())) {
+  auto targetFormat = memoryLayout()->floatingPointFormat(type);
+  auto storedFormat =
+      targetFormat ? ConstFloat::formatFor(*targetFormat) : std::nullopt;
+  if (storedFormat) {
     auto value =
-        ConstFloat::fromBits(*format, static_cast<std::uint64_t>(bits));
+        ConstFloat::fromBits(*storedFormat, static_cast<std::uint64_t>(bits));
     if (!value) return std::nullopt;
     return ConstValue{*value};
   }
-  if (auto format = memoryLayout()->floatingPointFormat(type)) {
-    const auto width = 1 + format->exponentBits + format->fractionBits();
+  if (targetFormat) {
+    const auto width =
+        1 + targetFormat->exponentBits + targetFormat->fractionBits();
     if (width > std::numeric_limits<std::uint64_t>::digits) return std::nullopt;
-    return interp_.toArithmeticType(ConstValue{format->value(bits)}, type);
+    return interp_.toArithmeticType(ConstValue{targetFormat->value(bits)},
+                                    type);
   }
   auto integer =
       traits_.integral_constant(type, static_cast<ConstInt::Wide>(bits));

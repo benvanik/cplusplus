@@ -18,8 +18,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <cxx/control.h>
+#include <cxx/diagnostics_client.h>
 #include <cxx/floating_point.h>
 #include <cxx/memory_layout.h>
+#include <cxx/translation_unit.h>
 #include <gtest/gtest.h>
 
 #include <array>
@@ -401,6 +404,43 @@ TEST(ConstFloat, UsesTheSharedFormatRepresentations) {
             ConstFloat::Format::kFloat16);
   EXPECT_FALSE(ConstFloat::formatFor(TypeKind::kLongDouble));
   EXPECT_FALSE(ConstFloat::formatFor(TypeKind::kFloat128));
+  EXPECT_EQ(ConstFloat::formatFor(kBinary16), ConstFloat::Format::kFloat16);
+  EXPECT_EQ(ConstFloat::formatFor(kBFloat16), ConstFloat::Format::kBFloat16);
+  EXPECT_EQ(ConstFloat::formatFor(kFloat8E4M3FN),
+            ConstFloat::Format::kFloat8E4M3FN);
+  EXPECT_EQ(ConstFloat::formatFor(kFloat8E5M2),
+            ConstFloat::Format::kFloat8E5M2);
+  EXPECT_EQ(ConstFloat::formatFor(kBinary32), ConstFloat::Format::kFloat);
+  EXPECT_EQ(ConstFloat::formatFor(kBinary64), ConstFloat::Format::kDouble);
+}
+
+TEST(ConstFloat, QuantizesBinary64LongDoubleExpressions) {
+  constexpr auto source = R"(
+    constexpr long double maximum = 1.7976931348623157e+308L;
+    constexpr long double minimum = 2.2250738585072014e-308L;
+    constexpr long double denormal = 4.9406564584124654e-324L;
+    static_assert(maximum == 1.7976931348623157e+308);
+    static_assert(minimum == 2.2250738585072014e-308);
+    static_assert(denormal == 4.9406564584124654e-324);
+    static_assert(static_cast<long double>(9007199254740993ULL) ==
+                  9007199254740992.0L);
+    static_assert((1.0L + 0x1p-53L) == 1.0L);
+    static_assert(__builtin_sqrtl(2.0L) == 0x1.6a09e667f3bcdp+0L);
+    static_assert(__builtin_bit_cast(unsigned long long, 1.0L) ==
+                  0x3ff0000000000000ULL);
+    static_assert(__builtin_bit_cast(long double, 0x3ff0000000000000ULL) ==
+                  1.0L);
+  )";
+
+  DiagnosticsClient diagnostics;
+  MemoryLayout memoryLayout{64};
+  memoryLayout.setSizeOfLongDouble(8, 53);
+  TranslationUnit unit{&diagnostics};
+  unit.control()->setMemoryLayout(&memoryLayout);
+  unit.setSource(source, "binary64_long_double.cc");
+  unit.parse({.analysisMode = ParserAnalysisMode::kFull});
+
+  EXPECT_EQ(diagnostics.errorCount(), 0);
 }
 
 TEST(ConstFloat, RejectsExcessRepresentationBits) {

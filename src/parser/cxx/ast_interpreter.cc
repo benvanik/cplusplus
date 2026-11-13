@@ -567,8 +567,10 @@ auto ASTInterpreter::convertArithmetic(const ConstValue& value,
             isUnsigned ? static_cast<double>(bits)
                        : static_cast<double>(signedValue))};
       case TypeKind::kLongDouble:
-        return ConstValue{isUnsigned ? static_cast<long double>(bits)
-                                     : static_cast<long double>(signedValue)};
+        return toArithmeticType(
+            ConstValue{isUnsigned ? static_cast<long double>(bits)
+                                  : static_cast<long double>(signedValue)},
+            targetType);
       default:
         break;
     }
@@ -632,13 +634,16 @@ auto ASTInterpreter::toArithmeticType(const ConstValue& value, const Type* type)
     return ConstValue{std::make_shared<ConstComplex>(*real, *zero)};
   }
 
-  if (auto format = ConstFloat::formatFor(unaligned_type(type)->kind())) {
+  auto targetFormat = control()->memoryLayout()->floatingPointFormat(type);
+  auto storedFormat =
+      targetFormat ? ConstFloat::formatFor(*targetFormat) : std::nullopt;
+  if (storedFormat) {
     if (auto stored = std::get_if<ConstFloat>(&value);
-        stored && stored->format() == *format)
+        stored && stored->format() == *storedFormat)
       return value;
     auto result = toLongDouble(value);
     if (!result) return std::nullopt;
-    return ConstValue{ConstFloat::fromValue(*format, *result)};
+    return ConstValue{ConstFloat::fromValue(*storedFormat, *result)};
   }
 
   switch (unaligned_type(type)->kind()) {
