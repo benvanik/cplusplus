@@ -195,6 +195,32 @@ struct Outer { Inner inner; };
 constexpr Outer invalid = Outer();
 }  // namespace invalid_arithmetic_default
 
+namespace failed_explicit_member_base {
+struct Descriptor {
+  unsigned divisor;
+  unsigned quotient = 32 / divisor;
+
+  constexpr unsigned fromTemporary(unsigned value) const {
+    return Descriptor{value}.quotient;
+  }
+
+  constexpr unsigned fromPointer(bool valid) const {
+    const Descriptor* selected = valid ? this : nullptr;
+    return selected->quotient;
+  }
+};
+
+constexpr Descriptor outer{8};
+static_assert(outer.fromTemporary(16) == 2);
+static_assert(outer.fromPointer(true) == 4);
+
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(outer.fromTemporary(0) == 4);
+
+// expected-error@+1 {{static assertion expression is not an integral constant expression}}
+static_assert(outer.fromPointer(false) == 4);
+}  // namespace failed_explicit_member_base
+
 namespace temporary_reference_parameter {
 // Reference parameters retain the address of their call-owned temporary.
 struct Payload { unsigned words; };

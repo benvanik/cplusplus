@@ -3821,11 +3821,6 @@ auto ASTInterpreter::ExpressionVisitor::operator()(MemberExpressionAST* ast)
     if (auto value = interp.memberValue(object, ast->symbol)) return value;
   }
 
-  if (interp.thisObject() && ast->symbol) {
-    if (auto fieldVal = interp.memberValue(interp.thisObject(), ast->symbol))
-      return fieldVal;
-  }
-
   (void)interp.nestedNameSpecifier(ast->nestedNameSpecifier);
   (void)interp.unqualifiedId(ast->unqualifiedId);
 
