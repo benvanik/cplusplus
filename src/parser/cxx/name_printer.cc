@@ -50,15 +50,32 @@ struct TemplateArgumentPrinter {
 
     auto designation = detail::renderQualifiedName(root, options);
     if (designation.starts_with("::")) designation.erase(0, 2);
+    auto baseQualifier = false;
+    auto baseStart = std::string::npos;
     for (const auto& step : address.subobjectPath()) {
       if (auto index = std::get_if<std::size_t>(&step)) {
         designation += std::format("[{}]", *index);
+        baseQualifier = false;
+        baseStart = std::string::npos;
         continue;
       }
       auto symbol = std::get<Symbol*>(step);
-      if (symbol_cast<BaseClassSymbol>(symbol)) continue;
       auto name = detail::renderName(symbol->name(), options);
-      if (!name.empty()) designation += "." + name;
+      if (name.empty()) continue;
+      if (auto* base = symbol_cast<BaseClassSymbol>(symbol)) {
+        if (!baseQualifier) baseStart = designation.size();
+        if (base->isVirtual()) {
+          designation.erase(baseStart);
+          designation += "." + name;
+        } else {
+          designation += (baseQualifier ? "::" : ".") + name;
+        }
+        baseQualifier = true;
+      } else {
+        designation += (baseQualifier ? "::" : ".") + name;
+        baseQualifier = false;
+        baseStart = std::string::npos;
+      }
     }
 
     auto pointerExpression = false;
