@@ -230,8 +230,9 @@ struct [[nodiscard]] Binder::CompleteClass {
       -> ExpressionAST*;
   [[nodiscard]] auto implicitComparisonObject(FunctionSymbol* fn)
       -> ExpressionAST*;
-  [[nodiscard]] auto baseSubobject(ExpressionAST* object, ClassSymbol* base)
-      -> ExpressionAST*;
+  [[nodiscard]] auto baseSubobject(
+      ExpressionAST* object, ClassSymbol* base,
+      ValueCategory valueCategory = ValueCategory::kLValue) -> ExpressionAST*;
   [[nodiscard]] auto memberSubobject(ExpressionAST* object, FieldSymbol* field)
       -> ExpressionAST*;
   [[nodiscard]] auto arrayElement(ExpressionAST* array, ExpressionAST* index)
@@ -1726,13 +1727,18 @@ auto Binder::CompleteClass::implicitComparisonObject(FunctionSymbol* fn)
 }
 
 auto Binder::CompleteClass::baseSubobject(ExpressionAST* object,
-                                          ClassSymbol* base) -> ExpressionAST* {
+                                          ClassSymbol* base,
+                                          ValueCategory valueCategory)
+    -> ExpressionAST* {
   auto conversion = ImplicitCastExpressionAST::create(pool);
   conversion->castKind = ImplicitCastKind::kDerivedToBaseConversion;
   conversion->expression = object;
   conversion->type =
       binder.traits.add_cv(base->type(), cv_qualifiers(object->type));
-  conversion->valueCategory = ValueCategory::kLValue;
+  auto path = classSymbol->subobjectPath(base);
+  if (!path) cxx_runtime_error("missing synthesized base subobject path");
+  conversion->subobjectPath = makeSymbolPath(pool, *path);
+  conversion->valueCategory = valueCategory;
   return conversion;
 }
 
@@ -2230,14 +2236,9 @@ auto Binder::CompleteClass::baseAssignmentStatement(
   callee->unqualifiedId =
       OperatorFunctionIdAST::create(pool, TokenKind::T_EQUAL);
 
-  auto argument = ImplicitCastExpressionAST::create(pool);
-  argument->castKind = ImplicitCastKind::kDerivedToBaseConversion;
-  argument->expression = makeParamRef(source);
-  argument->type =
-      isMove ? base->type()
-             : control()->getQualType(base->type(), CvQualifiers::kConst);
-  argument->valueCategory =
-      isMove ? ValueCategory::kXValue : ValueCategory::kLValue;
+  auto argument = baseSubobject(
+      makeParamRef(source), base,
+      isMove ? ValueCategory::kXValue : ValueCategory::kLValue);
 
   auto call = CallExpressionAST::create(pool);
   call->baseExpression = callee;
@@ -2455,13 +2456,9 @@ void Binder::CompleteClass::synthesizeCompleteObjectCtor(FunctionSymbol* ctor) {
     init->constructor = vbaseCtor;
 
     if (sourceParam) {
-      auto cast = ImplicitCastExpressionAST::create(pool);
-      cast->castKind = ImplicitCastKind::kDerivedToBaseConversion;
-      cast->expression = makeParamRef(sourceParam);
-      cast->type =
-          isCopy ? control()->getQualType(vbase->type(), CvQualifiers::kConst)
-                 : vbase->type();
-      cast->valueCategory = ValueCategory::kLValue;
+      auto cast = baseSubobject(
+          makeParamRef(sourceParam), vbase,
+          isMove ? ValueCategory::kXValue : ValueCategory::kLValue);
       init->expressionList = make_list_node<ExpressionAST>(pool, cast);
     } else if (vbaseCtor) {
       TypeChecker check{binder.unit_};
@@ -2759,14 +2756,9 @@ void Binder::CompleteClass::synthesizeCopyMoveCtorBody(FunctionSymbol* fn,
       init->unqualifiedId = NameIdAST::create(pool, id);
     init->symbol = base;
 
-    auto cast = ImplicitCastExpressionAST::create(pool);
-    cast->castKind = ImplicitCastKind::kDerivedToBaseConversion;
-    cast->expression = makeParamRef(param);
-    cast->type =
-        isMove ? baseSym->type()
-               : control()->getQualType(baseSym->type(), CvQualifiers::kConst);
-    cast->valueCategory =
-        isMove ? ValueCategory::kXValue : ValueCategory::kLValue;
+    auto cast = baseSubobject(
+        makeParamRef(param), baseSym,
+        isMove ? ValueCategory::kXValue : ValueCategory::kLValue);
     init->expressionList = make_list_node<ExpressionAST>(pool, cast);
     append(init);
   }

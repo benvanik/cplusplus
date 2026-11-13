@@ -87,6 +87,17 @@ int main() {
   if (object.sum() != 10 || object.callSum() != 10) return 1;
   if (object.Left::value != 3 || object.Right::value != 7) return 2;
   if (object.Left::get() != 3 || object.Right::get() != 7) return 3;
+  Both copied = object;
+  if (copied.Left::value != 3 || copied.Right::value != 7) return 21;
+  Both assigned{{{0}}, {{0}}};
+  assigned = object;
+  if (assigned.Left::value != 3 || assigned.Right::value != 7) return 22;
+  Both movedBases = static_cast<Both&&>(copied);
+  if (movedBases.Left::value != 3 || movedBases.Right::value != 7) return 23;
+  Both moveAssigned{{{0}}, {{0}}};
+  moveAssigned = static_cast<Both&&>(movedBases);
+  if (moveAssigned.Left::value != 3 || moveAssigned.Right::value != 7)
+    return 24;
   if (object.capturedSum() != 10) return 4;
   if (&object.right() != &object.Right::value) return 5;
   object.update(11, 13);
@@ -108,9 +119,19 @@ int main() {
   Adjusted&& moved = derivedRvalue(*base);
   if (moved.tail != 29 || adjusted.tail != 29) return 14;
   if (virtualBasePointer(nullptr) != nullptr) return 15;
-  Virtual virtualObject;
+  Virtual virtualObject{};
   virtualObject.Base::value = 31;
   if (virtualBasePointer(&virtualObject)->value != 31) return 16;
+  Virtual copiedVirtual = virtualObject;
+  if (copiedVirtual.Base::value != 31) return 25;
+  Virtual assignedVirtual{};
+  assignedVirtual = virtualObject;
+  if (assignedVirtual.Base::value != 31) return 26;
+  Virtual movedVirtual = static_cast<Virtual&&>(copiedVirtual);
+  if (movedVirtual.Base::value != 31) return 27;
+  Virtual moveAssignedVirtual{};
+  moveAssignedVirtual = static_cast<Virtual&&>(movedVirtual);
+  if (moveAssignedVirtual.Base::value != 31) return 28;
   InstantiatedPaths<double> paths{{{1, 2, 3}}, {37}};
   if (paths.explicitCall() != 37 || paths.implicitCall() != 37) return 17;
   if (paths.explicitValue() != 37 || paths.implicitValue() != 37) return 18;
