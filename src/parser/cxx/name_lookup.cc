@@ -660,7 +660,7 @@ void addOverloadCandidate(std::vector<FunctionSymbol*>& candidates,
 void addLookupCandidates(std::vector<FunctionSymbol*>& candidates,
                          Symbol* found) {
   for (auto function : views::each_function(found)) {
-    if (isPureFriend(function)) continue;
+    if (function->isHidden() || isPureFriend(function)) continue;
     addOverloadCandidate(candidates, function);
   }
 }
@@ -686,6 +686,7 @@ auto argumentDependentLookup(TranslationUnit* unit, const Name* name,
 
   auto addCandidate = [&](FunctionSymbol* func) {
     if (!func->templateDeclaration() && isDependent(unit, func->type())) return;
+    if (func->isHidden() && !isPureFriend(func)) return;
     if (isPureFriend(func)) {
       auto befriending = symbol_cast<ClassSymbol>(func->parent());
       if (!befriending || !std::ranges::contains(classes, befriending)) return;
@@ -929,6 +930,9 @@ auto resolveBuiltinLibcallSymbol(TranslationUnit* unit, const char* nameStr,
   fn->setName(name);
   fn->setType(funcType);
   fn->setLanguageLinkage(LanguageKind::kC);
+  // Builtin emission retains this identity without declaring a source name.
+  // A later source redeclaration publishes the canonical symbol normally.
+  fn->setHidden(true);
   globalScope->addSymbol(fn);
   return fn;
 }

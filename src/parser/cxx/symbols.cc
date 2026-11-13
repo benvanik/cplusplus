@@ -2989,7 +2989,8 @@ auto OverloadSetSymbol::functions() const -> std::vector<FunctionSymbol*> {
       const auto isHidden =
           std::ranges::any_of(result, [&](FunctionSymbol* declared) {
             return declared->canonical() == canonical ||
-                   hasEquivalentParameterTypeList(declared, introduced);
+                   (!declared->isHidden() &&
+                    hasEquivalentParameterTypeList(declared, introduced));
           });
 
       if (!isHidden) result.push_back(introduced);
