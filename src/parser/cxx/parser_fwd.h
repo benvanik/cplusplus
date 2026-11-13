@@ -92,8 +92,8 @@ enum class ParserAnalysisMode {
   // Parses function bodies without running the type checker.
   kNoTypeChecking,
 
-  // Binds declarations and non-system template-ids without parsing function
-  // bodies or running the type checker.
+  // Binds declarations and template-ids without parsing function bodies or
+  // running the type checker.
   kDeclarations,
 
   // Parses function bodies and performs complete semantic analysis.
@@ -127,6 +127,11 @@ struct ParserConfiguration {
   // Returns whether the parser parses function bodies.
   [[nodiscard]] auto parseFunctionBodies() const -> bool {
     return analysisMode != ParserAnalysisMode::kDeclarations;
+  }
+
+  // Returns whether the parser resolves template-ids.
+  [[nodiscard]] auto resolveTemplateIds() const -> bool {
+    return analysisMode != ParserAnalysisMode::kNoTypeChecking;
   }
 };
 

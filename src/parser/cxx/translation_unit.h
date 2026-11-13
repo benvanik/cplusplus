@@ -412,9 +412,6 @@ class TranslationUnit {
 
   [[nodiscard]] auto config() const -> const ParserConfiguration&;
 
-  // Returns whether parsing at `loc` should instantiate template-ids.
-  [[nodiscard]] auto shouldResolveTemplateId(SourceLocation loc) const -> bool;
-
   void setSource(std::string source, std::string fileName);
 
   void beginPreprocessing(std::string source, std::string fileName);

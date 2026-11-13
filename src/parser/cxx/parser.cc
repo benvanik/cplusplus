@@ -6835,8 +6835,7 @@ auto Parser::parse_named_type_specifier(SpecifierAST*& yyast, DeclSpecs& specs,
     if (conceptSymbol && !lookat(TokenKind::T_AUTO)) return false;
   }
 
-  const auto checkTemplates =
-      unit_->shouldResolveTemplateId(unqualifiedId->firstSourceLocation());
+  const auto checkTemplates = config().resolveTemplateIds();
 
   Symbol* symbol = nullptr;
 

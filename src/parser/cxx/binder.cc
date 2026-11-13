@@ -1904,8 +1904,7 @@ void Binder::checkBaseClass(BaseSpecifierAST* ast, ClassSymbol* baseClass) {
 }
 
 void Binder::bind(BaseSpecifierAST* ast, Symbol* resolvedType) {
-  const auto checkTemplates =
-      unit_->shouldResolveTemplateId(ast->unqualifiedId->firstSourceLocation());
+  const auto checkTemplates = unit_->config().resolveTemplateIds();
 
   if (ast->nestedNameSpecifier && !ast->nestedNameSpecifier->symbol) {
     if (reportUnresolvedNestedNameSpecifier(ast->nestedNameSpecifier)) return;
@@ -3631,8 +3630,7 @@ void Binder::bind(UsingEnumDeclarationAST* ast) {
     if (reportUnresolvedNestedNameSpecifier(spec->nestedNameSpecifier)) return;
   }
 
-  const auto checkTemplates = unit_->shouldResolveTemplateId(
-      spec->unqualifiedId->firstSourceLocation());
+  const auto checkTemplates = unit_->config().resolveTemplateIds();
   auto symbol = resolve(spec->nestedNameSpecifier, spec->unqualifiedId,
                         checkTemplates, spec->symbol);
 

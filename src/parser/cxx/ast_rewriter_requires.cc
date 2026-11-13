@@ -337,6 +337,10 @@ auto ASTRewriter::checkTemplateIdConstraints(
     TranslationUnit* unit, Symbol* symbol,
     const std::vector<TemplateArgument>& templateArguments, int depth,
     SourceLocation location) -> bool {
+  // Constraint evaluation can depend on definitions elided by declaration
+  // analysis; that mode records the specialization shape without validating it.
+  if (unit->config().analysisMode == ParserAnalysisMode::kDeclarations)
+    return true;
   if (checkAssociatedConstraints(unit, symbol, templateArguments, depth))
     return true;
   if (!symbol_cast<FunctionSymbol>(symbol)) {

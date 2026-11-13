@@ -160,7 +160,7 @@ TEST(DeclarationAnalysis, SkipsFunctionBodiesWithoutFullTypeChecking) {
   EXPECT_FALSE(fullDiagnostics.diagnostics.empty());
 }
 
-TEST(DeclarationAnalysis, ResolvesOnlyUserTemplateIds) {
+TEST(DeclarationAnalysis, ResolvesTemplateIdsAcrossHeaders) {
   constexpr std::string_view source = R"(
     #include <system.h>
     template <typename T>
@@ -171,6 +171,12 @@ TEST(DeclarationAnalysis, ResolvesOnlyUserTemplateIds) {
     template <typename T>
     struct SystemBox {};
     using SystemIntBox = SystemBox<int>;
+
+    constexpr bool template_enabled() { return true; }
+    template <typename T>
+      requires template_enabled()
+    struct ConstrainedBox {};
+    using ConstrainedIntBox = ConstrainedBox<int>;
   )";
 
   CapturingDiagnosticsClient diagnostics;
@@ -182,10 +188,13 @@ TEST(DeclarationAnalysis, ResolvesOnlyUserTemplateIds) {
   ASSERT_TRUE(diagnostics.diagnostics.empty());
   auto userAlias = findTypeAlias(unit, "UserIntBox");
   auto systemAlias = findTypeAlias(unit, "SystemIntBox");
+  auto constrainedAlias = findTypeAlias(unit, "ConstrainedIntBox");
   ASSERT_NE(userAlias, nullptr);
   ASSERT_NE(systemAlias, nullptr);
+  ASSERT_NE(constrainedAlias, nullptr);
   EXPECT_EQ(to_string(userAlias->type()), "::UserBox<int>");
-  EXPECT_EQ(to_string(systemAlias->type()), "::SystemBox");
+  EXPECT_EQ(to_string(systemAlias->type()), "::SystemBox<int>");
+  EXPECT_EQ(to_string(constrainedAlias->type()), "::ConstrainedBox<int>");
 }
 
 }  // namespace

@@ -95,7 +95,7 @@ export interface ParseOptions extends Omit<UnitOptions, "shouldContinue"> {
    * Controls semantic analysis.
    *
    * `"full"` parses and type-checks function bodies. `"declarations"` binds
-   * declarations and non-system template-ids while skipping function bodies.
+   * declarations and template-ids while skipping function bodies.
    * Defaults to `"full"`.
    */
   analysisMode?: "full" | "declarations";
