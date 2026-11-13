@@ -24,11 +24,42 @@
 #include <cxx/symbols_fwd.h>
 #include <cxx/types_fwd.h>
 
+#include <cerrno>
+#include <cstdio>
+#include <cstdlib>
 #include <format>
+#if __has_include(<print>)
+#include <print>
+#endif
+#include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <variant>
 
 namespace cxx {
+
+#if defined(__cpp_lib_print)
+using std::print;
+#else
+template <typename... Args>
+void print(std::FILE* stream, std::format_string<Args...> format,
+           Args&&... args) {
+  auto output = std::format(format, std::forward<Args>(args)...);
+  if (std::fwrite(output.data(), 1, output.size(), stream) == output.size())
+    return;
+#if __cpp_exceptions
+  throw std::system_error(errno, std::generic_category());
+#else
+  std::abort();
+#endif
+}
+
+template <typename... Args>
+void print(std::format_string<Args...> format, Args&&... args) {
+  print(stdout, format, std::forward<Args>(args)...);
+}
+#endif
 
 namespace detail {
 enum class PrintMode { Internal, Source, Diagnostic };

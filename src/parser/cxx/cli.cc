@@ -19,12 +19,12 @@
 // SOFTWARE.
 
 #include <cxx/cli.h>
+#include <cxx/printing.h>
 #include <cxx/private/path.h>
 
 #include <algorithm>
 #include <cstdio>
 #include <format>
-#include <print>
 #include <ranges>
 #include <utility>
 #include <vector>
@@ -626,7 +626,7 @@ auto CLI::parse(int& argc, char**& argv) -> bool {
       if (i < argc) {
         result_.emplace_back(CLIOption("-Xlinker", argv[i++]));
       } else {
-        std::print(stderr, "missing argument after '{}'\n", arg);
+        cxx::print(stderr, "missing argument after '{}'\n", arg);
         valid = false;
       }
       continue;
@@ -679,7 +679,7 @@ auto CLI::parse(int& argc, char**& argv) -> bool {
           continue;
         }
 
-        std::print(stderr, "missing argument after '{}'\n", arg);
+        cxx::print(stderr, "missing argument after '{}'\n", arg);
         valid = false;
         continue;
       }
@@ -702,8 +702,8 @@ auto CLI::parse(int& argc, char**& argv) -> bool {
 }
 
 void CLI::showHelp() {
-  std::print("Usage: cxx [options] file...\n");
-  std::print("Options:\n");
+  cxx::print("Usage: cxx [options] file...\n");
+  cxx::print("Options:\n");
   for (const auto& opt : options) {
     if (opt.visibility == CLIOptionVisibility::kExperimental) {
       continue;
@@ -737,7 +737,7 @@ void CLI::showHelp() {
       help = std::format("[deprecated, use --target=<triple>] {}", help);
     }
 
-    std::print("  {:<28} {}\n", info, help);
+    cxx::print("  {:<28} {}\n", info, help);
   }
 }
 }  // namespace cxx

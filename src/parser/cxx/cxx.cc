@@ -19,11 +19,11 @@
 // SOFTWARE.
 
 #include <cxx/cxx_fwd.h>
+#include <cxx/printing.h>
 
 #include <cstdio>
 #include <cstdlib>
 #include <format>
-#include <print>
 
 #if __cpp_exceptions
 #include <stdexcept>
@@ -35,7 +35,7 @@ namespace cxx {
 #if __cpp_exceptions
   throw std::runtime_error(msg);
 #else
-  std::print(stderr, "cxx_runtime_error: {}\n", msg);
+  cxx::print(stderr, "cxx_runtime_error: {}\n", msg);
   std::abort();
 #endif
 }

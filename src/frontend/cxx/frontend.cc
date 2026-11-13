@@ -74,7 +74,6 @@
 #include <cstdlib>
 #include <format>
 #include <iterator>
-#include <print>
 #include <string>
 
 #include "check_expression_types.h"
@@ -234,7 +233,7 @@ auto Frontend::operator()() -> bool {
 #if __cpp_exceptions
       try {
 #endif
-        std::print(file.get(), "{}", *priv->unit_->timeTrace());
+        cxx::print(file.get(), "{}", *priv->unit_->timeTrace());
         written = std::fflush(file.get()) == 0;
 #if __cpp_exceptions
       } catch (const std::system_error&) {
@@ -242,7 +241,7 @@ auto Frontend::operator()() -> bool {
 #endif
     }
     if (!written) {
-      std::print(stderr, "cannot write time trace '{}'\n", *path);
+      cxx::print(stderr, "cannot write time trace '{}'\n", *path);
       priv->failed_ = true;
     }
   }
@@ -305,13 +304,13 @@ void Frontend::Private::withOutput(
 #if __cpp_exceptions
   try {
 #endif
-    std::print(file, "{}", detail::FormattingAction{action});
+    cxx::print(file, "{}", detail::FormattingAction{action});
     if (std::fflush(file) == 0) return;
 #if __cpp_exceptions
   } catch (const std::system_error&) {
   }
 #endif
-  std::print(stderr, "cxx: failed to write output file '{}'\n", name);
+  cxx::print(stderr, "cxx: failed to write output file '{}'\n", name);
   fail();
 }
 
@@ -331,7 +330,7 @@ void Frontend::Private::withOutputFile(
   }
   detail::File output(std::fopen(outputFile.c_str(), "w"));
   if (!output) {
-    std::print(stderr, "cxx: cannot open output file '{}'\n", outputFile);
+    cxx::print(stderr, "cxx: cannot open output file '{}'\n", outputFile);
     fail();
     return;
   }
@@ -358,7 +357,7 @@ void Frontend::Private::withRawOutputStream(
   std::error_code error_code;
   llvm::raw_fd_ostream output(outputFile, error_code);
   if (error_code) {
-    std::print(stderr, "{}{}{}{}{}", "cxx: cannot open output file '",
+    cxx::print(stderr, "{}{}{}{}{}", "cxx: cannot open output file '",
                outputFile, "': ", error_code.message(), '\n');
     fail();
     return;
@@ -366,7 +365,7 @@ void Frontend::Private::withRawOutputStream(
   action(output);
   output.flush();
   if (output.has_error()) {
-    std::print(stderr, "{}{}{}", "cxx: failed to write output file '",
+    cxx::print(stderr, "{}{}{}", "cxx: failed to write output file '",
                outputFile, "'\n");
     output.clear_error();
     fail();
@@ -476,7 +475,7 @@ void Frontend::Private::writeDepFile() {
 
   detail::File depOut(std::fopen(depFileName.c_str(), "w"));
   if (!depOut) {
-    std::print(stderr, "cxx: cannot open output file '{}'\n", depFileName);
+    cxx::print(stderr, "cxx: cannot open output file '{}'\n", depFileName);
     fail();
     return;
   }
@@ -492,7 +491,7 @@ void Frontend::Private::preprocess() {
   auto source = readAll(fileName_);
 
   if (!source.has_value()) {
-    std::print(stderr, "cxx: No such file or directory: '{}'\n", fileName_);
+    cxx::print(stderr, "cxx: No such file or directory: '{}'\n", fileName_);
     fail();
     return;
   }
@@ -523,14 +522,14 @@ void Frontend::Private::configureDiagnostics() {
 
 void Frontend::Private::prepare() {
   if (auto kernel = cli.getSingle("--kernel"); kernel && kernel->empty()) {
-    std::print(stderr, "{}",
+    cxx::print(stderr, "{}",
                "cxx: --kernel requires a nonempty entry point name\n");
     fail();
     return;
   }
 #ifndef CXX_WITH_SPIRV
   if (cli.opt_emit_spirv || cli.opt_emit_wgsl) {
-    std::print(stderr, "{}", "cxx: this build has no device kernel support\n");
+    cxx::print(stderr, "{}", "cxx: this build has no device kernel support\n");
     fail();
     return;
   }
@@ -546,12 +545,12 @@ void Frontend::Private::prepare() {
   toolchain_ =
       createToolchain(cli, preprocessor, languageOf(cli, fileName_), error);
   if (!error.empty()) {
-    std::print(stderr, "{}{}", error, '\n');
+    cxx::print(stderr, "{}{}", error, '\n');
     fail();
     return;
   }
   if (!toolchain_) {
-    std::print(stderr, "{}{}", describeUnsupportedTarget(cli), '\n');
+    cxx::print(stderr, "{}{}", describeUnsupportedTarget(cli), '\n');
     fail();
     return;
   }
@@ -569,7 +568,7 @@ void Frontend::Private::preparePreprocessor() {
     preprocessor->setOnWillIncludeHeader(
         [&](const std::string& header, int level) {
           std::string fill(level, '.');
-          std::print("{} {}\n", fill, header);
+          cxx::print("{} {}\n", fill, header);
         });
   }
 }
@@ -763,12 +762,12 @@ void Frontend::Private::dumpAst() {
 
 void Frontend::Private::printAstIfNeeded() {
   if (!cli.opt_ast_print) return;
-  std::print("{}", formatAST(unit_.get(), unit_->ast()));
+  cxx::print("{}", formatAST(unit_.get(), unit_->ast()));
 }
 
 void Frontend::Private::reportFreezeErrors(const FreezeAudit& audit) {
   for (const auto& error : audit.errors()) {
-    std::print(stderr, "cxx: cannot write a precompiled header: {}\n", error);
+    cxx::print(stderr, "cxx: cannot write a precompiled header: {}\n", error);
   }
   fail();
 }
@@ -796,14 +795,14 @@ void Frontend::Private::loadPrecompiledHeader() {
   detail::File in(std::fopen(pchFile->c_str(), "rb"));
 
   if (!in) {
-    std::print(stderr, "cxx: cannot open precompiled header '{}'\n", *pchFile);
+    cxx::print(stderr, "cxx: cannot open precompiled header '{}'\n", *pchFile);
     fail();
     return;
   }
 
   auto data = detail::readAll(in.get());
   if (!data) {
-    std::print(stderr, "cxx: cannot read precompiled header '{}'\n", *pchFile);
+    cxx::print(stderr, "cxx: cannot read precompiled header '{}'\n", *pchFile);
     fail();
     return;
   }
@@ -812,7 +811,7 @@ void Frontend::Private::loadPrecompiledHeader() {
 
   if (!reader(std::span<const std::uint8_t>(
           reinterpret_cast<const std::uint8_t*>(data->data()), data->size()))) {
-    std::print(stderr, "cxx: {}: {}\n", *pchFile, reader.error());
+    cxx::print(stderr, "cxx: {}: {}\n", *pchFile, reader.error());
     fail();
     return;
   }
@@ -874,7 +873,7 @@ void Frontend::Private::serializePrecompiledHeader() {
 
   if (!writer.errors().empty()) {
     for (const auto& error : writer.errors()) {
-      std::print(stderr, "cxx: cannot write a precompiled header: {}\n", error);
+      cxx::print(stderr, "cxx: cannot write a precompiled header: {}\n", error);
     }
     fail();
     return;
@@ -890,7 +889,7 @@ void Frontend::Private::serializePrecompiledHeader() {
         std::fwrite(data.data(), 1, data.size(), out.get()) == data.size() &&
         std::fflush(out.get()) == 0;
   if (!written) {
-    std::print(stderr, "cxx: cannot write '{}'\n", outputFile);
+    cxx::print(stderr, "cxx: cannot write '{}'\n", outputFile);
     fail();
   }
 }
@@ -975,7 +974,7 @@ void Frontend::Private::generateIR() {
     mlir::ParserConfig config(context_.get(), cli.irVerificationEnabled());
     parsedModule_ = mlir::parseSourceString<mlir::ModuleOp>(*text, config);
     if (!parsedModule_) {
-      std::print(stderr, "{}", "cxx: failed to read experimental CXX IR\n");
+      cxx::print(stderr, "{}", "cxx: failed to read experimental CXX IR\n");
       fail();
       return;
     }
@@ -1033,7 +1032,7 @@ void Frontend::Private::runIRPassPipeline() {
           runMLIRPassPipeline(module_, pipeline, cli.irVerificationEnabled())))
     return;
 
-  std::print(stderr, "{}\n", "cxx: failed to run MLIR pass pipeline");
+  cxx::print(stderr, "{}\n", "cxx: failed to run MLIR pass pipeline");
   fail();
   module_ = nullptr;
 #endif
@@ -1056,7 +1055,7 @@ void Frontend::Private::emitKernelArtifact() {
   if (cli.opt_emit_wgsl) selected.push_back("-emit-wgsl");
   if (deviceObject) selected.push_back("-c");
   if (selected.size() > 1) {
-    std::print(stderr, "{}{}{}{}{}", "cxx: ", selected[0], " and ", selected[1],
+    cxx::print(stderr, "{}{}{}{}{}", "cxx: ", selected[0], " and ", selected[1],
                " are mutually exclusive\n");
     fail();
     return;
@@ -1064,7 +1063,7 @@ void Frontend::Private::emitKernelArtifact() {
   auto kernel = cli.getSingle("--kernel").value_or("");
   auto manifestPath = cli.getSingle("--resource-manifest");
   if (manifestPath && (manifestPath->empty() || *manifestPath == "-")) {
-    std::print(stderr, "{}", "cxx: --resource-manifest requires a file path\n");
+    cxx::print(stderr, "{}", "cxx: --resource-manifest requires a file path\n");
     fail();
     return;
   }
@@ -1073,7 +1072,7 @@ void Frontend::Private::emitKernelArtifact() {
       fs::path(fileName_).filename().replace_extension(extension).string());
   if (manifestPath &&
       fs::file_identity(outputPath) == fs::file_identity(*manifestPath)) {
-    std::print(stderr, "{}",
+    cxx::print(stderr, "{}",
                "cxx: kernel artifact and resource manifest need distinct "
                "paths\n");
     fail();
@@ -1092,7 +1091,7 @@ void Frontend::Private::emitKernelArtifact() {
       outputPath, error,
       wgsl ? llvm::sys::fs::OF_Text : llvm::sys::fs::OF_None);
   if (error) {
-    std::print(stderr, "{}{}{}{}{}", "cxx: ", error.message(), ": ", outputPath,
+    cxx::print(stderr, "{}{}{}{}{}", "cxx: ", error.message(), ": ", outputPath,
                '\n');
     fail();
     return;
@@ -1101,7 +1100,7 @@ void Frontend::Private::emitKernelArtifact() {
   if (manifestPath) {
     manifest.emplace(*manifestPath, error, llvm::sys::fs::OF_Text);
     if (error) {
-      std::print(stderr, "{}{}{}{}{}", "cxx: ", error.message(), ": ",
+      cxx::print(stderr, "{}{}{}{}{}", "cxx: ", error.message(), ": ",
                  *manifestPath, '\n');
       fail();
       return;
@@ -1113,14 +1112,14 @@ void Frontend::Private::emitKernelArtifact() {
                     artifact->bytes.size());
   output.os().flush();
   if (output.os().has_error() || (manifest && manifest->os().has_error())) {
-    std::print(stderr, "{}", "cxx: cannot write kernel outputs\n");
+    cxx::print(stderr, "{}", "cxx: cannot write kernel outputs\n");
     fail();
     return;
   }
   output.keep();
   if (manifest) manifest->keep();
 #else
-  std::print(stderr, "{}", "cxx: this build has no device kernel support\n");
+  cxx::print(stderr, "{}", "cxx: this build has no device kernel support\n");
   fail();
 #endif
 }
@@ -1133,7 +1132,7 @@ void Frontend::Private::emitKernelIR() {
 #ifdef CXX_WITH_SPIRV
   if (!module_) return;
   if (deviceMLIR && deviceAssembly) {
-    std::print(stderr, "{}", "cxx: -emit-mlir and -S are mutually exclusive\n");
+    cxx::print(stderr, "{}", "cxx: -emit-mlir and -S are mutually exclusive\n");
     fail();
     return;
   }
@@ -1150,7 +1149,7 @@ void Frontend::Private::emitKernelIR() {
   withRawOutputStream(deviceAssembly ? "s" : "mlir",
                       [&](llvm::raw_pwrite_stream& output) { output << text; });
 #else
-  std::print(stderr, "{}", "cxx: this build has no device kernel support\n");
+  cxx::print(stderr, "{}", "cxx: this build has no device kernel support\n");
   fail();
 #endif
 }
@@ -1191,7 +1190,7 @@ void Frontend::Private::lowerIR() {
     return;
   }
 
-  std::print(stderr, "{}\n", "cxx: failed to lower C++ AST to MLIR");
+  cxx::print(stderr, "{}\n", "cxx: failed to lower C++ AST to MLIR");
   fail();
   module_ = nullptr;
 #endif
@@ -1228,7 +1227,7 @@ void Frontend::Private::emitLLVMIR() {
       exportToLLVMIR(module_, *llvmContext_, cli.irVerificationEnabled());
 
   if (!llvmModule_) {
-    std::print(stderr, "{}\n", "cxx: failed to lower MLIR module to LLVM IR");
+    cxx::print(stderr, "{}\n", "cxx: failed to lower MLIR module to LLVM IR");
     fail();
     return;
   }
@@ -1286,7 +1285,7 @@ auto Frontend::Private::targetMachine() -> llvm::TargetMachine* {
   auto target = llvm::TargetRegistry::lookupTarget(triple, error);
 
   if (!target) {
-    std::print(stderr, "cxx: cannot find target for triple '{}': {}\n",
+    cxx::print(stderr, "cxx: cannot find target for triple '{}': {}\n",
                triple.getTriple(), error);
     return nullptr;
   }
@@ -1313,7 +1312,7 @@ auto Frontend::Private::targetMachine() -> llvm::TargetMachine* {
           std::nullopt, codeGenOptLevel));
 
   if (!targetMachine_) {
-    std::print(stderr, "cxx: cannot create target machine for '{}': {}\n",
+    cxx::print(stderr, "cxx: cannot create target machine for '{}': {}\n",
                triple.getTriple(), error);
   }
 
@@ -1343,7 +1342,7 @@ void Frontend::Private::emitCode() {
                                          : llvm::CodeGenFileType::ObjectFile;
 
     if (targetMachine->addPassesToEmitFile(pm, out, nullptr, fileType)) {
-      std::print(stderr, "{}", "cxx: target machine cannot emit assembly\n");
+      cxx::print(stderr, "{}", "cxx: target machine cannot emit assembly\n");
       fail();
       return;
     }
@@ -1357,7 +1356,7 @@ void Frontend::Private::emitCode() {
     std::error_code ec;
     llvm::raw_fd_ostream out(*objectOutput_, ec);
     if (ec) {
-      std::print(stderr, "cxx: cannot open '{}': {}\n", *objectOutput_,
+      cxx::print(stderr, "cxx: cannot open '{}': {}\n", *objectOutput_,
                  ec.message());
       fail();
       return;
@@ -1368,7 +1367,7 @@ void Frontend::Private::emitCode() {
 
   withRawOutputStream(emitAssembly ? ".s" : ".o", emit);
 #else
-  std::print(stderr, "{}",
+  cxx::print(stderr, "{}",
              "cxx: object and assembly output require a build with MLIR\n");
   fail();
 #endif

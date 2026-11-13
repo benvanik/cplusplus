@@ -22,6 +22,7 @@
 
 // cxx
 #include <cxx/preprocessor.h>
+#include <cxx/printing.h>
 #include <cxx/source_location.h>
 #include <cxx/translation_unit.h>
 
@@ -29,7 +30,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <format>
-#include <print>
 
 namespace cxx {
 
@@ -145,15 +145,15 @@ void DiagnosticsClient::report(const Diagnostic& diag) {
     auto stack = sourceResolver_->includeStack(diag.token());
     std::string_view prefix = "In file included from ";
     for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
-      std::print(stderr, "{}{}:{}:\n", prefix, it->fileName, it->line);
+      cxx::print(stderr, "{}{}:{}:\n", prefix, it->fileName, it->line);
       prefix = "                 from ";
     }
   }
 
   if (pos.fileName.empty()) {
-    std::print(stderr, "{}\n", diag.message());
+    cxx::print(stderr, "{}\n", diag.message());
   } else {
-    std::print(stderr, "{}:{}:{}: {}: {}\n", pos.fileName, pos.line, pos.column,
+    cxx::print(stderr, "{}:{}:{}: {}: {}\n", pos.fileName, pos.line, pos.column,
                severity, diag.message());
 
     const auto textLine = sourceResolver_->getTextLine(diag.token());
@@ -167,7 +167,7 @@ void DiagnosticsClient::report(const Diagnostic& diag) {
         if (!std::isspace(ch)) ch = ' ';
       }
 
-      std::print(stderr, "{0}\n{1}^\n", textLine, indent);
+      cxx::print(stderr, "{0}\n{1}^\n", textLine, indent);
     }
   }
 
