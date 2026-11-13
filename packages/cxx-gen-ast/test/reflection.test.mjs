@@ -48,6 +48,19 @@ test("reflection slots use matching class bases and isolate field additions", ()
     };
     const model = JSON.parse(source);
     const before = generate(model);
+    // Declaration-only reflection cannot deduce these method return types.
+    assert.doesNotMatch(before.cpp, /self->enclosingSymbols\(\)/);
+    assert.doesNotMatch(before.ts, /get enclosingSymbols\(/);
+    const symbol = model.classes.find((c) => c.unqualifiedName === "Symbol");
+    const enclosingSymbols = symbol.methods.find(
+      (method) => method.name === "enclosingSymbols",
+    );
+    symbol.methods.push({
+      ...enclosingSymbols,
+      name: "deducedReference",
+      returnType: { kind: "builtin", name: "decltype(auto)" },
+      returnTypeName: "decltype(auto)",
+    });
     const node = model.classes.find(
       (c) => c.unqualifiedName === "FunctionDeclaratorChunkAST",
     );
@@ -56,6 +69,8 @@ test("reflection slots use matching class bases and isolate field additions", ()
       name: "extraFlag",
     });
     const after = generate(model);
+    assert.doesNotMatch(after.cpp, /self->deducedReference\(\)/);
+    assert.doesNotMatch(after.ts, /get deducedReference\(/);
     // Only this class's accessors and the next base declaration may change.
     for (const language of ["cpp", "ts"]) {
       const unrelated = (text) =>

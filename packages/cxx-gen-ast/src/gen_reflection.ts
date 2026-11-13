@@ -329,7 +329,12 @@ export function gen_reflection(index: ModelIndex, root: string) {
         return wire(type.element, expr);
 
       case "builtin": {
-        if (type.name === "void") return;
+        if (
+          type.name === "void" ||
+          type.name === "auto" ||
+          type.name === "decltype(auto)"
+        )
+          return;
         if (type.name === "bool")
           return {
             channel: "num",
