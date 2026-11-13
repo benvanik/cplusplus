@@ -1,4 +1,6 @@
-// RUN: %cxx -verify -fsyntax-only %s
+// RUN: %cxx --target=x86_64-unknown-linux-gnu -verify -fsyntax-only %s
+// RUN: %cxx --target=x86_64-pc-windows-msvc -verify -fsyntax-only %s
+// RUN: %cxx --target=wasm32-unknown-wasi -verify -fsyntax-only %s
 
 auto main() -> int {
   char* p;
@@ -16,8 +18,14 @@ auto main() -> int {
   static_assert(__is_same(decltype(p), decltype(p - 0)));
   static_assert(__is_same(decltype(p), decltype(p - i)));
 
-  static_assert(__is_same(long, decltype(p - p)));
-  static_assert(__is_same(long, decltype(p - cp)));
+  static_assert(__is_same(__PTRDIFF_TYPE__, decltype(p - p)));
+  static_assert(__is_same(__PTRDIFF_TYPE__, decltype(p - cp)));
+  static_assert(sizeof(p - p) == sizeof(p));
+
+  constexpr int values[] = {2, 3, 5};
+  static_assert((values + 3) - values == 3);
+  static_assert(values - (values + 3) == -3);
+  static_assert(__is_same(__PTRDIFF_TYPE__, decltype(values - values)));
 
   // clang-format off
 

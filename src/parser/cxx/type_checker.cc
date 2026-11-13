@@ -7969,7 +7969,7 @@ void TypeChecker::Visitor::check_subtraction(BinaryExpressionAST* ast) {
         unqualified_type(traits.get_element_type(ast->rightExpression->type));
 
     if (traits.is_same(leftElementType, rightElementType)) {
-      ast->type = control()->getLongIntType();
+      ast->type = traits.make_signed(control()->getSizeType());
     } else {
       error(ast->opLoc,
             std::format("'{}' and '{}' are not pointers to compatible types",
