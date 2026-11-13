@@ -664,6 +664,11 @@ struct Preprocessor::Private {
   std::unordered_map<std::string, Macro, TransparentStringHash,
                      TransparentStringEqual>
       macros_;
+  // Borrowed, sorted initial definitions; expansion uses the normal macro map.
+  const PredefinedMacros* predefinedMacros_ = nullptr;
+  // Explicit undefinitions, allocated only when the base environment changes.
+  std::unique_ptr<std::unordered_set<const PredefinedMacro*>>
+      undefinedPredefinedMacros_;
   std::unordered_set<const cxx::Identifier*> taintedIdents_;
   std::unordered_map<std::string, Macro> builtinMacros_;
   std::unordered_map<std::string, std::string> ifndefProtectedFiles_;
@@ -996,7 +1001,7 @@ struct Preprocessor::Private {
 
   [[nodiscard]] auto stringize(TokRange actual, const Tok& origin) -> Tok;
 
-  [[nodiscard]] auto lookupMacro(const Tok& tk) const
+  [[nodiscard]] auto lookupMacro(const Tok& tk)
       -> std::pair<const Macro*, const cxx::Identifier*>;
 
   [[nodiscard]] auto lookupMacroArgument(const Tok*& ts, const Tok* lineEnd,
@@ -1086,8 +1091,16 @@ struct Preprocessor::Private {
                                                std::string_view headerName)
       -> std::vector<fs::path>;
 
+  [[nodiscard]] auto predefinedMacro(std::string_view name) const
+      -> const PredefinedMacro*;
+  [[nodiscard]] auto findMacro(std::string_view name) -> const Macro*;
+  [[nodiscard]] auto materializePredefinedMacro(
+      const PredefinedMacro& definition) -> const Macro*;
+  void materializePredefinedMacros();
+  void undefMacro(std::string_view name);
+
   [[nodiscard]] auto isDefined(std::string_view id) const -> bool {
-    return macros_.contains(id);
+    return macros_.contains(id) || predefinedMacro(id);
   }
 
   [[nodiscard]] auto isDefined(const Tok& tok) const -> bool {
@@ -1918,17 +1931,80 @@ auto Preprocessor::Private::paste(const Tok& left, const Tok& right,
   return genTok(lex.tokenKind(), lex.tokenText(), origin);
 }
 
-auto Preprocessor::Private::lookupMacro(const Tok& tk) const
+auto PredefinedMacros::find(std::string_view name) const
+    -> const PredefinedMacro* {
+  if (!(lengths_ & (std::uint64_t{1} << (name.size() & 63))) ||
+      !name.starts_with(prefix_)) {
+    return nullptr;
+  }
+  if (name.size() > prefix_.size()) {
+    const auto ch = static_cast<unsigned char>(name[prefix_.size()]);
+    if (!(nextCharacters_[ch / 64] & (std::uint64_t{1} << (ch & 63)))) {
+      return nullptr;
+    }
+  }
+  auto it = std::ranges::lower_bound(definitions_, name, {},
+                                     &PredefinedMacro::identifier);
+  return it != definitions_.end() && it->identifier() == name ? &*it : nullptr;
+}
+
+auto Preprocessor::Private::predefinedMacro(std::string_view name) const
+    -> const PredefinedMacro* {
+  const auto* definition =
+      predefinedMacros_ ? predefinedMacros_->find(name) : nullptr;
+  const bool undefined = definition && undefinedPredefinedMacros_ &&
+                         undefinedPredefinedMacros_->contains(definition);
+  return undefined ? nullptr : definition;
+}
+
+auto Preprocessor::Private::findMacro(std::string_view name) -> const Macro* {
+  if (auto it = macros_.find(name); it != macros_.end()) return &it->second;
+  const auto* definition = predefinedMacro(name);
+  return definition ? materializePredefinedMacro(*definition) : nullptr;
+}
+
+auto Preprocessor::Private::materializePredefinedMacro(
+    const PredefinedMacro& definition) -> const Macro* {
+  std::string source;
+  source.reserve(definition.name.size() + 1 + definition.body.size());
+  source.append(definition.name);
+  source.push_back(' ');
+  source.append(definition.body);
+  auto tokens = tokenize(source, 0, false);
+  auto macro =
+      parseMacroDefinition(tokens.data(), tokens.data() + tokens.size());
+  auto it =
+      macros_.emplace(std::string(getMacroName(macro)), std::move(macro)).first;
+  return &it->second;
+}
+
+void Preprocessor::Private::materializePredefinedMacros() {
+  if (!predefinedMacros_) return;
+  for (const auto& definition : predefinedMacros_->definitions()) {
+    (void)findMacro(definition.identifier());
+  }
+}
+
+void Preprocessor::Private::undefMacro(std::string_view name) {
+  if (auto it = macros_.find(name); it != macros_.end()) macros_.erase(it);
+  const auto* definition =
+      predefinedMacros_ ? predefinedMacros_->find(name) : nullptr;
+  if (!definition) return;
+  if (!undefinedPredefinedMacros_) {
+    undefinedPredefinedMacros_ =
+        std::make_unique<std::unordered_set<const PredefinedMacro*>>();
+  }
+  undefinedPredefinedMacros_->emplace(definition);
+}
+
+auto Preprocessor::Private::lookupMacro(const Tok& tk)
     -> std::pair<const Macro*, const cxx::Identifier*> {
   if (tk.isNot(TokenKind::T_IDENTIFIER)) return {nullptr, nullptr};
   if (tk.noexpand) return {nullptr, nullptr};
 
-  auto text = getText(tk);
-  if (auto it = macros_.find(text); it != macros_.end()) {
-    auto ident = control_->getIdentifier(text);
-    if (!isTainted(ident)) {
-      return {&it->second, ident};
-    }
+  if (const auto* macro = findMacro(getText(tk))) {
+    auto ident = control_->getIdentifier(getMacroName(*macro));
+    if (!isTainted(ident)) return {macro, ident};
   }
   return {nullptr, nullptr};
 }
@@ -2164,7 +2240,7 @@ auto Preprocessor::Private::substitute(
   for (auto& tok : os) {
     if (tok.is(TokenKind::T_IDENTIFIER) && !tok.noexpand) {
       auto text = getText(tok);
-      if (!text.empty() && macros_.contains(text) &&
+      if (!text.empty() && isDefined(text) &&
           isTainted(control_->getIdentifier(text))) {
         tok.noexpand = true;
       }
@@ -2973,9 +3049,7 @@ auto Preprocessor::Private::parseDirective(SourceFile* source,
         break;
       }
       if (ts->is(TokenKind::T_IDENTIFIER)) {
-        auto name = getText(*ts);
-        auto it = macros_.find(name);
-        if (it != macros_.end()) macros_.erase(it);
+        undefMacro(getText(*ts));
       }
       break;
     }
@@ -3983,14 +4057,13 @@ void Preprocessor::Private::defineMacro(const Tok* ts, const Tok* lineEnd) {
   auto macro = parseMacroDefinition(ts, lineEnd);
   auto name = std::string(getMacroName(macro));
 
-  if (auto it = macros_.find(name); it != macros_.end()) {
-    auto previousBody = getMacroBody(it->second);
+  if (const auto* previous = findMacro(name)) {
+    auto previousBody = getMacroBody(*previous);
     auto newBody = getMacroBody(macro);
     if (previousBody && newBody &&
         !isSameBody(*newBody, *previousBody, texts_, sourceFiles_)) {
       warning(ts, std::format("'{}' macro redefined", name));
     }
-    macros_.erase(it);
   }
 
   macros_.insert_or_assign(name, std::move(macro));
@@ -4505,6 +4578,7 @@ auto Preprocessor::snapshotBlocker() const -> std::string_view {
 }
 
 auto Preprocessor::snapshot() const -> PreprocessorSnapshot {
+  d->materializePredefinedMacros();
   PreprocessorSnapshot snapshot;
 
   snapshot.date = d->date_;
@@ -4589,6 +4663,8 @@ auto Preprocessor::snapshot() const -> PreprocessorSnapshot {
 }
 
 void Preprocessor::restore(const PreprocessorSnapshot& snapshot) {
+  d->predefinedMacros_ = nullptr;
+  d->undefinedPredefinedMacros_.reset();
   d->date_ = snapshot.date;
   d->time_ = snapshot.time;
   d->counter_ = snapshot.counter;
@@ -4649,6 +4725,11 @@ void Preprocessor::restore(const PreprocessorSnapshot& snapshot) {
   }
 }
 
+void Preprocessor::setPredefinedMacros(const PredefinedMacros& macros) {
+  d->predefinedMacros_ = &macros;
+  d->undefinedPredefinedMacros_.reset();
+}
+
 void Preprocessor::defineMacro(const std::string& name,
                                const std::string& body) {
   auto s = name + " " + body;
@@ -4661,15 +4742,13 @@ void Preprocessor::defineMacro(const std::string& name,
   d->defineMacro(begin, end);
 }
 
-void Preprocessor::undefMacro(const std::string& name) {
-  auto it = d->macros_.find(name);
-  if (it != d->macros_.end()) d->macros_.erase(it);
-}
+void Preprocessor::undefMacro(const std::string& name) { d->undefMacro(name); }
 
 auto Preprocessor::macros() const -> Macros { return {*this}; }
 
 auto Preprocessor::Macros::formatTo(std::format_context::iterator out) const
     -> std::format_context::iterator {
+  preprocessor.d->materializePredefinedMacros();
   struct {
     const Preprocessor& self;
     std::format_context::iterator& out;
@@ -4834,8 +4913,7 @@ void PendingInclude::resolveWith(std::optional<std::string> resolvedFileName,
     if (d->pragmaOnceProtectedFiles_.contains(identity)) return std::nullopt;
 
     if (auto it = d->ifndefProtectedFiles_.find(identity);
-        it != d->ifndefProtectedFiles_.end() &&
-        d->macros_.contains(it->second)) {
+        it != d->ifndefProtectedFiles_.end() && d->isDefined(it->second)) {
       return std::nullopt;
     }
 

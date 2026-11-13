@@ -46,6 +46,38 @@ namespace {
            token.spell() == identifier;
   });
 }
+
+[[nodiscard]] auto preprocessSpellings(Preprocessor& preprocessor,
+                                       std::string source)
+    -> std::vector<std::string> {
+  std::vector<Token> tokens;
+  preprocessor.preprocess(std::move(source), "macros.cc", tokens);
+  std::vector<std::string> spellings;
+  EXPECT_EQ(tokens.front().kind(), TokenKind::T_ERROR);
+  EXPECT_EQ(tokens.back().kind(), TokenKind::T_EOF_SYMBOL);
+  for (const auto& token : std::span(tokens).subspan(1, tokens.size() - 2)) {
+    spellings.push_back(token.spell());
+  }
+  return spellings;
+}
+
+class MacroComments final : public CommentHandler {
+ public:
+  void handleComment(Preprocessor*, const Token&) override { ++count; }
+
+  // Number of replacement-list comments actually tokenized.
+  int count = 0;
+};
+
+class MacroDiagnostics final : public DiagnosticsClient {
+ public:
+  void report(const Diagnostic& diagnostic) override {
+    messages.push_back(diagnostic.message());
+  }
+
+  // Messages emitted by definition changes and conditional directives.
+  std::vector<std::string> messages;
+};
 }  // namespace
 
 TEST(Preprocessor, ConcurrentConstructionProducesValidCompilationTimes) {
@@ -107,6 +139,129 @@ TEST(Preprocessor, ConcurrentConstructionProducesValidCompilationTimes) {
     for (auto index : {1u, 2u, 4u, 5u, 7u, 8u})
       EXPECT_TRUE(isDigit(time[index]));
   }
+}
+
+TEST(Preprocessor, PredefinedMacrosTokenizeOnExpansionOncePerInstance) {
+  static constexpr PredefinedMacro definitions[] = {
+      {"VALUE", "/* replacement list */ 3"},
+  };
+  static constexpr PredefinedMacros predefined{definitions};
+  Control control;
+  DiagnosticsClient diagnostics;
+  Preprocessor preprocessor{&control, &diagnostics};
+  MacroComments comments;
+  preprocessor.setCommentHandler(&comments);
+  preprocessor.setPredefinedMacros(predefined);
+  EXPECT_EQ(comments.count, 0);
+  EXPECT_EQ(preprocessSpellings(preprocessor,
+                                "#if defined(VALUE)\npresent\n#endif\n"),
+            (std::vector<std::string>{"present"}));
+  EXPECT_EQ(comments.count, 0);
+  EXPECT_EQ(preprocessSpellings(preprocessor, "VALUE VALUE"),
+            (std::vector<std::string>{"3", "3"}));
+  EXPECT_EQ(comments.count, 1);
+
+  Preprocessor independent{&control, &diagnostics};
+  independent.setCommentHandler(&comments);
+  independent.setPredefinedMacros(predefined);
+  EXPECT_EQ(preprocessSpellings(independent, "VALUE"),
+            (std::vector<std::string>{"3"}));
+  EXPECT_EQ(comments.count, 2);
+}
+
+TEST(Preprocessor, PredefinedMacrosPreserveExpansionAndDefinitionChanges) {
+  static constexpr PredefinedMacro definitions[] = {
+      {"ALIAS", "VALUE"}, {"EMPTY", ""},  {"INCREMENT(x)", "((x) + 1)"},
+      {"REMOVED", "0"},   {"VALUE", "3"},
+  };
+  static constexpr PredefinedMacros predefined{definitions};
+  Control control;
+  MacroDiagnostics diagnostics;
+  Preprocessor preprocessor{&control, &diagnostics};
+  preprocessor.setPredefinedMacros(predefined);
+  preprocessor.undefMacro("REMOVED");
+  auto spellings = preprocessSpellings(preprocessor, R"(
+#if defined(REMOVED) || !defined(EMPTY) || !defined(INCREMENT)
+#error incorrect initial environment
+#endif
+#define VALUE 3
+ALIAS EMPTY INCREMENT(4)
+#define VALUE 5
+ALIAS
+#undef VALUE
+#ifdef VALUE
+#error undefinition did not mask the predefined value
+#endif
+VALUE
+#define VALUE 7
+ALIAS
+#undef ALIAS
+ALIAS
+)");
+  EXPECT_EQ(spellings,
+            (std::vector<std::string>{"3", "(", "(", "4", ")", "+", "1", ")",
+                                      "5", "VALUE", "7", "ALIAS"}));
+  EXPECT_EQ(diagnostics.messages,
+            (std::vector<std::string>{"'VALUE' macro redefined"}));
+}
+
+TEST(Preprocessor, PredefinedMacrosPreserveFormattingAndSnapshots) {
+  static constexpr PredefinedMacro definitions[] = {
+      {"ALIAS", "VALUE"},
+      {"FUNCTION(x)", "x ## U"},
+      {"REMOVED", "5"},
+      {"VALUE", "3"},
+  };
+  static constexpr PredefinedMacros predefined{definitions};
+  Control control;
+  DiagnosticsClient diagnostics;
+
+  Preprocessor printable{&control, &diagnostics};
+  printable.setPredefinedMacros(predefined);
+  printable.undefMacro("REMOVED");
+  const auto printed = std::format("{}", printable.macros());
+  EXPECT_NE(printed.find("#define ALIAS VALUE"), std::string::npos);
+  EXPECT_NE(printed.find("#define FUNCTION(x)"), std::string::npos);
+  EXPECT_EQ(printed.find("REMOVED"), std::string::npos);
+
+  Preprocessor original{&control, &diagnostics};
+  original.setPredefinedMacros(predefined);
+  original.undefMacro("REMOVED");
+  const auto snapshot = original.snapshot();
+
+  Preprocessor restored{&control, &diagnostics};
+  restored.setPredefinedMacros(predefined);
+  restored.restore(snapshot);
+  EXPECT_EQ(preprocessSpellings(restored, R"(
+#ifdef REMOVED
+#error snapshot resurrected an undefined macro
+#endif
+ALIAS FUNCTION(4)
+)"),
+            (std::vector<std::string>{"3", "4U"}));
+  EXPECT_EQ(diagnostics.errorCount(), 0);
+}
+
+TEST(Preprocessor, PredefinedIndexPreservesPrefixesAndLongIdentifiers) {
+  static constexpr PredefinedMacro definitions[] = {
+      {"A", "1"},
+      {"AB", "2"},
+      {"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_long",
+       "3"},
+      {"AC(x)", "x"},
+      {"Z", "4"},
+  };
+  static constexpr PredefinedMacros predefined{definitions};
+  for (const auto& definition : definitions) {
+    EXPECT_EQ(predefined.find(definition.identifier()), &definition);
+  }
+  EXPECT_EQ(predefined.find(""), nullptr);
+  EXPECT_EQ(predefined.find("ABC"), nullptr);
+  EXPECT_EQ(predefined.find("AC(x)"), nullptr);
+  EXPECT_EQ(predefined.find("ZA"), nullptr);
+
+  static constexpr PredefinedMacros empty{std::span<const PredefinedMacro>{}};
+  EXPECT_EQ(empty.find("A"), nullptr);
 }
 
 TEST(Preprocessor, IncludeContinuationRetainsRequestState) {
