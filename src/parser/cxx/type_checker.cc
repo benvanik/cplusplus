@@ -6884,7 +6884,9 @@ auto TypeChecker::Visitor::builtin_vector_shift_type(TokenKind op,
   }
 
   if (rightVector) {
-    if (rightVector->elementCount() != leftVector->elementCount()) {
+    auto* layout = control()->memoryLayout();
+    if (rightVector->elementCount() != leftVector->elementCount() ||
+        layout->sizeOf(rightElement) != layout->sizeOf(leftElement)) {
       report_invalid_operands(op, loc, left, right);
       return nullptr;
     }
