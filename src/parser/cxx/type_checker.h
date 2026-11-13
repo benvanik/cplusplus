@@ -89,6 +89,10 @@ class TypeChecker {
 
   void check(DeclarationAST* ast);
 
+  // Checks by-value object types after a function definition and any deduced
+  // return type are complete. Dependent types are checked at instantiation.
+  void check_function_definition_object_types(FunctionSymbol* function);
+
   void check_consteval_block(ConstevalBlockDeclarationAST* ast);
 
   void check_return_statement(ReturnStatementAST* ast,

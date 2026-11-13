@@ -13805,6 +13805,8 @@ void Parser::check_mem_initializers(FunctionDefinitionAST* ast) {
 
 void Parser::check_function_body(FunctionSymbol* functionSymbol,
                                  FunctionBodyAST* functionBody) {
+  CheckContext context{this, functionSymbol};
+  context.check.check_function_definition_object_types(functionSymbol);
   checkDiscardedValueWarnings(unit_, functionBody);
 
   if (binder_.inTemplate()) return;

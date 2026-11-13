@@ -8355,6 +8355,55 @@ void TypeChecker::check(DeclarationAST* ast) {
   Visitor{*this}.check_static_assert(staticAssert);
 }
 
+void TypeChecker::check_function_definition_object_types(
+    FunctionSymbol* function) {
+  if (!unit_->config().checkTypes() || function->isDeleted()) return;
+  auto functionType = type_cast<FunctionType>(function->type());
+  if (!functionType) return;
+
+  auto traits = unit_->typeTraits();
+  auto checkObjectType = [&](const Type* type, const Type* patternType,
+                             SourceLocation location,
+                             std::string_view subject) {
+    if (patternType && !isDependent(unit_, patternType)) return;
+    auto classType = type_cast<ClassType>(traits.remove_cv(type));
+    if (!classType || isDependent(unit_, type)) return;
+
+    (void)traits.require_complete_class(classType->symbol());
+    auto definition = classType->definition();
+    if (!definition->isComplete()) {
+      error(location,
+            std::format("{} incomplete class type '{}'", subject,
+                        to_diag_string(type, "", diagnosticPrintOptions())));
+    } else if (definition->isAbstract()) {
+      error(location,
+            std::format("{} abstract class type '{}'", subject,
+                        to_diag_string(type, "", diagnosticPrintOptions())));
+    }
+  };
+
+  auto patternFunction =
+      symbol_cast<FunctionSymbol>(function->instantiationPattern());
+  if (!patternFunction) patternFunction = function->primaryTemplateSymbol();
+  auto patternFunctionType =
+      patternFunction ? type_cast<FunctionType>(patternFunction->type())
+                      : nullptr;
+  checkObjectType(
+      functionType->returnType(),
+      patternFunctionType ? patternFunctionType->returnType() : nullptr,
+      function->location(), "return type is an");
+  if (auto parameters = function->functionParameters()) {
+    for (auto member : parameters->members()) {
+      if (auto parameter = symbol_cast<ParameterSymbol>(member)) {
+        auto pattern =
+            symbol_cast<ParameterSymbol>(parameter->instantiationPattern());
+        checkObjectType(parameter->type(), pattern ? pattern->type() : nullptr,
+                        parameter->location(), "parameter has");
+      }
+    }
+  }
+}
+
 void TypeChecker::check_consteval_block(ConstevalBlockDeclarationAST* ast) {
   auto closure = ast->symbol ? ast->symbol->closureType() : nullptr;
   if (!closure) return;

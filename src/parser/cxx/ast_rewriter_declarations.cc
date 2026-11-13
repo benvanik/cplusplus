@@ -843,6 +843,11 @@ auto ASTRewriter::DeclarationVisitor::operator()(FunctionDefinitionAST* ast)
     }
 
     binder()->synthesizeDefaultedMemberBody(functionSymbol);
+    {
+      BodyErrorScope bodyErrors{rewrite};
+      rewrite.typeChecker().check_function_definition_object_types(
+          functionSymbol);
+    }
   }
 
   return copy;

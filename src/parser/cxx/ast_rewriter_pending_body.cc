@@ -1011,8 +1011,6 @@ auto ASTRewriter::completePendingBody(FunctionSymbol* func,
   newAst->functionBody = rewriter.functionBody(originalDef->functionBody);
   func->setDefined(true);
 
-  auto bodyErrors = rewriter.takeBodyErrors();
-
   rewriter.binder_.synthesizeCompleteObjectCtor(func);
 
   if (ast_cast<DefaultFunctionBodyAST>(newAst->functionBody)) {
@@ -1022,6 +1020,12 @@ auto ASTRewriter::completePendingBody(FunctionSymbol* func,
     rewriter.binder_.finishAutoReturnType(func);
     rewriter.binder_.resolveDeferredCaptures(func, statement);
   }
+
+  {
+    BodyErrorScope bodyErrors{rewriter};
+    rewriter.typeChecker().check_function_definition_object_types(func);
+  }
+  auto bodyErrors = rewriter.takeBodyErrors();
 
   if (bodyErrors.empty() && !deferDiagnostics) {
     if (!rewriter.binder_.inTemplate())
