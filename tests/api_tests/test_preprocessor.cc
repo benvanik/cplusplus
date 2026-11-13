@@ -81,6 +81,10 @@ class MacroDiagnostics final : public DiagnosticsClient {
 }  // namespace
 
 TEST(Preprocessor, ConcurrentConstructionProducesValidCompilationTimes) {
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+  GTEST_SKIP() << "the Emscripten target was built without pthread support";
+#endif
+
   constexpr unsigned kPreprocessorCount = 8;
   std::latch start(1);
   std::vector<std::future<std::vector<std::string>>> tasks;

@@ -33,6 +33,14 @@ namespace {
 using cxx::detail::File;
 
 [[nodiscard]] auto temporaryFile() -> File { return File(std::tmpfile()); }
+
+[[nodiscard]] auto readOnlyDevice() -> File {
+#ifdef _WIN32
+  return File(std::fopen("NUL", "r"));
+#else
+  return File(std::fopen("/dev/null", "r"));
+#endif
+}
 }  // namespace
 
 TEST(Transport, StdioReadsConsecutiveByteCountedFrames) {
@@ -98,7 +106,7 @@ TEST(Transport, JsonLinesHandlesCommentsAndUnterminatedFinalLines) {
 
 TEST(Transport, OutputFailuresCloseTheTransport) {
   auto input = temporaryFile();
-  File output(std::fopen(__FILE__, "r"));
+  auto output = readOnlyDevice();
   ASSERT_TRUE(input);
   ASSERT_TRUE(output);
   JsonLinesTransport transport(input.get(), output.get());
