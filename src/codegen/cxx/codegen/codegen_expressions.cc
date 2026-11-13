@@ -1031,18 +1031,14 @@ auto Codegen::ExpressionVisitor::operator()(SubscriptExpressionAST* ast)
   }
   auto baseExpression = ast->baseExpression;
   auto indexExpression = ast->expressionList->value;
-
-  const auto isSubscriptable = [&](const Type* type) {
-    return gen.traits.is_pointer(type) || gen.traits.is_array(type) ||
-           gen.traits.is_vector(type);
-  };
-  if (!isSubscriptable(baseExpression->type) &&
-      isSubscriptable(indexExpression->type)) {
-    std::swap(baseExpression, indexExpression);
-  }
-
   auto baseExpressionResult = gen.expression(baseExpression);
   auto indexExpressionResult = gen.expression(indexExpression);
+  auto operands =
+      gen.traits.builtin_subscript_operands(baseExpression, indexExpression);
+  if (operands.indexedExpression != baseExpression) {
+    std::swap(baseExpression, indexExpression);
+    std::swap(baseExpressionResult, indexExpressionResult);
+  }
 
   auto loc = ast->firstSourceLocation();
 

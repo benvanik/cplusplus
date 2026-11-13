@@ -1658,6 +1658,15 @@ auto TypeTraits::is_vector(const Type* type) const -> bool {
   return type && visit(IsVector{}, type);
 }
 
+auto TypeTraits::builtin_subscript_operands(
+    ExpressionAST* baseExpression, ExpressionAST* indexExpression) const
+    -> BuiltinSubscriptOperands {
+  auto type = baseExpression->type;
+  if (is_array(type) || is_pointer(type) || is_vector(type))
+    return {baseExpression, indexExpression};
+  return {indexExpression, baseExpression};
+}
+
 auto TypeTraits::is_device_value_type(const Type* type) const -> bool {
   auto value = unqualified_type(type);
   if (auto vector = type_cast<VectorType>(value)) {

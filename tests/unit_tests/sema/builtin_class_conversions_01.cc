@@ -41,6 +41,50 @@ constexpr unsigned mix(T value) {
 }
 static_assert(mix(shift) == 1u);
 
+constexpr unsigned elements[] = {2u, 3u, 5u, 7u, 11u, 13u};
+static_assert(elements[width] == 13u);
+static_assert(width[elements] == 13u);
+static_assert(&width[elements] == elements + 5);
+
+constexpr unsigned write_subscripts() {
+  unsigned values[6]{};
+  values[width] = 11u;
+  width[values] = 13u;
+  return values[5];
+}
+static_assert(write_subscripts() == 13u);
+
+struct Elements {
+  constexpr operator const unsigned*() const { return elements; }
+};
+constexpr Elements convertedElements{};
+static_assert(convertedElements[width] == 13u);
+static_assert(width[convertedElements] == 13u);
+
+struct ElementOwner {
+  unsigned values[6];
+};
+constexpr bool retained_subscript_temporaries() {
+  const unsigned& direct =
+      ElementOwner{{2u, 3u, 5u, 7u, 11u, 13u}}.values[width];
+  const unsigned& commuted =
+      width[ElementOwner{{2u, 3u, 5u, 7u, 11u, 13u}}.values];
+  return direct == 13u && commuted == 13u;
+}
+static_assert(retained_subscript_temporaries());
+
+union ElementsOrValue {
+  unsigned elements[6];
+  unsigned value;
+  constexpr ElementsOrValue() : value(0) {}
+};
+constexpr unsigned activate_elements() {
+  ElementsOrValue storage;
+  width[storage.elements] = 17u;
+  return storage.elements[5];
+}
+static_assert(activate_elements() == 17u);
+
 struct WithPointer {
   constexpr operator unsigned() const { return 5; }
   operator int*() const;
@@ -49,6 +93,10 @@ constexpr WithPointer withPointer{};
 static_assert(withPointer * 3u == 15u);
 static_assert((withPointer & 3u) == 1u);
 static_assert((1u << withPointer) == 32u);
+void ambiguous_subscript(WithPointer value) {
+  // expected-error@+1 {{call to overloaded operator '[]' is ambiguous}}
+  value[value];
+}
 
 struct PointerOnly {
   operator int*() const;

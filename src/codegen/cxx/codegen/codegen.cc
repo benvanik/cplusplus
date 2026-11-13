@@ -443,7 +443,14 @@ auto Codegen::fieldAlignment(FieldSymbol* field, uint64_t objectAlignment)
 }
 
 auto Codegen::elementAlignment(SubscriptExpressionAST* subscript) -> uint64_t {
-  auto base = withoutParentheses(subscript->baseExpression);
+  auto base = subscript->baseExpression;
+  if (!subscript->symbol && subscript->expressionList &&
+      !subscript->expressionList->next) {
+    auto operands = traits.builtin_subscript_operands(
+        base, subscript->expressionList->value);
+    base = operands.indexedExpression;
+  }
+  base = withoutParentheses(base);
   if (auto decay = ast_cast<ImplicitCastExpressionAST>(base);
       decay && decay->castKind == ImplicitCastKind::kArrayToPointerConversion)
     base = decay->expression;

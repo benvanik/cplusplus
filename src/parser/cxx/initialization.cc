@@ -3439,7 +3439,12 @@ struct MaterializedTemporaryCollector {
 
   void operator()(SubscriptExpressionAST* expression) {
     if (expression->symbol) return;
-    auto base = expression->baseExpression;
+    if (!expression->baseExpression || !expression->expressionList ||
+        expression->expressionList->next)
+      return;
+    auto operands = traits.builtin_subscript_operands(
+        expression->baseExpression, expression->expressionList->value);
+    auto base = operands.indexedExpression;
     if (!base || !traits.is_array(traits.remove_reference(base->type))) return;
     collect(base);
   }

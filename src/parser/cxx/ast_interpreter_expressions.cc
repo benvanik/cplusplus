@@ -1099,34 +1099,58 @@ auto ASTInterpreter::lvalue(ExpressionAST* ast) -> ConstValue* {
     }
 
     if (!sub->expressionList || sub->expressionList->next) return nullptr;
-    if (nominatesUnionMembers_ && traits.is_array(sub->baseExpression->type)) {
-      auto array = lvalue(sub->baseExpression);
-      if (!array) return nullptr;
-      beginNominatedLifetime(*array, sub->baseExpression->type);
+    auto baseExpression = sub->baseExpression;
+    auto indexExpression = sub->expressionList->value;
+    auto operands =
+        traits.builtin_subscript_operands(baseExpression, indexExpression);
+    const auto baseIsIndexed = operands.indexedExpression == baseExpression;
+    auto indexedExpression = operands.indexedExpression;
+    auto offsetExpression = operands.offsetExpression;
+    if (nominatesUnionMembers_ &&
+        traits.is_array(indexedExpression->type)) {
+      auto evaluateArray = [&]() {
+        auto array = lvalue(indexedExpression);
+        if (array)
+          beginNominatedLifetime(*array, indexedExpression->type);
+        return array;
+      };
+      ConstValue* array = nullptr;
+      std::optional<ConstValue> offsetValue;
+      if (baseIsIndexed) {
+        array = evaluateArray();
+        if (!array) return nullptr;
+        offsetValue = expression(offsetExpression);
+      } else {
+        offsetValue = expression(offsetExpression);
+        if (!offsetValue) return nullptr;
+        array = evaluateArray();
+      }
+      if (!array || !offsetValue) return nullptr;
       auto elements = std::get_if<std::shared_ptr<InitializerList>>(array);
-      auto index = expression(sub->expressionList->value);
-      auto offset = index ? toUInt(*index) : std::nullopt;
+      auto offset = toUInt(*offsetValue);
       if (!elements || !*elements || !offset || *offset >= (*elements)->size())
         return nullptr;
       return &std::get<0>((*elements)->mutableElement(*offset));
     }
-    auto baseVal = expression(sub->baseExpression);
-    if (!baseVal.has_value()) return nullptr;
+    auto baseValue = expression(baseExpression);
+    if (!baseValue) return nullptr;
+    auto indexValue = expression(indexExpression);
+    if (!indexValue) return nullptr;
+    auto indexedValue = baseIsIndexed ? &baseValue : &indexValue;
+    auto offsetValue = baseIsIndexed ? &indexValue : &baseValue;
 
-    if (auto list = std::get_if<std::shared_ptr<InitializerList>>(&*baseVal)) {
+    if (auto list =
+            std::get_if<std::shared_ptr<InitializerList>>(&**indexedValue)) {
       if (!*list) return nullptr;
-      auto idxVal = expression(sub->expressionList->value);
-      if (!idxVal.has_value()) return nullptr;
-      auto idx = toUInt(*idxVal);
+      auto idx = toUInt(**offsetValue);
       if (!idx.has_value() || *idx >= (*list)->size()) return nullptr;
       return &std::get<0>((*list)->mutableElement(*idx));
     }
 
-    if (auto addr = std::get_if<std::shared_ptr<ConstAddress>>(&*baseVal)) {
+    if (auto addr =
+            std::get_if<std::shared_ptr<ConstAddress>>(&**indexedValue)) {
       if (!*addr) return nullptr;
-      auto idxVal = expression(sub->expressionList->value);
-      if (!idxVal.has_value()) return nullptr;
-      auto idx = toOffset(*idxVal);
+      auto idx = toOffset(**offsetValue);
       if (!idx.has_value()) return nullptr;
       return addressSlot(**addr, *idx, ast->type);
     }
@@ -1462,8 +1486,12 @@ auto ASTInterpreter::nominatesSubobject(ExpressionAST* ast) const -> bool {
   if (auto member = ast_cast<MemberExpressionAST>(ast))
     return member->accessOp == TokenKind::T_DOT;
   auto subscript = ast_cast<SubscriptExpressionAST>(ast);
-  return subscript && !subscript->symbol &&
-         traits.is_array(subscript->baseExpression->type);
+  if (!subscript || subscript->symbol || !subscript->expressionList ||
+      subscript->expressionList->next)
+    return false;
+  auto operands = traits.builtin_subscript_operands(
+      subscript->baseExpression, subscript->expressionList->value);
+  return traits.is_array(operands.indexedExpression->type);
 }
 
 auto ASTInterpreter::discardedValue(ExpressionAST* ast)
@@ -2224,25 +2252,39 @@ auto ASTInterpreter::subscriptAddress(SubscriptExpressionAST* ast)
     return evaluateSubscriptOperatorCall(ast, CallResultKind::kAddress).value;
 
   if (!ast->expressionList || ast->expressionList->next) return std::nullopt;
-  auto indexValue = evaluate(ast->expressionList->value);
+  auto baseExpression = ast->baseExpression;
+  auto indexExpression = ast->expressionList->value;
+  auto operands =
+      traits.builtin_subscript_operands(baseExpression, indexExpression);
+  const auto baseIsIndexed = operands.indexedExpression == baseExpression;
+  auto indexedExpression = operands.indexedExpression;
+  auto evaluateOperand = [&](ExpressionAST* expression, bool indexed) {
+    if (indexed &&
+        traits.is_array(traits.remove_cvref(expression->type)))
+      return addressOfLvalue(expression);
+    return evaluate(expression);
+  };
+  auto baseValue = evaluateOperand(baseExpression, baseIsIndexed);
+  if (!baseValue) return std::nullopt;
+  auto indexValue = evaluateOperand(indexExpression, !baseIsIndexed);
   if (!indexValue) return std::nullopt;
-  auto index = toOffset(*indexValue);
+  auto& indexedValue = baseIsIndexed ? baseValue : indexValue;
+  auto& offsetValue = baseIsIndexed ? indexValue : baseValue;
+
+  auto index = toOffset(*offsetValue);
   if (!index) return std::nullopt;
 
-  auto baseType = traits.remove_cvref(ast->baseExpression->type);
-  const auto subscriptsArray = traits.is_array(baseType);
-  if (!subscriptsArray && !traits.is_pointer(baseType)) return std::nullopt;
+  auto indexedType = traits.remove_cvref(indexedExpression->type);
+  const auto subscriptsArray = traits.is_array(indexedType);
+  if (!subscriptsArray && !traits.is_pointer(indexedType)) return std::nullopt;
 
-  auto base = subscriptsArray ? addressOfLvalue(ast->baseExpression)
-                              : evaluate(ast->baseExpression);
-  if (!base) return std::nullopt;
-  auto address = pointerAddress(*base);
+  auto address = pointerAddress(*indexedValue);
   if (!address) return std::nullopt;
 
-  if (subscriptsArray) address = arrayAddress(*address, baseType);
+  if (subscriptsArray) address = arrayAddress(*address, indexedType);
   if (!address) return std::nullopt;
   auto result =
-      elementAddress(*address, *index, traits.get_element_type(baseType));
+      elementAddress(*address, *index, traits.get_element_type(indexedType));
   if (!result) return std::nullopt;
   return result;
 }
@@ -3266,22 +3308,31 @@ auto ASTInterpreter::ExpressionVisitor::operator()(SubscriptExpressionAST* ast)
   if (!baseExpressionResult.has_value() || !indexExpressionResult.has_value())
     return std::nullopt;
 
-  auto idx = interp.toOffset(*indexExpressionResult);
+  auto indexedExpressionResult = &baseExpressionResult;
+  auto offsetExpressionResult = &indexExpressionResult;
+  auto operands = interp.traits.builtin_subscript_operands(
+      ast->baseExpression, ast->expressionList->value);
+  if (operands.indexedExpression != ast->baseExpression) {
+    indexedExpressionResult = &indexExpressionResult;
+    offsetExpressionResult = &baseExpressionResult;
+  }
+
+  auto idx = interp.toOffset(**offsetExpressionResult);
   if (!idx.has_value()) return std::nullopt;
 
   if (auto list = std::get_if<std::shared_ptr<InitializerList>>(
-          &*baseExpressionResult)) {
+          &**indexedExpressionResult)) {
     if (!*list || *idx < 0) return std::nullopt;
     if (static_cast<std::uintmax_t>(*idx) >= (*list)->size())
       return std::nullopt;
     return std::get<0>((*list)->distinctElement(*idx));
   }
 
-  if (auto str = std::get_if<const StringLiteral*>(&*baseExpressionResult))
+  if (auto str = std::get_if<const StringLiteral*>(&**indexedExpressionResult))
     return stringLiteralElement(*str, *idx);
 
-  if (auto addr =
-          std::get_if<std::shared_ptr<ConstAddress>>(&*baseExpressionResult)) {
+  if (auto addr = std::get_if<std::shared_ptr<ConstAddress>>(
+          &**indexedExpressionResult)) {
     return interp.loadAddress(**addr, *idx, ast->type);
   }
 

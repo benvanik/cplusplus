@@ -80,6 +80,14 @@ struct OverloadSetOperand {
   bool takesAddress = false;
 };
 
+struct BuiltinSubscriptOperands {
+  // Array, pointer, or vector operand whose element is selected.
+  ExpressionAST* indexedExpression = nullptr;
+
+  // Integral operand that selects an element.
+  ExpressionAST* offsetExpression = nullptr;
+};
+
 class TypeTraits {
   TranslationUnit* unit_;
 
@@ -106,6 +114,9 @@ class TypeTraits {
   [[nodiscard]] auto overload_set_operand(const Type* type) const
       -> OverloadSetOperand;
   [[nodiscard]] auto is_vector(const Type* type) const -> bool;
+  [[nodiscard]] auto builtin_subscript_operands(
+      ExpressionAST* baseExpression, ExpressionAST* indexExpression) const
+      -> BuiltinSubscriptOperands;
   [[nodiscard]] auto is_device_value_type(const Type* type) const -> bool;
 
   /**
