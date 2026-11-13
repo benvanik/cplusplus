@@ -881,6 +881,126 @@ constexpr const unsigned* repeated_right_value_address =
             repeatedRightValue->subobjectPath());
 }
 
+TEST(PrecompiledHeader, RestoresLifetimeExtendedTemporaryIdentity) {
+  std::vector<std::uint8_t> data;
+  {
+    Prefix prefix{R"(
+struct Value {
+  unsigned number = 9;
+  const Value* self = this;
+};
+constexpr const Value& reference = Value{};
+constexpr const Value* saved_self = reference.self;
+constexpr const Value (&values)[2] = {};
+constexpr const Value* saved_second = values[1].self;
+static_assert(reference.self == &reference);
+static_assert(saved_self->number == 9);
+static_assert(values[0].self == &values[0]);
+static_assert(values[0].self + 1 == &values[1]);
+static_assert(saved_second == &values[1]);
+)"};
+    data = prefix.emit();
+    ASSERT_TRUE(prefix.errors().empty());
+    ASSERT_FALSE(data.empty());
+  }
+
+  DiagnosticsClient diagnostics;
+  TranslationUnit consumer{&diagnostics};
+  consumer.setSource("", "consumer.cc");
+  {
+    PrecompiledHeaderReader reader{&consumer, keys()};
+    ASSERT_TRUE(reader(data)) << reader.error();
+  }
+
+  auto globalScope = consumer.globalScope();
+  auto value = symbol_cast<ClassSymbol>(findMember(globalScope, "Value"));
+  auto number =
+      value ? symbol_cast<FieldSymbol>(findMember(value, "number")) : nullptr;
+  auto self =
+      value ? symbol_cast<FieldSymbol>(findMember(value, "self")) : nullptr;
+  auto reference =
+      symbol_cast<VariableSymbol>(findMember(globalScope, "reference"));
+  auto values = symbol_cast<VariableSymbol>(findMember(globalScope, "values"));
+  ASSERT_TRUE(number);
+  ASSERT_TRUE(self);
+  ASSERT_TRUE(reference);
+  ASSERT_TRUE(values);
+
+  auto referenceAddress = constantAddress(globalScope, "reference");
+  auto savedSelf = constantAddress(globalScope, "saved_self");
+  auto valuesAddress = constantAddress(globalScope, "values");
+  auto savedSecond = constantAddress(globalScope, "saved_second");
+  ASSERT_TRUE(referenceAddress);
+  ASSERT_TRUE(savedSelf);
+  ASSERT_TRUE(valuesAddress);
+  ASSERT_TRUE(savedSecond);
+
+  auto referenceTemporary = lifetime_extended_temporary(reference);
+  auto valuesTemporary = lifetime_extended_temporary(values);
+  ASSERT_TRUE(referenceTemporary);
+  ASSERT_TRUE(valuesTemporary);
+  EXPECT_EQ(referenceAddress->root(), referenceTemporary);
+  EXPECT_EQ(valuesAddress->root(), valuesTemporary);
+  EXPECT_EQ(referenceTemporary->lifetimeExtendingDeclaration(), reference);
+  EXPECT_EQ(valuesTemporary->lifetimeExtendingDeclaration(), values);
+
+  ASSERT_TRUE(referenceTemporary->constValue());
+  auto referenceObject = std::get_if<std::shared_ptr<ConstObject>>(
+      &*referenceTemporary->constValue());
+  ASSERT_TRUE(referenceObject);
+  ASSERT_TRUE(*referenceObject);
+  ASSERT_EQ((*referenceObject)->members().size(), 2u);
+  auto numberValue = (*referenceObject)->subobject(number);
+  auto selfValue = (*referenceObject)->subobject(self);
+  ASSERT_TRUE(numberValue);
+  ASSERT_TRUE(selfValue);
+  auto integer = std::get_if<ConstInt>(numberValue);
+  auto objectSelf = std::get_if<std::shared_ptr<ConstAddress>>(selfValue);
+  ASSERT_TRUE(integer);
+  ASSERT_TRUE(objectSelf);
+  ASSERT_TRUE(*objectSelf);
+  EXPECT_EQ(integer->toUIntMax(), 9u);
+  EXPECT_TRUE((*objectSelf)->sameObject(*referenceAddress));
+  EXPECT_TRUE(savedSelf->sameObject(*referenceAddress));
+
+  ASSERT_TRUE(valuesTemporary->constValue());
+  auto elements = std::get_if<std::shared_ptr<InitializerList>>(
+      &*valuesTemporary->constValue());
+  ASSERT_TRUE(elements);
+  ASSERT_TRUE(*elements);
+  ASSERT_EQ((*elements)->size(), 2u);
+  const auto& [firstValue, firstType] = (*elements)->element(0);
+  const auto& [secondValue, secondType] = (*elements)->element(1);
+  ASSERT_TRUE(firstType);
+  ASSERT_TRUE(secondType);
+  auto firstObject = std::get_if<std::shared_ptr<ConstObject>>(&firstValue);
+  auto secondObject = std::get_if<std::shared_ptr<ConstObject>>(&secondValue);
+  ASSERT_TRUE(firstObject);
+  ASSERT_TRUE(secondObject);
+  ASSERT_TRUE(*firstObject);
+  ASSERT_TRUE(*secondObject);
+  ASSERT_EQ((*firstObject)->members().size(), 2u);
+  ASSERT_EQ((*secondObject)->members().size(), 2u);
+  auto firstSelfValue = (*firstObject)->subobject(self);
+  auto secondSelfValue = (*secondObject)->subobject(self);
+  ASSERT_TRUE(firstSelfValue);
+  ASSERT_TRUE(secondSelfValue);
+  auto firstSelf = std::get_if<std::shared_ptr<ConstAddress>>(firstSelfValue);
+  auto secondSelf = std::get_if<std::shared_ptr<ConstAddress>>(secondSelfValue);
+  ASSERT_TRUE(firstSelf);
+  ASSERT_TRUE(secondSelf);
+  ASSERT_TRUE(*firstSelf);
+  ASSERT_TRUE(*secondSelf);
+  EXPECT_TRUE((*firstSelf)->sameTarget(*valuesAddress));
+  EXPECT_TRUE((*secondSelf)->sameTarget(*valuesAddress));
+  EXPECT_EQ((*firstSelf)->offset(), 0);
+  EXPECT_EQ((*secondSelf)->offset(), 1);
+  EXPECT_FALSE((*firstSelf)->sameObject(**secondSelf));
+  EXPECT_TRUE((*secondSelf)->sameObject(*savedSecond));
+  EXPECT_TRUE(savedSecond->sameTarget(*valuesAddress));
+  EXPECT_EQ(savedSecond->root(), valuesTemporary);
+}
+
 TEST(PrecompiledHeader, RestoresConstexprBranchSelections) {
   Prefix prefix{R"(
 void known() {
