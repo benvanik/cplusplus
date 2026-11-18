@@ -292,6 +292,16 @@ export const bindings: Record<string, ClassBindings> = {
     },
   },
 
+  "::cxx::ParameterSymbol": {
+    explicitAlignmentShift_: {
+      cls: "P",
+      from: "explicitAlignment",
+      read: "$->explicitAlignment()",
+      write: "$->setExplicitAlignment($value)",
+      why: "the accessor represents the encoded request as byte alignment",
+    },
+  },
+
   "::cxx::ParameterPackSymbol": {
     elements_: {
       cls: "P",

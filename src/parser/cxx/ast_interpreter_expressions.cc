@@ -142,12 +142,18 @@ namespace {
 
 [[nodiscard]] auto declaredAlignment(Symbol* declaration,
                                      std::size_t typeAlignment) -> std::size_t {
-  if (auto field = symbol_cast<FieldSymbol>(declaration))
-    return static_cast<std::size_t>(field->effectiveAlignment());
-  if (auto variable = symbol_cast<VariableSymbol>(declaration))
-    return std::max(typeAlignment,
-                    static_cast<std::size_t>(variable->explicitAlignment()));
-  return typeAlignment;
+  int requested = 0;
+  if (auto field = symbol_cast<FieldSymbol>(declaration)) {
+    if (!field->isStatic()) return field->effectiveAlignment();
+    requested = field->explicitAlignment();
+    if (auto definition = field->definition())
+      requested = std::max(requested, definition->explicitAlignment());
+  } else if (auto variable = symbol_cast<VariableSymbol>(declaration)) {
+    requested = variable->explicitAlignment();
+  } else if (auto parameter = symbol_cast<ParameterSymbol>(declaration)) {
+    requested = parameter->explicitAlignment();
+  }
+  return requested ? static_cast<std::size_t>(requested) : typeAlignment;
 }
 
 }  // namespace

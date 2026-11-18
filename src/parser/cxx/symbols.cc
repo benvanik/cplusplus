@@ -2412,14 +2412,22 @@ void ClassSymbol::setExplicitAlignment(int alignment) {
   explicitAlignment_ = alignment;
 }
 
+namespace {
+auto alignmentFromShift(unsigned shift) -> int {
+  return shift ? static_cast<int>(1u << (shift - 1)) : 0;
+}
+
+auto alignmentShift(int alignment) -> unsigned {
+  return std::bit_width(static_cast<unsigned>(alignment));
+}
+}  // namespace
+
 auto ClassSymbol::minimumAlignment() const -> int {
-  if (!minimumAlignmentShift_) return 0;
-  return static_cast<int>(1u << (minimumAlignmentShift_ - 1));
+  return alignmentFromShift(minimumAlignmentShift_);
 }
 
 void ClassSymbol::setMinimumAlignment(int alignment) {
-  minimumAlignmentShift_ =
-      alignment ? std::countr_zero(static_cast<unsigned>(alignment)) + 1 : 0;
+  minimumAlignmentShift_ = alignmentShift(alignment);
 }
 
 auto ClassSymbol::packAlignment() const -> int { return packAlignment_; }
@@ -3964,6 +3972,14 @@ ParameterSymbol::ParameterSymbol(ScopeSymbol* enclosingScope)
     : Symbol(Kind, enclosingScope) {}
 
 ParameterSymbol::~ParameterSymbol() {}
+
+auto ParameterSymbol::explicitAlignment() const -> int {
+  return alignmentFromShift(explicitAlignmentShift_);
+}
+
+void ParameterSymbol::setExplicitAlignment(int alignment) {
+  explicitAlignmentShift_ = alignmentShift(alignment);
+}
 
 auto ParameterSymbol::defaultArgument() const -> ExpressionAST* {
   return defaultArgument_;

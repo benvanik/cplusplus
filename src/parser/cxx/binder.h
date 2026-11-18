@@ -841,6 +841,9 @@ class Binder {
 
   void undoSpeculativeMutations(std::size_t count);
 
+  void addRedeclaration(VariableSymbol* canonical,
+                        VariableSymbol* redeclaration);
+
   template <typename S>
   void addRedeclaration(S* canonical, S* redeclaration) {
     if (speculationDepth_) {

@@ -2843,6 +2843,8 @@ void SemanticEncoder::writeSymbolParameterSymbol(
   out.boolean(self->isParameterPack());
   // ::cxx::ParameterSymbol::hasImmediateEscalatingDefaultArgument_
   out.boolean(self->hasImmediateEscalatingDefaultArgument());
+  // ::cxx::ParameterSymbol::explicitAlignmentShift_
+  out.varI32(static_cast<std::int32_t>(self->explicitAlignment()));
 }
 
 void SemanticEncoder::writeSymbolParameterPackSymbol(
@@ -11355,6 +11357,9 @@ void SemanticDecoder::readSymbolParameterSymbol(
   // ::cxx::ParameterSymbol::hasImmediateEscalatingDefaultArgument_
   bool value12 = in.boolean();
   self->setImmediateEscalatingDefaultArgument(std::move(value12));
+  // ::cxx::ParameterSymbol::explicitAlignmentShift_
+  int value13 = static_cast<int>(in.varI32());
+  self->setExplicitAlignment(std::move(value13));
 }
 
 void SemanticDecoder::readSymbolParameterPackSymbol(

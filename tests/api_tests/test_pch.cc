@@ -908,6 +908,9 @@ template <class T> struct Tagged {
   char tag;
 };
 typedef unsigned * __attribute__((aligned(16))) PacketPointer;
+constexpr unsigned parameterAlignment(unsigned * __attribute__((aligned(1024))) p) {
+  return __alignof__(p);
+}
 template <class T, int N> struct PointerSlot {
   char tag;
   T * const __attribute__((aligned(N))) pointer;
@@ -923,6 +926,12 @@ template <class T, int N> struct PointerSlot {
   consumer.control()->setMemoryLayout(&memoryLayout);
   PrecompiledHeaderReader reader{&consumer, keys()};
   ASSERT_TRUE(reader(data)) << reader.error();
+  auto functions = views::each_function(
+      findMember(consumer.globalScope(), "parameterAlignment"));
+  ASSERT_EQ(std::ranges::distance(functions), 1);
+  const auto parameters = (*functions.begin())->parameters();
+  ASSERT_EQ(parameters.size(), 1u);
+  EXPECT_EQ(parameters.front()->explicitAlignment(), 1024);
   auto word = findMember(consumer.globalScope(), "word");
   ASSERT_TRUE(word && word->attributes());
   ASSERT_EQ(word->attributes()->size(), 1u);
@@ -948,6 +957,7 @@ static_assert(sizeof(Packet<int>::lanes) == 16);
 struct Empty {};
 static_assert(sizeof(Tagged<Empty>) == 1);
 static_assert(alignof(PacketPointer) == 16);
+static_assert(parameterAlignment(nullptr) == 1024);
 static_assert(alignof(__remove_pointer(PacketPointer)) == alignof(unsigned));
 using Slot = PointerSlot<unsigned, 32>;
 static_assert(__builtin_offsetof(Slot, pointer) == 32);

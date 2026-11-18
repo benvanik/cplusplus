@@ -412,6 +412,12 @@ class MaybeRedecl {
     return redeclarations_;
   }
 
+  [[nodiscard]] auto latestDeclaration() const -> S* {
+    auto first = canonical();
+    return first->redeclarations_.empty() ? first
+                                          : first->redeclarations_.back();
+  }
+
   [[nodiscard]] auto declarations() const -> std::vector<S*> {
     auto first = canonical();
     std::vector<S*> result{first};
@@ -2298,6 +2304,9 @@ class ParameterSymbol final : public Symbol {
     kernelParameterBinding_ = value;
   }
 
+  [[nodiscard]] auto explicitAlignment() const -> int;
+  void setExplicitAlignment(int alignment);
+
   [[nodiscard]] auto defaultArgument() const -> ExpressionAST*;
   void setDefaultArgument(ExpressionAST* expr);
 
@@ -2329,9 +2338,11 @@ class ParameterSymbol final : public Symbol {
   std::unique_ptr<PendingInstantiation> pendingDefaultArgument_;
   ParameterSymbol* defaultArgumentSource_ = nullptr;
   std::optional<KernelParameterBinding> kernelParameterBinding_;
-  bool isExplicitObject_ = false;
-  bool isParameterPack_ = false;
-  bool hasImmediateEscalatingDefaultArgument_ = false;
+  bool isExplicitObject_ : 1 = false;
+  bool isParameterPack_ : 1 = false;
+  bool hasImmediateEscalatingDefaultArgument_ : 1 = false;
+  // Zero for the type's natural alignment, otherwise log2(requested bytes) + 1.
+  std::uint8_t explicitAlignmentShift_ : 5 = 0;
 };
 
 class ParameterPackSymbol final : public Symbol {

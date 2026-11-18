@@ -4123,7 +4123,11 @@ void Binder::applyAlignedAttribute(Symbol* symbol,
   if (auto variable = symbol_cast<VariableSymbol>(symbol)) {
     variable->setExplicitAlignment(
         std::max(variable->explicitAlignment(), *requested));
+    return;
   }
+
+  if (auto parameter = symbol_cast<ParameterSymbol>(symbol))
+    parameter->setExplicitAlignment(*requested);
 }
 
 auto Binder::explicitAlignment(List<AttributeSpecifierAST*>* attributeList,
@@ -4530,6 +4534,14 @@ void Binder::checkLocalVariableDeclaration(const Decl& decl) {
   note(previous->location(), "previous definition is here");
 }
 
+void Binder::addRedeclaration(VariableSymbol* canonical,
+                              VariableSymbol* redeclaration) {
+  auto previous = canonical->latestDeclaration();
+  redeclaration->setExplicitAlignment(std::max(
+      previous->explicitAlignment(), redeclaration->explicitAlignment()));
+  addRedeclaration<VariableSymbol>(canonical, redeclaration);
+}
+
 auto Binder::declareVariable(DeclaratorAST* declarator, const Decl& decl,
                              bool addSymbolToParentScope,
                              const Type* declaratorType) -> VariableSymbol* {
@@ -4589,6 +4601,7 @@ auto Binder::declareVariable(DeclaratorAST* declarator, const Decl& decl,
 
   if (isOutOfClassStaticMemberDef) {
     inheritDeclarationAttributes(symbol, outOfClassMemberField);
+    symbol->setExplicitAlignment(outOfClassMemberField->explicitAlignment());
     symbol->setInitializer(outOfClassMemberField->initializer());
   }
 
