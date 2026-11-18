@@ -1666,7 +1666,6 @@ auto ASTRewriter::ExpressionVisitor::operator()(NewExpressionAST* ast)
 
   copy->declarator = rewrite.declarator(ast->declarator);
 
-  auto declaratorDecl = Decl{typeSpecifierListCtx, copy->declarator};
   auto declaratorType = getDeclaratorType(translationUnit(), copy->declarator,
                                           typeSpecifierListCtx.type());
 
@@ -1950,14 +1949,16 @@ auto ASTRewriter::ExpressionVisitor::operator()(ConditionExpressionAST* ast)
       rewrite.rewriteList(ast->attributeList, &ASTRewriter::attributeSpecifier);
 
   auto declSpecifierListCtx = DeclSpecs{rewrite.unit_};
+  declSpecifierListCtx.attributeList = copy->attributeList;
   copy->declSpecifierList = rewrite.rewriteSpecifierList(ast->declSpecifierList,
                                                          declSpecifierListCtx);
 
-  copy->declarator = rewrite.declarator(ast->declarator);
-
-  auto declaratorDecl = Decl{declSpecifierListCtx, copy->declarator};
+  auto declaratorDecl = Decl{declSpecifierListCtx};
+  copy->declarator = rewrite.declarator(ast->declarator, declaratorDecl);
   copy->symbol = binder()->declareVariable(copy->declarator, declaratorDecl,
                                            /*addSymbolToParentScope=*/true);
+  binder()->applyDeclaratorAttributes(copy->symbol, declaratorDecl,
+                                      copy->declarator);
 
   if (ast->symbol && copy->symbol) {
     rewrite.addSymbolRemap(ast->symbol, copy->symbol);

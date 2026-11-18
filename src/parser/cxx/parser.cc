@@ -4657,6 +4657,7 @@ void Parser::parse_condition(ExpressionAST*& yyast, const ExprContext& ctx) {
     binder_.checkLocalVariableDeclaration(decl);
     auto symbol = binder_.declareVariable(declarator, decl,
                                           /*addSymbolToParentScope=*/true);
+    binder_.applyDeclaratorAttributes(symbol, decl, declarator);
     checkTemplateParameterRebinding(decl, symbol);
 
     ExpressionAST* initializer = nullptr;
@@ -5894,7 +5895,7 @@ auto Parser::parse_simple_declaration(
     auto functionSymbol = declareFunction(declarator, decl);
     associatePendingNoexceptSpecifier(declarator, functionSymbol);
 
-    binder_.applyDeclarationAttributes(functionSymbol, attributes, declarator);
+    binder_.applyDeclaratorAttributes(functionSymbol, decl, declarator);
 
     binder_.recordFunctionDefinition(functionSymbol);
 
@@ -5986,8 +5987,6 @@ auto Parser::parse_simple_declaration(
                           decl.getNestedNameSpecifier(),
                           FriendDeclarationKind::kDeclarator);
 
-  binder_.applyDeclarationAttributes(ast);
-
   attachFunctionTemplateDeclarations(ast);
 
   return true;
@@ -6069,8 +6068,7 @@ auto Parser::parse_notypespec_function_definition(
   auto functionSymbol = declareFunction(declarator, decl);
   associatePendingNoexceptSpecifier(declarator, functionSymbol);
 
-  binder_.applyDeclarationAttributes(functionSymbol, specs.attributeList,
-                                     declarator);
+  binder_.applyDeclaratorAttributes(functionSymbol, decl, declarator);
 
   setFunctionTemplateHead(functionSymbol, decl, templateHead);
 
@@ -7695,6 +7693,8 @@ auto Parser::parse_init_declarator(InitDeclaratorAST*& yyast,
     }
   }
 
+  binder_.applyDeclaratorAttributes(symbol, decl, declarator);
+
   TranslationUnit::ImmediateFunctionContextScope constantInitializer{
       unit_, decl.specs.isConstexpr || decl.specs.isConstinit};
 
@@ -7777,7 +7777,7 @@ auto Parser::parse_declarator(DeclaratorAST*& yyast, Decl& decl,
   LookaheadParser lookahead{this};
 
   List<PtrOperatorAST*>* ptrOpList = nullptr;
-  (void)parse_ptr_operator_seq(ptrOpList);
+  (void)parse_ptr_operator_seq(ptrOpList, decl);
 
   CoreDeclaratorAST* coreDeclarator = nullptr;
   if (!parse_core_declarator(coreDeclarator, decl, declaratorKind)) {
@@ -7842,19 +7842,20 @@ void Parser::parse_optional_abstract_declarator(DeclaratorAST*& yyast,
   lookahead.commit();
 }
 
-auto Parser::parse_ptr_operator_seq(List<PtrOperatorAST*>*& yyast) -> bool {
+auto Parser::parse_ptr_operator_seq(List<PtrOperatorAST*>*& yyast, Decl& decl)
+    -> bool {
   auto it = &yyast;
 
   PtrOperatorAST* ptrOp = nullptr;
 
-  if (!parse_ptr_operator(ptrOp)) return false;
+  if (!parse_ptr_operator(ptrOp, decl)) return false;
 
   *it = make_list_node(pool_, ptrOp);
   it = &(*it)->next;
 
   ptrOp = nullptr;
 
-  while (parse_ptr_operator(ptrOp)) {
+  while (parse_ptr_operator(ptrOp, decl)) {
     *it = make_list_node(pool_, ptrOp);
     it = &(*it)->next;
     ptrOp = nullptr;
@@ -8052,17 +8053,32 @@ auto Parser::parse_trailing_return_type(TrailingReturnTypeAST*& yyast) -> bool {
   return true;
 }
 
-auto Parser::parse_ptr_operator(PtrOperatorAST*& yyast) -> bool {
+void Parser::parse_pointer_qualifiers(List<AttributeSpecifierAST*>*& attributes,
+                                      List<SpecifierAST*>*& qualifiers,
+                                      Decl& decl) {
+  parse_optional_declarator_type_attributes(attributes);
+  auto attributeTail = &attributes;
+  auto qualifierTail = &qualifiers;
+  DeclSpecs specs{unit_};
+  while (parse_cv_qualifier_seq(*qualifierTail, specs) &&
+         lookat(TokenKind::T___ATTRIBUTE__)) {
+    while (*attributeTail) attributeTail = &(*attributeTail)->next;
+    if (!parse_attribute_specifier_seq(*attributeTail,
+                                       AllowedAttributes::kGnuAttribute))
+      break;
+    while (*qualifierTail) qualifierTail = &(*qualifierTail)->next;
+  }
+  if (attributes) decl.recordPointerAttributes(attributes);
+}
+
+auto Parser::parse_ptr_operator(PtrOperatorAST*& yyast, Decl& decl) -> bool {
   if (SourceLocation starLoc; match(TokenKind::T_STAR, starLoc)) {
     auto ast = PointerOperatorAST::create(pool_);
     yyast = ast;
 
     ast->starLoc = starLoc;
 
-    parse_optional_declarator_type_attributes(ast->attributeList);
-
-    DeclSpecs cvQualifiers{unit_};
-    (void)parse_cv_qualifier_seq(ast->cvQualifierList, cvQualifiers);
+    parse_pointer_qualifiers(ast->attributeList, ast->cvQualifierList, decl);
 
     return true;
   } else if (SourceLocation refLoc; parse_ref_qualifier(refLoc)) {
@@ -8073,8 +8089,14 @@ auto Parser::parse_ptr_operator(PtrOperatorAST*& yyast) -> bool {
     ast->refOp = unit_->tokenKind(refLoc);
 
     parse_optional_declarator_type_attributes(ast->attributeList);
-
     ast->isRestrict = match(TokenKind::T___RESTRICT__, ast->restrictLoc);
+    if (ast->isRestrict && lookat(TokenKind::T___ATTRIBUTE__)) {
+      List<AttributeSpecifierAST*>* trailing = nullptr;
+      parse_optional_attribute_specifier_seq(trailing,
+                                             AllowedAttributes::kGnuAttribute);
+      appendAttributes(ast->attributeList, trailing);
+    }
+    if (ast->attributeList) decl.recordPointerAttributes(ast->attributeList);
 
     return true;
   }
@@ -8097,10 +8119,7 @@ auto Parser::parse_ptr_operator(PtrOperatorAST*& yyast) -> bool {
   ast->nestedNameSpecifier = nestedNameSpecifier;
   ast->starLoc = starLoc;
 
-  parse_optional_declarator_type_attributes(ast->attributeList);
-
-  DeclSpecs cvQualifiers{unit_};
-  (void)parse_cv_qualifier_seq(ast->cvQualifierList, cvQualifiers);
+  parse_pointer_qualifiers(ast->attributeList, ast->cvQualifierList, decl);
 
   return true;
 }
@@ -10618,7 +10637,7 @@ auto Parser::parse_member_declaration_helper(
     auto functionSymbol = declareFunction(declarator, decl);
     associatePendingNoexceptSpecifier(declarator, functionSymbol);
 
-    binder_.applyDeclarationAttributes(functionSymbol, attributes, declarator);
+    binder_.applyDeclaratorAttributes(functionSymbol, decl, declarator);
 
     if (templateHead) binder_.setTemplateHead(functionSymbol, templateHead);
 
@@ -10706,8 +10725,6 @@ auto Parser::parse_member_declaration_helper(
   recordFriendDeclaration(specs, ast->declSpecifierList,
                           decl.getNestedNameSpecifier(),
                           FriendDeclarationKind::kDeclarator);
-
-  binder_.applyDeclarationAttributes(ast);
 
   attachFunctionTemplateDeclarations(ast);
 
@@ -10810,6 +10827,7 @@ auto Parser::parse_bitfield_declarator(InitDeclaratorAST*& yyast,
   auto symbol = binder_.declareField(declarator, decl);
   checkTemplateParameterRebinding(decl, symbol);
   symbol->setBitFieldWidth(std::move(bitfieldWidth));
+  binder_.applyDeclaratorAttributes(symbol, decl, declarator);
 
   auto ast = InitDeclaratorAST::create(pool_);
   yyast = ast;
@@ -10878,43 +10896,46 @@ auto Parser::parse_member_declarator(InitDeclaratorAST*& yyast,
   ast->declarator = declarator;
   ast->symbol = symbol;
 
-  if (isCxx()) {
-    if (auto functionDeclarator = getFunctionPrototype(declarator)) {
-      RequiresClauseAST* requiresClause = nullptr;
+  if (auto functionDeclarator =
+          isCxx() ? getFunctionPrototype(declarator) : nullptr) {
+    RequiresClauseAST* requiresClause = nullptr;
 
-      if (parse_trailing_requires_clause(functionDeclarator, requiresClause)) {
-        ast->requiresClause = requiresClause;
+    if (parse_trailing_requires_clause(functionDeclarator, requiresClause)) {
+      ast->requiresClause = requiresClause;
+      if (auto funcSym = symbol_cast<FunctionSymbol>(symbol)) {
+        funcSym->setTrailingRequiresClause(requiresClause);
+        binder_.checkTrailingRequiresClauseIsTemplated(funcSym,
+                                                       decl.specs.templateHead);
+        binder_.checkVirtualFunctionRequiresClause(funcSym);
+      }
+    } else {
+      parse_virt_specifier_seq(functionDeclarator);
+
+      List<AttributeSpecifierAST*>* trailingAttributes = nullptr;
+      parse_optional_attribute_specifier_seq(trailingAttributes);
+      appendAttributes(functionDeclarator->attributeList, trailingAttributes);
+
+      SourceLocation equalLoc;
+      SourceLocation zeroLoc;
+
+      const auto isPure = parse_pure_specifier(equalLoc, zeroLoc);
+
+      functionDeclarator->isPure = isPure;
+
+      if (isPure) {
         if (auto funcSym = symbol_cast<FunctionSymbol>(symbol)) {
-          funcSym->setTrailingRequiresClause(requiresClause);
-          binder_.checkTrailingRequiresClauseIsTemplated(
-              funcSym, decl.specs.templateHead);
-          binder_.checkVirtualFunctionRequiresClause(funcSym);
-        }
-      } else {
-        parse_virt_specifier_seq(functionDeclarator);
-
-        List<AttributeSpecifierAST*>* trailingAttributes = nullptr;
-        parse_optional_attribute_specifier_seq(trailingAttributes);
-        appendAttributes(functionDeclarator->attributeList, trailingAttributes);
-
-        SourceLocation equalLoc;
-        SourceLocation zeroLoc;
-
-        const auto isPure = parse_pure_specifier(equalLoc, zeroLoc);
-
-        functionDeclarator->isPure = isPure;
-
-        if (isPure) {
-          if (auto funcSym = symbol_cast<FunctionSymbol>(symbol)) {
-            funcSym->setPure(true);
-            funcSym->setVirtual(true);
-          }
+          funcSym->setPure(true);
+          funcSym->setVirtual(true);
         }
       }
-
-      return true;
     }
 
+    binder_.applyDeclaratorAttributes(symbol, decl, declarator);
+    return true;
+  }
+  binder_.applyDeclaratorAttributes(symbol, decl, declarator);
+
+  if (isCxx()) {
     {
       UncheckedInitializerContext uncheckedContext{
           this, isDeferredFieldInitializer(ast->symbol)};
@@ -10985,14 +11006,12 @@ auto Parser::parse_conversion_function_id(ConversionFunctionIdAST*& yyast)
 
   auto declarator = DeclaratorAST::create(pool_);
 
-  (void)parse_ptr_operator_seq(declarator->ptrOpList);
+  Decl decl{specs};
+  (void)parse_ptr_operator_seq(declarator->ptrOpList, decl);
 
   auto typeId = TypeIdAST::create(pool_);
   typeId->typeSpecifierList = typeSpecifierList;
   typeId->declarator = declarator;
-
-  Decl decl{specs};
-
   binder_.bind(typeId, decl);
 
   auto ast = ConversionFunctionIdAST::create(pool_);
@@ -12759,11 +12778,13 @@ auto Parser::parse_exception_declaration(ExceptionDeclarationAST*& yyast)
   parse_optional_attribute_specifier_seq(ast->attributeList);
 
   DeclSpecs specs{unit_};
+  specs.attributeList = ast->attributeList;
   if (!parse_type_specifier_seq(ast->typeSpecifierList, specs)) {
     parse_error("expected a type specifier");
     specs.finish();
   }
 
+  ast->attributeList = specs.attributeList;
   Decl decl{specs};
 
   if (!lookat(TokenKind::T_RPAREN)) {

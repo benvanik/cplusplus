@@ -21,6 +21,8 @@
 
 #include <cxx/ast.h>
 
+#include <algorithm>
+
 namespace cxx {
 
 AST::~AST() = default;
@@ -3020,8 +3022,9 @@ auto PointerOperatorAST::firstSourceLocation() -> SourceLocation {
 }
 
 auto PointerOperatorAST::lastSourceLocation() -> SourceLocation {
-  if (auto loc = cxx::lastSourceLocation(cvQualifierList)) return loc;
-  if (auto loc = cxx::lastSourceLocation(attributeList)) return loc;
+  if (auto loc = std::max(cxx::lastSourceLocation(cvQualifierList),
+                          cxx::lastSourceLocation(attributeList)))
+    return loc;
   if (auto loc = cxx::lastSourceLocation(starLoc)) return loc;
   return {};
 }
@@ -3034,8 +3037,9 @@ auto ReferenceOperatorAST::firstSourceLocation() -> SourceLocation {
 }
 
 auto ReferenceOperatorAST::lastSourceLocation() -> SourceLocation {
-  if (auto loc = cxx::lastSourceLocation(restrictLoc)) return loc;
-  if (auto loc = cxx::lastSourceLocation(attributeList)) return loc;
+  if (auto loc = std::max(cxx::lastSourceLocation(restrictLoc),
+                          cxx::lastSourceLocation(attributeList)))
+    return loc;
   if (auto loc = cxx::lastSourceLocation(refLoc)) return loc;
   return {};
 }
@@ -3049,8 +3053,9 @@ auto PtrToMemberOperatorAST::firstSourceLocation() -> SourceLocation {
 }
 
 auto PtrToMemberOperatorAST::lastSourceLocation() -> SourceLocation {
-  if (auto loc = cxx::lastSourceLocation(cvQualifierList)) return loc;
-  if (auto loc = cxx::lastSourceLocation(attributeList)) return loc;
+  if (auto loc = std::max(cxx::lastSourceLocation(cvQualifierList),
+                          cxx::lastSourceLocation(attributeList)))
+    return loc;
   if (auto loc = cxx::lastSourceLocation(starLoc)) return loc;
   if (auto loc = cxx::lastSourceLocation(nestedNameSpecifier)) return loc;
   return {};

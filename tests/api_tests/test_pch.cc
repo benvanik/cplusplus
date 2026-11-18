@@ -907,6 +907,11 @@ template <class T> struct Tagged {
   T marker [[no_unique_address]];
   char tag;
 };
+typedef unsigned * __attribute__((aligned(16))) PacketPointer;
+template <class T, int N> struct PointerSlot {
+  char tag;
+  T * const __attribute__((aligned(N))) pointer;
+};
 )"};
   const auto data = prefix.emit();
   ASSERT_TRUE(prefix.errors().empty());
@@ -942,6 +947,10 @@ static_assert(sizeof(Packet<int>::scalar) == 4);
 static_assert(sizeof(Packet<int>::lanes) == 16);
 struct Empty {};
 static_assert(sizeof(Tagged<Empty>) == 1);
+static_assert(alignof(PacketPointer) == 16);
+static_assert(alignof(__remove_pointer(PacketPointer)) == alignof(unsigned));
+using Slot = PointerSlot<unsigned, 32>;
+static_assert(__builtin_offsetof(Slot, pointer) == 32);
 )",
                      "consumer.cc");
   consumer.resume({.analysisMode = ParserAnalysisMode::kFull});

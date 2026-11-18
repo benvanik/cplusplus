@@ -34,7 +34,7 @@ export function gen_ast_cc({ ast, output }: { ast: AST; output: string }) {
 
   const astName = (name: string) => toKebapName(name.slice(0, -3)).slice(1);
 
-  ast.nodes.forEach(({ name, members }) => {
+  ast.nodes.forEach(({ name, base, members }) => {
     emit();
     emit(`auto ${name}::firstSourceLocation() -> SourceLocation {`);
     members.forEach((m) => {
@@ -46,9 +46,17 @@ export function gen_ast_cc({ ast, output }: { ast: AST; output: string }) {
 
     emit();
     emit(`auto ${name}::lastSourceLocation() -> SourceLocation {`);
+    // GNU attributes may precede, follow, or interrupt pointer qualifiers.
+    const qualifier = base === "PtrOperatorAST"
+      ? members.find((m) => m.name === "cvQualifierList" || m.name === "restrictLoc")
+      : undefined;
     [...members].reverse().forEach((m) => {
-      if (m.kind === "attribute") return;
-      emit(`  if (auto loc = cxx::lastSourceLocation(${m.name})) return loc;`);
+      if (m.kind === "attribute" || (qualifier && m.name === "attributeList")) return;
+      if (m === qualifier) {
+        emit(`  if (auto loc = std::max(cxx::lastSourceLocation(${m.name}), cxx::lastSourceLocation(attributeList))) return loc;`);
+      } else {
+        emit(`  if (auto loc = cxx::lastSourceLocation(${m.name})) return loc;`);
+      }
     });
     emit(`  return {};`);
     emit(`}`);
@@ -195,6 +203,8 @@ export function gen_ast_cc({ ast, output }: { ast: AST; output: string }) {
   const out = `// Generated file by: gen_ast_cc.ts
 ${cpy_header}
 #include <cxx/ast.h>
+
+#include <algorithm>
 
 namespace cxx {
 

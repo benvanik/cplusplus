@@ -738,11 +738,13 @@ class Binder {
   void applyFunctionDefinitionKind(FunctionSymbol* functionSymbol,
                                    FunctionBodyAST* functionBody);
 
-  void applyDeclarationAttributes(Symbol* symbol,
-                                  List<AttributeSpecifierAST*>* attributes,
-                                  DeclaratorAST* declarator = nullptr);
+  void applyDeclarationAttributes(
+      Symbol* symbol, List<AttributeSpecifierAST*>* attributes,
+      List<AttributeSpecifierAST*>* declaratorAttributes = nullptr,
+      List<AttributeSpecifierAST*>* trailingAttributes = nullptr);
 
-  void applyDeclarationAttributes(SimpleDeclarationAST* ast);
+  void applyDeclaratorAttributes(Symbol* symbol, const Decl& decl,
+                                 DeclaratorAST* declarator);
 
   void applyRecordLayoutAttributes(Symbol* symbol,
                                    std::span<const AttributeRef> attributes);

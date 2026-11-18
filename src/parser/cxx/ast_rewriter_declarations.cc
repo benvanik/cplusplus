@@ -353,10 +353,6 @@ auto ASTRewriter::DeclarationVisitor::operator()(SimpleDeclarationAST* ast)
   copy->semicolonLoc = ast->semicolonLoc;
 
   for (auto initDeclarator : ListView{copy->initDeclaratorList}) {
-    binder()->applyDeclarationAttributes(initDeclarator->symbol,
-                                         copy->attributeList,
-                                         initDeclarator->declarator);
-
     auto function = symbol_cast<FunctionSymbol>(initDeclarator->symbol);
     if (!function) continue;
 
@@ -678,11 +674,11 @@ auto ASTRewriter::DeclarationVisitor::operator()(FunctionDefinitionAST* ast)
 
   const auto pendingExceptionSpecifierMark =
       rewrite.pendingExceptionSpecifierMark();
-  copy->declarator = rewrite.declarator(ast->declarator);
+  auto declaratorDecl = Decl{declSpecifierListCtx};
+  copy->declarator = rewrite.declarator(ast->declarator, declaratorDecl);
 
   if (rewrite.shouldStopSubstitution()) return nullptr;
 
-  auto declaratorDecl = Decl{declSpecifierListCtx, copy->declarator};
   auto declaratorType = getDeclaratorType(translationUnit(), copy->declarator,
                                           declSpecifierListCtx.type());
 
@@ -1042,9 +1038,8 @@ auto ASTRewriter::DeclarationVisitor::operator()(ParameterDeclarationAST* ast)
 
   const auto pendingExceptionSpecifierMark =
       rewrite.pendingExceptionSpecifierMark();
-  copy->declarator = rewrite.declarator(ast->declarator);
-
-  auto declaratorDecl = Decl{typeSpecifierListCtx, copy->declarator};
+  auto declaratorDecl = Decl{typeSpecifierListCtx};
+  copy->declarator = rewrite.declarator(ast->declarator, declaratorDecl);
   auto declaratorType = getDeclaratorType(translationUnit(), copy->declarator,
                                           typeSpecifierListCtx.type());
   copy->type = declaratorType;

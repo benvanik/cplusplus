@@ -728,12 +728,13 @@ auto ASTRewriter::ExceptionDeclarationVisitor::operator()(
       rewrite.rewriteList(ast->attributeList, &ASTRewriter::attributeSpecifier);
 
   auto typeSpecifierListCtx = DeclSpecs{rewrite.unit_};
+  typeSpecifierListCtx.attributeList = copy->attributeList;
   copy->typeSpecifierList = rewrite.rewriteSpecifierList(ast->typeSpecifierList,
                                                          typeSpecifierListCtx);
 
-  copy->declarator = rewrite.declarator(ast->declarator);
-
-  binder()->bind(copy, Decl{typeSpecifierListCtx, copy->declarator});
+  auto decl = Decl{typeSpecifierListCtx};
+  copy->declarator = rewrite.declarator(ast->declarator, decl);
+  binder()->bind(copy, decl);
 
   if (ast->symbol && copy->symbol) {
     rewrite.addSymbolRemap(ast->symbol, copy->symbol);

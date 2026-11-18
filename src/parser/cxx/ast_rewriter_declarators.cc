@@ -97,6 +97,8 @@ void applyConstexprConstness(const TypeTraits& traits, FieldSymbol* field) {
 }  // namespace
 
 struct ASTRewriter::CoreDeclaratorVisitor : VisitorBase {
+  // Declaration being reconstructed during substitution.
+  Decl& decl;
   [[nodiscard]] auto operator()(BitfieldDeclaratorAST* ast)
       -> CoreDeclaratorAST*;
 
@@ -116,6 +118,8 @@ struct ASTRewriter::DeclaratorChunkVisitor : VisitorBase {
 };
 
 struct ASTRewriter::PtrOperatorVisitor : VisitorBase {
+  // Declaration being reconstructed during substitution.
+  Decl& decl;
   [[nodiscard]] auto operator()(PointerOperatorAST* ast) -> PtrOperatorAST*;
 
   [[nodiscard]] auto operator()(ReferenceOperatorAST* ast) -> PtrOperatorAST*;
@@ -137,14 +141,16 @@ struct ASTRewriter::ExceptionSpecifierVisitor : VisitorBase {
       -> ExceptionSpecifierAST*;
 };
 
-auto ASTRewriter::ptrOperator(PtrOperatorAST* ast) -> PtrOperatorAST* {
+auto ASTRewriter::ptrOperator(PtrOperatorAST* ast, Decl& decl)
+    -> PtrOperatorAST* {
   if (!ast) return {};
-  return visit(PtrOperatorVisitor{*this}, ast);
+  return visit(PtrOperatorVisitor{*this, decl}, ast);
 }
 
-auto ASTRewriter::coreDeclarator(CoreDeclaratorAST* ast) -> CoreDeclaratorAST* {
+auto ASTRewriter::coreDeclarator(CoreDeclaratorAST* ast, Decl& decl)
+    -> CoreDeclaratorAST* {
   if (!ast) return {};
-  return visit(CoreDeclaratorVisitor{*this}, ast);
+  return visit(CoreDeclaratorVisitor{*this, decl}, ast);
 }
 
 auto ASTRewriter::declaratorChunk(DeclaratorChunkAST* ast)
@@ -479,11 +485,11 @@ auto ASTRewriter::initDeclarator(InitDeclaratorAST* ast,
 
   const auto pendingExceptionSpecifierMark =
       this->pendingExceptionSpecifierMark();
-  copy->declarator = declarator(ast->declarator);
+  auto decl = Decl{declSpecs};
+  copy->declarator = declarator(ast->declarator, decl);
 
   if (shouldStopSubstitution()) return nullptr;
 
-  auto decl = Decl{declSpecs, copy->declarator};
   if (functionTemplateHead) {
     decl.specs.templateHead = functionTemplateHead;
   } else if (!decl.specs.templateHead && currentTemplateHead_) {
@@ -535,6 +541,8 @@ auto ASTRewriter::initDeclarator(InitDeclaratorAST* ast,
       }
     }
   }
+
+  binder_.applyDeclaratorAttributes(copy->symbol, decl, copy->declarator);
 
   auto function = symbol_cast<FunctionSymbol>(copy->symbol);
   if (function && functionTemplateHead)
@@ -665,16 +673,21 @@ void ASTRewriter::completePendingFieldInitializers(std::size_t mark) {
 }
 
 auto ASTRewriter::declarator(DeclaratorAST* ast) -> DeclaratorAST* {
+  if (!ast) return nullptr;
+  auto decl = Decl{DeclSpecs{unit_}};
+  return declarator(ast, decl);
+}
+
+auto ASTRewriter::declarator(DeclaratorAST* ast, Decl& decl) -> DeclaratorAST* {
   if (!ast) return {};
 
   auto copy = DeclaratorAST::create(arena());
 
-  copy->ptrOpList = rewriteList(ast->ptrOpList, &ASTRewriter::ptrOperator);
-
-  copy->coreDeclarator = coreDeclarator(ast->coreDeclarator);
+  ListAppender<PtrOperatorAST> append{arena(), copy->ptrOpList};
+  for (auto op : ListView{ast->ptrOpList}) append(ptrOperator(op, decl));
+  copy->coreDeclarator = coreDeclarator(ast->coreDeclarator, decl);
 
   auto scopeGuard = Binder::ScopeGuard{&binder_};
-  auto decl = Decl{DeclSpecs{unit_}, copy};
   if (auto scope = decl.getScope()) binder_.setScope(scope);
 
   copy->declaratorChunkList =
@@ -691,6 +704,7 @@ auto ASTRewriter::PtrOperatorVisitor::operator()(PointerOperatorAST* ast)
 
   copy->attributeList =
       rewrite.rewriteList(ast->attributeList, &ASTRewriter::attributeSpecifier);
+  if (copy->attributeList) decl.recordPointerAttributes(copy->attributeList);
 
   copy->cvQualifierList =
       rewrite.rewriteList(ast->cvQualifierList, &ASTRewriter::specifier);
@@ -707,6 +721,7 @@ auto ASTRewriter::PtrOperatorVisitor::operator()(ReferenceOperatorAST* ast)
 
   copy->attributeList =
       rewrite.rewriteList(ast->attributeList, &ASTRewriter::attributeSpecifier);
+  if (copy->attributeList) decl.recordPointerAttributes(copy->attributeList);
 
   copy->refOp = ast->refOp;
   copy->isRestrict = ast->isRestrict;
@@ -724,6 +739,7 @@ auto ASTRewriter::PtrOperatorVisitor::operator()(PtrToMemberOperatorAST* ast)
 
   copy->attributeList =
       rewrite.rewriteList(ast->attributeList, &ASTRewriter::attributeSpecifier);
+  if (copy->attributeList) decl.recordPointerAttributes(copy->attributeList);
 
   copy->cvQualifierList =
       rewrite.rewriteList(ast->cvQualifierList, &ASTRewriter::specifier);
@@ -734,6 +750,7 @@ auto ASTRewriter::PtrOperatorVisitor::operator()(PtrToMemberOperatorAST* ast)
 auto ASTRewriter::CoreDeclaratorVisitor::operator()(BitfieldDeclaratorAST* ast)
     -> CoreDeclaratorAST* {
   auto copy = BitfieldDeclaratorAST::create(arena());
+  decl.bitfieldDeclarator = copy;
 
   copy->unqualifiedId =
       ast_cast<NameIdAST>(rewrite.unqualifiedId(ast->unqualifiedId));
@@ -752,7 +769,8 @@ auto ASTRewriter::CoreDeclaratorVisitor::operator()(ParameterPackAST* ast)
   auto copy = ParameterPackAST::create(arena());
 
   copy->ellipsisLoc = ast->ellipsisLoc;
-  copy->coreDeclarator = rewrite.coreDeclarator(ast->coreDeclarator);
+  decl.isPack = true;
+  copy->coreDeclarator = rewrite.coreDeclarator(ast->coreDeclarator, decl);
 
   return copy;
 }
@@ -760,6 +778,7 @@ auto ASTRewriter::CoreDeclaratorVisitor::operator()(ParameterPackAST* ast)
 auto ASTRewriter::CoreDeclaratorVisitor::operator()(IdDeclaratorAST* ast)
     -> CoreDeclaratorAST* {
   auto copy = IdDeclaratorAST::create(arena());
+  decl.declaratorId = copy;
 
   copy->nestedNameSpecifier =
       rewrite.nestedNameSpecifier(ast->nestedNameSpecifier);
@@ -779,7 +798,7 @@ auto ASTRewriter::CoreDeclaratorVisitor::operator()(NestedDeclaratorAST* ast)
   auto copy = NestedDeclaratorAST::create(arena());
 
   copy->lparenLoc = ast->lparenLoc;
-  copy->declarator = rewrite.declarator(ast->declarator);
+  copy->declarator = rewrite.declarator(ast->declarator, decl);
   copy->rparenLoc = ast->rparenLoc;
 
   return copy;

@@ -18,9 +18,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <cxx/ast.h>
 #include <cxx/attributes.h>
 #include <cxx/control.h>
 #include <cxx/diagnostics_client.h>
+#include <cxx/memory_layout.h>
 #include <cxx/preprocessor.h>
 #include <cxx/translation_unit.h>
 #include <gtest/gtest.h>
@@ -49,6 +51,32 @@ TEST(SourceLocations, ValidatesSegmentBounds) {
   unit.setTokenSegmentBase(64);
 
   ASSERT_EQ(unit.locationOfIndex(1).index(), 65);
+}
+
+TEST(SourceLocations, PointerOperatorsIncludeTrailingQualifiersAndAttributes) {
+  DiagnosticsClient diagnostics;
+  MemoryLayout layout{64};
+  TranslationUnit unit{&diagnostics};
+  unit.control()->setMemoryLayout(&layout);
+  unit.setSource(R"(
+extern int * const __attribute__((aligned(16))) after;
+int * __attribute__((aligned(16))) const before = nullptr;
+extern int & __restrict __attribute__((aligned(16))) reference;
+)",
+                 "pointers.cc");
+  unit.parse({.analysisMode = ParserAnalysisMode::kFull});
+  ASSERT_EQ(diagnostics.errorCount(), 0);
+  auto source = ast_cast<TranslationUnitAST>(unit.ast());
+  ASSERT_TRUE(source);
+  for (auto decl : ListView{source->declarationList}) {
+    auto simple = ast_cast<SimpleDeclarationAST>(decl);
+    ASSERT_TRUE(simple && simple->initDeclaratorList);
+    auto declarator = simple->initDeclaratorList->value->declarator;
+    ASSERT_TRUE(declarator && declarator->ptrOpList &&
+                declarator->coreDeclarator);
+    EXPECT_EQ(declarator->ptrOpList->value->lastSourceLocation(),
+              declarator->coreDeclarator->firstSourceLocation());
+  }
 }
 
 TEST(SourceLocations, RejectsRangeOverflow) {

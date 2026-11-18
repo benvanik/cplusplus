@@ -41,6 +41,12 @@ class Decl {
   bool isPack = false;
   bool isFunctionDefinition = false;
 
+  void recordPointerAttributes(List<AttributeSpecifierAST*>* attributes);
+
+  // Declaration annotations in source order, including those after the name.
+  [[nodiscard]] auto declaratorAttributes() const
+      -> List<AttributeSpecifierAST*>*;
+
   explicit Decl(const DeclSpecs& specs, DeclaratorAST* declarator = nullptr);
 
   [[nodiscard]] auto isBitField() const {
@@ -54,6 +60,11 @@ class Decl {
 
   [[nodiscard]] auto getReturnType(ScopeSymbol* currentScope) const
       -> const Type*;
+
+ private:
+  // Borrowed GNU attribute groups, prepended so speculative declarator copies
+  // can append their own operators without changing the original.
+  List<AttributeSpecifierAST*>* pointerAttributes_ = nullptr;
 };
 
 [[nodiscard]] auto getDeclaratorId(DeclaratorAST* declarator)

@@ -693,8 +693,8 @@ class Parser final {
       -> bool;
   void parse_optional_abstract_declarator(DeclaratorAST*& yyastl, Decl& decl);
 
-  [[nodiscard]] auto parse_ptr_operator_seq(List<PtrOperatorAST*>*& yyast)
-      -> bool;
+  [[nodiscard]] auto parse_ptr_operator_seq(List<PtrOperatorAST*>*& yyast,
+                                            Decl& decl) -> bool;
   [[nodiscard]] auto parse_core_declarator(CoreDeclaratorAST*& yyast,
                                            Decl& decl,
                                            DeclaratorKind declaratorKind)
@@ -712,7 +712,10 @@ class Parser final {
                                             DeclSpecs& declSpecs) -> bool;
   [[nodiscard]] auto parse_trailing_return_type(TrailingReturnTypeAST*& yyast)
       -> bool;
-  [[nodiscard]] auto parse_ptr_operator(PtrOperatorAST*& yyast) -> bool;
+  void parse_pointer_qualifiers(List<AttributeSpecifierAST*>*& attributes,
+                                List<SpecifierAST*>*& qualifiers, Decl& decl);
+  [[nodiscard]] auto parse_ptr_operator(PtrOperatorAST*& yyast, Decl& decl)
+      -> bool;
   [[nodiscard]] auto parse_cv_qualifier(SpecifierAST*& yyast,
                                         DeclSpecs& declSpecs) -> bool;
   [[nodiscard]] auto parse_ref_qualifier(SourceLocation& refLoc) -> bool;

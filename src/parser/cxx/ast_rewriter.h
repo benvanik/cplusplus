@@ -472,8 +472,8 @@ class [[nodiscard]] ASTRewriter {
       -> TemplateDeclarationAST*;
   auto rewriteMemberTemplateHead(Symbol* patternSymbol)
       -> TemplateDeclarationAST*;
-  auto ptrOperator(PtrOperatorAST* ast) -> PtrOperatorAST*;
-  auto coreDeclarator(CoreDeclaratorAST* ast) -> CoreDeclaratorAST*;
+  auto ptrOperator(PtrOperatorAST* ast, Decl& decl) -> PtrOperatorAST*;
+  auto coreDeclarator(CoreDeclaratorAST* ast, Decl& decl) -> CoreDeclaratorAST*;
   auto declaratorChunk(DeclaratorChunkAST* ast) -> DeclaratorChunkAST*;
   auto unqualifiedId(UnqualifiedIdAST* ast) -> UnqualifiedIdAST*;
   auto nestedNameSpecifier(NestedNameSpecifierAST* ast,
@@ -529,6 +529,7 @@ class [[nodiscard]] ASTRewriter {
                       PlaceholderReplacement& listReplacement)
       -> InitDeclaratorAST*;
   auto declarator(DeclaratorAST* ast) -> DeclaratorAST*;
+  auto declarator(DeclaratorAST* ast, Decl& decl) -> DeclaratorAST*;
   auto usingDeclarator(UsingDeclaratorAST* ast) -> UsingDeclaratorAST*;
   auto enumerator(EnumeratorAST* ast, EnumeratorSymbol* previous)
       -> EnumeratorAST*;

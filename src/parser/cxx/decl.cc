@@ -662,6 +662,27 @@ Decl::Decl(const DeclSpecs& specs, DeclaratorAST* declarator) : specs{specs} {
   }
 }
 
+void Decl::recordPointerAttributes(List<AttributeSpecifierAST*>* attributes) {
+  for (auto specifier : ListView{attributes}) {
+    if (!ast_cast<GccAttributeAST>(specifier)) continue;
+    auto node = make_list_node(specs.translationUnit()->arena(), specifier);
+    node->next = pointerAttributes_;
+    pointerAttributes_ = node;
+  }
+}
+
+auto Decl::declaratorAttributes() const -> List<AttributeSpecifierAST*>* {
+  List<AttributeSpecifierAST*>* result = nullptr;
+  if (declaratorId) result = declaratorId->attributeList;
+  if (bitfieldDeclarator) result = bitfieldDeclarator->attributeList;
+  for (auto specifier : ListView{pointerAttributes_}) {
+    auto node = make_list_node(specs.translationUnit()->arena(), specifier);
+    node->next = result;
+    result = node;
+  }
+  return result;
+}
+
 auto Decl::location() const -> SourceLocation {
   if (bitfieldDeclarator) return bitfieldDeclarator->firstSourceLocation();
   if (declaratorId) return declaratorId->firstSourceLocation();

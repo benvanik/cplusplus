@@ -457,7 +457,6 @@ auto ASTRewriter::typeId(TypeIdAST* ast) -> TypeIdAST* {
         ast_cast<ParameterPackAST>(copy->declarator->coreDeclarator)
             ->coreDeclarator;
 
-  auto declaratorDecl = Decl{typeSpecifierListCtx, copy->declarator};
   auto declaratorType = getDeclaratorType(translationUnit(), copy->declarator,
                                           typeSpecifierListCtx.type());
   copy->type = declaratorType;

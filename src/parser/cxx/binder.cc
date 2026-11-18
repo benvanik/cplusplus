@@ -1442,7 +1442,6 @@ void Binder::checkVirtualFunctionRequiresClause(
 }
 
 void Binder::bind(TypeExceptionDeclarationAST* ast, const Decl& decl) {
-  applyDeclarationAttributes(nullptr, ast->attributeList, ast->declarator);
   if (explicitAlignment(ast->attributeList, ast->firstSourceLocation())) {
     error(ast->firstSourceLocation(),
           "'alignas' attribute cannot be applied to an exception declaration");
@@ -1470,6 +1469,7 @@ void Binder::bind(TypeExceptionDeclarationAST* ast, const Decl& decl) {
   symbol->setName(decl.getName());
   symbol->setType(type);
   ast->symbol = symbol;
+  applyDeclaratorAttributes(symbol, decl, ast->declarator);
 
   if (symbol->name()) scope_->addSymbol(symbol);
   TypeChecker check{unit_};
@@ -1502,7 +1502,7 @@ void Binder::rebindParameterType(ParameterDeclarationAST* ast,
 void Binder::bind(ParameterDeclarationAST* ast, const Decl& decl,
                   bool inTemplateParameters) {
   if (inTemplateParameters) {
-    applyDeclarationAttributes(nullptr, ast->attributeList, ast->declarator);
+    applyDeclaratorAttributes(nullptr, decl, ast->declarator);
   }
   auto parameterObjectType = this->parameterObjectType(ast, decl.specs.type());
 
@@ -1553,8 +1553,7 @@ void Binder::bind(ParameterDeclarationAST* ast, const Decl& decl,
     parameterSymbol->setParameterPack(ast->isPack);
     scope_->addSymbol(parameterSymbol);
     ast->symbol = parameterSymbol;
-    applyDeclarationAttributes(parameterSymbol, ast->attributeList,
-                               ast->declarator);
+    applyDeclaratorAttributes(parameterSymbol, decl, ast->declarator);
   }
 }
 
@@ -2378,15 +2377,6 @@ struct OdrUsedLocalFinder : ASTVisitor {
   return ast_cast<BitfieldDeclaratorAST>(declarator->coreDeclarator);
 }
 
-[[nodiscard]] auto declaratorIdAttributes(DeclaratorAST* declarator)
-    -> List<AttributeSpecifierAST*>* {
-  if (auto bitfield = bitfieldDeclaratorOf(declarator))
-    return bitfield->attributeList;
-  auto declaratorId = getDeclaratorId(declarator);
-  if (!declaratorId) return nullptr;
-  return declaratorId->attributeList;
-}
-
 [[nodiscard]] auto terminatingAttributes(DeclaratorAST* declarator)
     -> List<AttributeSpecifierAST*>* {
   if (!declarator) return nullptr;
@@ -2459,11 +2449,17 @@ void Binder::applyRecordLayoutAttributes(
   }
 }
 
+void Binder::applyDeclaratorAttributes(Symbol* symbol, const Decl& decl,
+                                       DeclaratorAST* declarator) {
+  applyDeclarationAttributes(symbol, decl.specs.attributeList,
+                             decl.declaratorAttributes(),
+                             terminatingAttributes(declarator));
+}
+
 void Binder::applyDeclarationAttributes(
     Symbol* symbol, List<AttributeSpecifierAST*>* attributes,
-    DeclaratorAST* declarator) {
-  auto* declaratorAttributes = declaratorIdAttributes(declarator);
-  auto* trailingAttributes = terminatingAttributes(declarator);
+    List<AttributeSpecifierAST*>* declaratorAttributes,
+    List<AttributeSpecifierAST*>* trailingAttributes) {
   if (!attributes && !declaratorAttributes && !trailingAttributes) {
     if (symbol) bindDeviceDeclaration(symbol, {});
     return;
@@ -2659,19 +2655,6 @@ void Binder::applyWasmFunctionAttributes(FunctionSymbol* function,
 
   function->setUsed(true);
   canonical->setUsed(true);
-}
-
-void Binder::applyDeclarationAttributes(SimpleDeclarationAST* ast) {
-  if (!ast) return;
-
-  if (!ast->initDeclaratorList) {
-    applyRecordLayoutAttributes(nullptr, knownAttributes(ast->attributeList));
-  }
-
-  for (auto initDeclarator : ListView{ast->initDeclaratorList}) {
-    applyDeclarationAttributes(initDeclarator->symbol, ast->attributeList,
-                               initDeclarator->declarator);
-  }
 }
 
 auto Binder::usesImplicitThis(StatementAST* stmt) -> bool {
@@ -3733,7 +3716,8 @@ void Binder::bind(UsingEnumDeclarationAST* ast) {
 }
 
 void Binder::bind(TypeIdAST* ast, const Decl& decl) {
-  applyDeclarationAttributes(nullptr, ast->attributeList, ast->declarator);
+  applyDeclarationAttributes(nullptr, ast->attributeList, nullptr,
+                             terminatingAttributes(ast->declarator));
   ast->type = getDeclaratorType(unit_, ast->declarator, decl.specs.type());
 }
 
